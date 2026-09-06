@@ -114,6 +114,7 @@
                 <TabControl.ItemContainerStyle>
                     <Style TargetType="TabItem" BasedOn="{StaticResource {x:Type TabItem}}">
                         <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                     </Style>
                 </TabControl.ItemContainerStyle>
                 <TabControl.ItemTemplate>
@@ -122,15 +123,18 @@
                              header its own chrome so the tabs read as tabs. -->
                         <Border x:Name="TabChrome" CornerRadius="4,4,0,0" Padding="8,3"
                                 Margin="0,2,1,0" BorderThickness="1,1,1,0"
+                                MinWidth="150" MaxWidth="260"
                                 BorderBrush="{DynamicResource BorderBrush}"
                                 Background="{DynamicResource TabItemBrush}">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="{Binding Title}" VerticalAlignment="Center"
-                                           ToolTip="{Binding FilePath}" />
-                                <Button Content="✕" Margin="8,0,0,0" Padding="3,0" FontSize="10"
+                            <DockPanel LastChildFill="True">
+                                <Button DockPanel.Dock="Right" Content="✕" Margin="8,0,0,0" Padding="3,0"
+                                        FontSize="10" VerticalAlignment="Center"
                                         Background="Transparent" BorderThickness="0"
                                         Command="{Binding CloseCommand}" ToolTip="Close tab" />
-                            </StackPanel>
+                                <TextBlock Text="{Binding Title}" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding FilePath}" />
+                            </DockPanel>
                         </Border>
                         <DataTemplate.Triggers>
                             <DataTrigger Value="True"
