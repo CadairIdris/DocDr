@@ -50,3 +50,13 @@ Set `DOCDR_BINDING_LOG=<path>` to have the app log WPF data-binding errors to th
 (`App.OnStartup`). Gotcha: a child view that sets its own `DataContext` (e.g. `PdfPaneView
 DataContext="{Binding RightPane}"`) resolves its *other* bindings against that new context —
 use `RelativeSource AncestorType=...` to reach the parent VM.
+
+## Theming
+
+`ThemeService` sets .NET 9's `Application.ThemeMode` (Fluent light/dark for built-in controls;
+API is `[Experimental("WPF0001")]` — suppressed) and swaps `Themes/Palette.{Light,Dark}.xaml`
+for DocDr's own tokens. **All palette brushes must be referenced as `DynamicResource`** (not
+`StaticResource`) so a theme swap takes effect. **A `<Style TargetType="X">` with no `BasedOn`
+replaces the Fluent theme style for that control** — always
+`BasedOn="{StaticResource {x:Type X}}"`. Fluent's default Button padding clips a fixed-width
+icon button (see `GlyphButton` in `PdfPaneView.xaml`).

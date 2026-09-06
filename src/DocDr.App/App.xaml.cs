@@ -13,9 +13,15 @@ public partial class App : Application
 {
     private MainViewModel? _mainViewModel;
 
+    public ThemeService Theme { get; private set; } = null!;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        AppSettings settings = AppSettings.Load();
+        Theme = new ThemeService(settings);
+        Theme.Apply(settings.Theme);
 
         // Opt-in data-binding diagnostics: set DOCDR_BINDING_LOG=<path> to record binding errors.
         if (Environment.GetEnvironmentVariable("DOCDR_BINDING_LOG") is { Length: > 0 } bindingLog)

@@ -14,9 +14,9 @@
             <Setter Property="Margin" Value="0,0,10,0" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="HorizontalAlignment" Value="Right" />
-            <Setter Property="Foreground" Value="#555" />
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
         </Style>
-        <Style TargetType="TextBox">
+        <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
             <Setter Property="Margin" Value="0,3" />
             <Setter Property="Padding" Value="3,2" />
         </Style>
@@ -84,7 +84,7 @@
             <TextBlock Grid.Row="9" Grid.Column="0" Text="File" Style="{StaticResource FieldLabel}" />
             <StackPanel Grid.Row="9" Grid.Column="1" Margin="0,4">
                 <TextBlock Text="{Binding FilePath}" Style="{StaticResource ReadOnlyValue}" ToolTip="{Binding FilePath}" />
-                <TextBlock Foreground="#777" FontSize="11">
+                <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11">
                     <Run Text="{Binding PageCountText, Mode=OneWay}" /><Run Text=" pages · " /><Run Text="{Binding FileSizeText, Mode=OneWay}" />
                 </TextBlock>
             </StackPanel>

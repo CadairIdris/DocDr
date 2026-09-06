@@ -43,6 +43,13 @@
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.IsSplitView, Mode=TwoWay}"
                               ToolTip="Show a second, independent pane for this document" />
+                <Separator />
+                <TextBlock Text="Theme" VerticalAlignment="Center" Margin="2,0,4,0"
+                           Foreground="{DynamicResource SecondaryTextBrush}" />
+                <ComboBox VerticalAlignment="Center" MinWidth="76"
+                          ItemsSource="{Binding Themes}"
+                          SelectedItem="{Binding SelectedTheme, Mode=TwoWay}"
+                          ToolTip="Follow the OS theme, or force light / dark" />
             </ToolBar>
 
             <ToolBar>
@@ -81,8 +88,8 @@
             </ToolBar>
         </ToolBarTray>
 
-        <Border DockPanel.Dock="Bottom" Background="{StaticResource ChromeBrush}"
-                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource ChromeBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
             <TextBlock Margin="8,3" Text="{Binding StatusText}" />
         </Border>
 
@@ -91,7 +98,7 @@
                         SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
                         Visibility="{Binding HasTabs, Converter={StaticResource BoolToVisibility}}">
                 <TabControl.ItemContainerStyle>
-                    <Style TargetType="TabItem">
+                    <Style TargetType="TabItem" BasedOn="{StaticResource {x:Type TabItem}}">
                         <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
                     </Style>
                 </TabControl.ItemContainerStyle>
@@ -114,7 +121,7 @@
             </TabControl>
 
             <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
-                       FontSize="16" Foreground="#808080"
+                       FontSize="16" Foreground="{DynamicResource HintTextBrush}"
                        Text="Open a PDF to begin, or drop PDF files here."
                        Visibility="{Binding HasTabs, Converter={StaticResource InverseBoolToVisibility}}" />
         </Grid>
@@ -122,14 +129,14 @@
 
         <!-- Drag-and-drop overlay -->
         <Border x:Name="DropOverlay" Visibility="Collapsed" IsHitTestVisible="False"
-                Background="#B3202020">
+                Background="{DynamicResource OverlayScrimBrush}">
             <Border HorizontalAlignment="Center" VerticalAlignment="Center"
-                    Background="#F0FFFFFF" CornerRadius="8" Padding="40,28"
-                    BorderBrush="{StaticResource ActiveHighlightPen}" BorderThickness="2">
+                    Background="{DynamicResource OverlayCardBrush}" CornerRadius="8" Padding="40,28"
+                    BorderBrush="{DynamicResource ActiveHighlightPen}" BorderThickness="2">
                 <StackPanel>
                     <TextBlock Text="Drop to open" FontSize="20" FontWeight="SemiBold"
                                HorizontalAlignment="Center" />
-                    <TextBlock Text="PDF files open as tabs" FontSize="12" Foreground="#666"
+                    <TextBlock Text="PDF files open as tabs" FontSize="12" Foreground="{DynamicResource SecondaryTextBrush}"
                                HorizontalAlignment="Center" Margin="0,4,0,0" />
                 </StackPanel>
             </Border>

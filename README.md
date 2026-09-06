@@ -5,6 +5,14 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 
 ## Status
 
+### Dark mode
+
+- **System / Light / Dark** picker in the toolbar, persisted to `%APPDATA%\DocDr\settings.json`.
+  System follows the OS setting live.
+- Built on .NET 9's `Application.ThemeMode` (Fluent light/dark for the standard controls) plus
+  a small `Palette.Light` / `Palette.Dark` resource dictionary for DocDr's own surfaces.
+- PDF pages stay white; `MessageBox` dialogs stay OS-styled.
+
 ### Document properties (Stage 4 — partial)
 
 - **Properties…** dialog: view and edit the Info-dictionary fields (Title, Author, Subject,

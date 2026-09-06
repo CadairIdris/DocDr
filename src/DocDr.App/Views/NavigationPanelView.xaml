@@ -14,7 +14,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <UniformGrid Grid.Row="0" Rows="1" Background="{StaticResource ChromeBrush}">
+        <UniformGrid Grid.Row="0" Rows="1" Background="{DynamicResource ChromeBrush}">
             <RadioButton GroupName="NavSection" Content="Pages" Padding="4,4"
                          HorizontalContentAlignment="Center"
                          IsChecked="{Binding NavigationTab, Converter={StaticResource EnumEquals}, ConverterParameter=Pages}" />
@@ -23,7 +23,7 @@
                          IsChecked="{Binding NavigationTab, Converter={StaticResource EnumEquals}, ConverterParameter=Bookmarks}" />
         </UniformGrid>
 
-        <Border Grid.Row="1" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
             <Grid>
                 <ContentControl Content="{Binding Thumbnails}"
                                 Visibility="{Binding NavigationTab, Converter={StaticResource EnumToVisibility}, ConverterParameter=Pages}">

@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DocDr.App.Services;
@@ -57,6 +58,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private string _statusText = "Open a PDF to begin.";
+
+    public System.Array Themes { get; } = Enum.GetValues<AppTheme>();
+
+    [ObservableProperty]
+    private AppTheme _selectedTheme = (Application.Current as App)?.Theme.Current ?? AppTheme.System;
+
+    partial void OnSelectedThemeChanged(AppTheme value) =>
+        (Application.Current as App)?.Theme.Apply(value);
 
     public bool HasTabs => Tabs.Count > 0;
 

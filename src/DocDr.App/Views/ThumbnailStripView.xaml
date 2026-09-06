@@ -10,7 +10,7 @@
     <ListBox x:Name="ThumbList"
              ItemsSource="{Binding Thumbnails}"
              SelectionMode="Extended"
-             Background="{StaticResource ChromeBrush}"
+             Background="{DynamicResource ChromeBrush}"
              BorderThickness="0"
              HorizontalContentAlignment="Center"
              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -35,14 +35,14 @@
             <DataTemplate DataType="{x:Type vm:ThumbnailViewModel}">
                 <StackPanel Width="140" Margin="0,4">
                     <Border Width="118" Height="{Binding Aspect, Converter={StaticResource ThumbnailBoxHeight}}"
-                            HorizontalAlignment="Center" Background="White"
+                            HorizontalAlignment="Center" Background="{DynamicResource PaperBrush}"
                             BorderThickness="1">
                         <Border.Style>
                             <Style TargetType="Border">
-                                <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsCurrent}" Value="True">
-                                        <Setter Property="BorderBrush" Value="{StaticResource ActiveHighlightPen}" />
+                                        <Setter Property="BorderBrush" Value="{DynamicResource ActiveHighlightPen}" />
                                         <Setter Property="BorderThickness" Value="2" />
                                     </DataTrigger>
                                 </Style.Triggers>
@@ -51,7 +51,7 @@
                         <Image Source="{Binding Image}" Stretch="Fill" />
                     </Border>
                     <TextBlock Text="{Binding PageNumber}" HorizontalAlignment="Center"
-                               FontSize="10" Foreground="#555" Margin="0,2,0,0" />
+                               FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,2,0,0" />
                 </StackPanel>
             </DataTemplate>
         </ListBox.ItemTemplate>

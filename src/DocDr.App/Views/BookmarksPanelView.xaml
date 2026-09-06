@@ -7,14 +7,14 @@
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance vm:BookmarksViewModel}"
              d:DesignHeight="500" d:DesignWidth="200">
-    <Grid Background="{StaticResource ChromeBrush}">
+    <Grid Background="{DynamicResource ChromeBrush}">
         <TreeView x:Name="Tree" ItemsSource="{Binding Roots}"
                   BorderThickness="0" Background="Transparent"
                   ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                   VirtualizingPanel.IsVirtualizing="True"
                   SelectedItemChanged="Tree_SelectedItemChanged">
             <TreeView.ItemContainerStyle>
-                <Style TargetType="TreeViewItem">
+                <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
                     <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
                     <Setter Property="Padding" Value="2,3" />
                     <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
@@ -30,13 +30,13 @@
                         <TextBlock Grid.Column="0" Text="{Binding Title}" VerticalAlignment="Center"
                                    TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}" />
                         <TextBlock Grid.Column="1" Text="{Binding PageLabel}" VerticalAlignment="Center"
-                                   Foreground="#888" FontSize="10" Margin="6,0,2,0" />
+                                   Foreground="{DynamicResource SecondaryTextBrush}" FontSize="10" Margin="6,0,2,0" />
                     </Grid>
                 </HierarchicalDataTemplate>
             </TreeView.Resources>
         </TreeView>
 
-        <TextBlock Text="This document has no bookmarks." Foreground="#999" FontSize="11"
+        <TextBlock Text="This document has no bookmarks." Foreground="{DynamicResource HintTextBrush}" FontSize="11"
                    HorizontalAlignment="Center" VerticalAlignment="Top" Margin="10,16"
                    TextWrapping="Wrap" TextAlignment="Center"
                    Visibility="{Binding HasBookmarks, Converter={StaticResource InverseBoolToVisibility}}" />
