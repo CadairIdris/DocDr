@@ -8,7 +8,13 @@
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance vm:MainViewModel}"
         Title="{Binding WindowTitle}" Height="820" Width="1280"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        AllowDrop="True"
+        PreviewDragEnter="OnPreviewDragOver"
+        PreviewDragOver="OnPreviewDragOver"
+        PreviewDragLeave="OnPreviewDragLeave"
+        PreviewDrop="OnPreviewDrop">
+    <Grid>
     <DockPanel>
         <ToolBarTray DockPanel.Dock="Top">
             <ToolBar>
@@ -59,8 +65,24 @@
 
             <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
                        FontSize="16" Foreground="#808080"
-                       Text="Open a PDF to begin."
+                       Text="Open a PDF to begin, or drop PDF files here."
                        Visibility="{Binding HasTabs, Converter={StaticResource InverseBoolToVisibility}}" />
         </Grid>
     </DockPanel>
+
+        <!-- Drag-and-drop overlay -->
+        <Border x:Name="DropOverlay" Visibility="Collapsed" IsHitTestVisible="False"
+                Background="#B3202020">
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Background="#F0FFFFFF" CornerRadius="8" Padding="40,28"
+                    BorderBrush="{StaticResource ActiveHighlightPen}" BorderThickness="2">
+                <StackPanel>
+                    <TextBlock Text="Drop to open" FontSize="20" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="PDF files open as tabs" FontSize="12" Foreground="#666"
+                               HorizontalAlignment="Center" Margin="0,4,0,0" />
+                </StackPanel>
+            </Border>
+        </Border>
+    </Grid>
 </Window>
