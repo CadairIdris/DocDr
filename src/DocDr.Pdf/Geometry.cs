@@ -48,4 +48,52 @@ public static class PdfCoordinates
         double h = rect.Height * scale;
         return new DeviceRect(x, y, w, h);
     }
+
+    /// <summary>
+    /// Map a page-space rectangle (from text/annotation APIs, which report <b>unrotated</b>
+    /// coordinates) to a top-left-origin device rectangle on the page as it is displayed with
+    /// <paramref name="rotation"/> applied.
+    /// </summary>
+    /// <param name="rect">Rectangle in unrotated PDFium page space.</param>
+    /// <param name="unrotatedPageSize">Page size before rotation, in points.</param>
+    /// <param name="rotation">The page's clockwise display rotation.</param>
+    /// <param name="scale">Points → target unit (e.g. <see cref="PointToDip"/> * zoom).</param>
+    public static DeviceRect PageToDevice(PdfRect rect, PdfSize unrotatedPageSize, PdfRotation rotation, double scale)
+    {
+        double w = unrotatedPageSize.Width * scale;
+        double h = unrotatedPageSize.Height * scale;
+
+        double left = Math.Min(rect.Left, rect.Right);
+        double right = Math.Max(rect.Left, rect.Right);
+        double bottom = Math.Min(rect.Top, rect.Bottom);
+        double top = Math.Max(rect.Top, rect.Bottom);
+
+        ReadOnlySpan<(double X, double Y)> corners =
+        [
+            (left, top), (right, top), (right, bottom), (left, bottom),
+        ];
+
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        foreach ((double px, double py) in corners)
+        {
+            // Unrotated device point (top-left origin, y down).
+            double dx = px * scale;
+            double dy = h - (py * scale);
+
+            (double rx, double ry) = rotation switch
+            {
+                PdfRotation.Clockwise90 => (h - dy, dx),
+                PdfRotation.Rotate180 => (w - dx, h - dy),
+                PdfRotation.CounterClockwise90 => (dy, w - dx),
+                _ => (dx, dy),
+            };
+
+            minX = Math.Min(minX, rx);
+            maxX = Math.Max(maxX, rx);
+            minY = Math.Min(minY, ry);
+            maxY = Math.Max(maxY, ry);
+        }
+
+        return new DeviceRect(minX, minY, maxX - minX, maxY - minY);
+    }
 }

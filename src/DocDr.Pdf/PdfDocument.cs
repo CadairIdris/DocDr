@@ -22,7 +22,9 @@ public sealed class PdfDocument : IDisposable
 
     private readonly record struct PageRef(int SourceId, int SourcePageIndex, int Rotation);
 
-    private readonly record struct HistoryStep(IReadOnlyList<PageRef> Pages);
+    private readonly record struct HistoryStep(
+        IReadOnlyList<PageRef> Pages,
+        IReadOnlyList<IReadOnlyList<PdfAnnotation>> Annotations);
 
     private sealed class Source
     {
@@ -38,6 +40,10 @@ public sealed class PdfDocument : IDisposable
 
     private FpdfDocumentT? _handle;
     private List<PageRef> _pages;
+
+    /// <summary>DocDr-managed annotations per logical page. Index-aligned with <see cref="_pages"/>.</summary>
+    private List<List<PdfAnnotation>> _annotations;
+
     private int _nextSourceId = OriginalSourceId + 1;
     private IReadOnlyList<PdfSize>? _pageSizes;
     private bool _disposed;
@@ -52,9 +58,21 @@ public sealed class PdfDocument : IDisposable
         _sources[OriginalSourceId] = new Source { Handle = handle, Pin = pin, Owned = true };
 
         _pages = new List<PageRef>(pageCount);
+        _annotations = new List<List<PdfAnnotation>>(pageCount);
         for (int i = 0; i < pageCount; i++)
         {
             _pages.Add(new PageRef(OriginalSourceId, i, GetRotation(handle, i) & 3));
+
+            // Read any existing highlights / notes into our model, then strip them off the
+            // original handle so PDFium's renderer (annotations flag on) doesn't draw them
+            // under our own overlay. Stripping the original == stripping _sources[0], so every
+            // later Rebuild() imports a clean base.
+            List<PdfAnnotation> onPage = PdfAnnotations.ReadLocked(handle, i).ToList();
+            _annotations.Add(onPage);
+            if (onPage.Count > 0)
+            {
+                StripManagedAnnotations(handle, i);
+            }
         }
 
         _info = PdfMetadata.GetInfo(this);
@@ -82,6 +100,12 @@ public sealed class PdfDocument : IDisposable
 
     /// <summary>Raised when <see cref="UpdateInfo"/> changes the document metadata.</summary>
     public event EventHandler? MetadataChanged;
+
+    /// <summary>
+    /// Raised after an annotation is added, edited, removed, or moved by undo/redo or a
+    /// structural edit. Lighter than <see cref="Changed"/> — only the overlay needs rebuilding.
+    /// </summary>
+    public event EventHandler<AnnotationsChangedEventArgs>? AnnotationsChanged;
 
     /// <summary>Current Info-dictionary metadata (as loaded, plus any edits via <see cref="UpdateInfo"/>).</summary>
     public PdfDocumentInfo Info => _info;
@@ -219,6 +243,120 @@ public sealed class PdfDocument : IDisposable
         return (PdfRotation)(_pages[pageIndex].Rotation & 3);
     }
 
+    /// <summary>
+    /// Page size <em>before</em> its rotation is applied — the space text boxes and annotation
+    /// quad points live in. (<see cref="GetPageSize"/> returns the rotated, on-screen size.)
+    /// </summary>
+    public PdfSize GetUnrotatedPageSize(int pageIndex)
+    {
+        PdfSize size = GetPageSize(pageIndex);
+        return GetPageRotation(pageIndex) is PdfRotation.Clockwise90 or PdfRotation.CounterClockwise90
+            ? new PdfSize(size.Height, size.Width)
+            : size;
+    }
+
+    // --- Annotations -------------------------------------------------------------------
+
+    /// <summary>Total DocDr-managed annotations across every page.</summary>
+    public int AnnotationCount => _annotations.Sum(list => list.Count);
+
+    public bool HasAnnotations => _annotations.Any(list => list.Count > 0);
+
+    /// <summary>The managed annotations on a page (a copy — edit via <see cref="UpdateAnnotation"/>).</summary>
+    public IReadOnlyList<PdfAnnotation> GetAnnotations(int pageIndex)
+    {
+        ValidatePageIndex(pageIndex);
+        return _annotations[pageIndex].ToArray();
+    }
+
+    public void AddAnnotation(int pageIndex, PdfAnnotation annotation)
+    {
+        ArgumentNullException.ThrowIfNull(annotation);
+        ValidatePageIndex(pageIndex);
+
+        Locked(() =>
+        {
+            PushUndo();
+            _annotations[pageIndex].Add(annotation);
+        });
+
+        AfterAnnotationEdit(pageIndex);
+    }
+
+    /// <summary>Replace the annotation with the same <see cref="PdfAnnotation.Id"/>. No-op if absent.</summary>
+    public void UpdateAnnotation(int pageIndex, PdfAnnotation annotation)
+    {
+        ArgumentNullException.ThrowIfNull(annotation);
+        ValidatePageIndex(pageIndex);
+
+        bool changed = Locked(() =>
+        {
+            List<PdfAnnotation> list = _annotations[pageIndex];
+            int index = list.FindIndex(a => a.Id == annotation.Id);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            PushUndo();
+            list[index] = annotation;
+            return true;
+        });
+
+        if (changed)
+        {
+            AfterAnnotationEdit(pageIndex);
+        }
+    }
+
+    public void RemoveAnnotation(int pageIndex, Guid id)
+    {
+        ValidatePageIndex(pageIndex);
+
+        bool changed = Locked(() =>
+        {
+            List<PdfAnnotation> list = _annotations[pageIndex];
+            int index = list.FindIndex(a => a.Id == id);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            PushUndo();
+            list.RemoveAt(index);
+            return true;
+        });
+
+        if (changed)
+        {
+            AfterAnnotationEdit(pageIndex);
+        }
+    }
+
+    private void AfterAnnotationEdit(int pageIndex)
+    {
+        SetDirty(true);
+        AnnotationsChanged?.Invoke(this, new AnnotationsChangedEventArgs(pageIndex));
+    }
+
+    private static void StripManagedAnnotations(FpdfDocumentT doc, int pageIndex)
+    {
+        FpdfPageT? page = fpdfview.FPDF_LoadPage(doc, pageIndex);
+        if (page is null || page.__Instance == IntPtr.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            PdfAnnotationWriter.StripManaged(page);
+        }
+        finally
+        {
+            fpdfview.FPDF_ClosePage(page);
+        }
+    }
+
     internal void ValidatePageIndex(int pageIndex)
     {
         if (pageIndex < 0 || pageIndex >= PageCount)
@@ -274,6 +412,7 @@ public sealed class PdfDocument : IDisposable
             for (int k = indices.Length - 1; k >= 0; k--)
             {
                 _pages.RemoveAt(indices[k]);
+                _annotations.RemoveAt(indices[k]);
             }
 
             Rebuild();
@@ -314,12 +453,15 @@ public sealed class PdfDocument : IDisposable
             }
 
             var inserted = new List<PageRef>(source.PageCount);
+            var insertedAnnotations = new List<List<PdfAnnotation>>(source.PageCount);
             for (int i = 0; i < source._pages.Count; i++)
             {
                 inserted.Add(new PageRef(sourceId, i, source._pages[i].Rotation));
+                insertedAnnotations.Add([.. source._annotations[i]]);
             }
 
             _pages.InsertRange(at, inserted);
+            _annotations.InsertRange(at, insertedAnnotations);
             Rebuild();
         });
 
@@ -328,49 +470,52 @@ public sealed class PdfDocument : IDisposable
 
     public void Undo()
     {
-        bool changed = Locked(() =>
+        HistoryResult result = Locked(() =>
         {
             if (_undo.Count == 0)
             {
-                return false;
+                return HistoryResult.None;
             }
 
             HistoryStep step = Pop(_undo);
-            _redo.Add(new HistoryStep(_pages.ToArray()));
-            RestoreTo(step.Pages);
-            return true;
+            _redo.Add(Snapshot());
+            return RestoreTo(step) ? HistoryResult.Pages : HistoryResult.AnnotationsOnly;
         });
 
-        if (changed)
-        {
-            AfterHistoryMove();
-        }
+        ApplyHistoryResult(result);
     }
 
     public void Redo()
     {
-        bool changed = Locked(() =>
+        HistoryResult result = Locked(() =>
         {
             if (_redo.Count == 0)
             {
-                return false;
+                return HistoryResult.None;
             }
 
             HistoryStep step = Pop(_redo);
-            _undo.Add(new HistoryStep(_pages.ToArray()));
-            RestoreTo(step.Pages);
-            return true;
+            _undo.Add(Snapshot());
+            return RestoreTo(step) ? HistoryResult.Pages : HistoryResult.AnnotationsOnly;
         });
 
-        if (changed)
-        {
-            AfterHistoryMove();
-        }
+        ApplyHistoryResult(result);
     }
+
+    private enum HistoryResult
+    {
+        None,
+        AnnotationsOnly,
+        Pages,
+    }
+
+    private HistoryStep Snapshot() => new(
+        _pages.ToArray(),
+        _annotations.Select(list => (IReadOnlyList<PdfAnnotation>)list.ToArray()).ToArray());
 
     private void PushUndo()
     {
-        _undo.Add(new HistoryStep(_pages.ToArray()));
+        _undo.Add(Snapshot());
         _redo.Clear();
         while (_undo.Count > MaxHistory)
         {
@@ -378,24 +523,36 @@ public sealed class PdfDocument : IDisposable
         }
     }
 
-    private void RestoreTo(IReadOnlyList<PageRef> target)
+    /// <returns>True when pages or rotations moved (a full reload is needed), false for an
+    /// annotation-only step.</returns>
+    private bool RestoreTo(HistoryStep step)
     {
+        IReadOnlyList<PageRef> target = step.Pages;
         bool sameStructure = _pages.Count == target.Count;
+        bool sameRotation = sameStructure;
         for (int i = 0; sameStructure && i < target.Count; i++)
         {
             sameStructure = _pages[i].SourceId == target[i].SourceId
                             && _pages[i].SourcePageIndex == target[i].SourcePageIndex;
+            sameRotation = sameRotation && sameStructure && _pages[i].Rotation == target[i].Rotation;
         }
 
         _pages = target.ToList();
-        if (sameStructure)
-        {
-            SyncRotations();
-        }
-        else
+        _annotations = step.Annotations.Select(list => list.ToList()).ToList();
+
+        if (!sameStructure)
         {
             Rebuild();
+            return true;
         }
+
+        if (!sameRotation)
+        {
+            SyncRotations();
+            return true;
+        }
+
+        return false;
     }
 
     private void AfterEdit()
@@ -405,11 +562,21 @@ public sealed class PdfDocument : IDisposable
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    private void AfterHistoryMove()
+    private void ApplyHistoryResult(HistoryResult result)
     {
-        _pageSizes = null;
+        if (result == HistoryResult.None)
+        {
+            return;
+        }
+
         SetDirty(true);
-        Changed?.Invoke(this, EventArgs.Empty);
+        if (result == HistoryResult.Pages)
+        {
+            _pageSizes = null;
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+
+        AnnotationsChanged?.Invoke(this, new AnnotationsChangedEventArgs(-1));
     }
 
     private static HistoryStep Pop(List<HistoryStep> stack)
@@ -542,6 +709,23 @@ public sealed class PdfDocument : IDisposable
     {
         return Locked(() =>
         {
+            // Annotations live only in our model during a session; write them onto the live
+            // pages just for this serialisation, then strip them back off so a second save
+            // can't double them and the renderer keeps drawing our overlay instead.
+            BakeAnnotations();
+            try
+            {
+                return SerialiseCurrentHandle();
+            }
+            finally
+            {
+                UnbakeAnnotations();
+            }
+        });
+    }
+
+    private byte[] SerialiseCurrentHandle()
+    {
             using var stream = new MemoryStream();
             PDFiumCore.Delegates.Func_int___IntPtr___IntPtr_uint writeBlock = (_, data, size) =>
             {
@@ -577,7 +761,52 @@ public sealed class PdfDocument : IDisposable
             }
 
             return bytes;
-        });
+    }
+
+    private void BakeAnnotations()
+    {
+        for (int i = 0; i < _pages.Count; i++)
+        {
+            FpdfPageT? page = fpdfview.FPDF_LoadPage(Handle, i);
+            if (page is null || page.__Instance == IntPtr.Zero)
+            {
+                continue;
+            }
+
+            try
+            {
+                PdfAnnotationWriter.StripManaged(page);
+                if (_annotations[i].Count > 0)
+                {
+                    PdfAnnotationWriter.Write(page, _annotations[i]);
+                }
+            }
+            finally
+            {
+                fpdfview.FPDF_ClosePage(page);
+            }
+        }
+    }
+
+    private void UnbakeAnnotations()
+    {
+        for (int i = 0; i < _pages.Count; i++)
+        {
+            FpdfPageT? page = fpdfview.FPDF_LoadPage(Handle, i);
+            if (page is null || page.__Instance == IntPtr.Zero)
+            {
+                continue;
+            }
+
+            try
+            {
+                PdfAnnotationWriter.StripManaged(page);
+            }
+            finally
+            {
+                fpdfview.FPDF_ClosePage(page);
+            }
+        }
     }
 
     public void SaveAs(string path)
