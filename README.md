@@ -49,6 +49,7 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 
 - Load a PDF via PDFium (`PDFiumCore`, Apache-2.0) and render pages to WPF.
 - Tabbed shell — several documents open at once, the same file openable in more than one tab.
+- Home screen with a **recent documents** list (persisted between sessions).
 - Optional **split view** (off by default): a second, fully independent pane on the same
   document — independent page position, zoom, view mode, and text search.
 - Three view modes per pane: single-page, continuous (virtualised), and grid (rows of pages,
