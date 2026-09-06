@@ -215,14 +215,77 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
-        double offset = _pane.Mode == ViewMode.Grid
-            ? _pane.GetRowOffsetForPage(pageIndex)
-            : _pane.GetPageOffset(pageIndex);
+        object? item = PageItem(pageIndex);
+        if (item is null)
+        {
+            return;
+        }
 
+        // A plain ScrollToVerticalOffset(GetPageOffset(N)) drifts — the panel virtualises and
+        // DPI-snaps each realised page a hair taller than our layout estimate, so the error
+        // compounds and a jump deep into a long document lands a page or more short.
+        // ScrollIntoView realises the target container; then top-align it from its real
+        // on-screen position, refining as neighbours realise.
         _programmaticScroll = true;
-        _scrollViewer.ScrollToVerticalOffset(offset);
-        Dispatcher.BeginInvoke(() => _programmaticScroll = false,
-            System.Windows.Threading.DispatcherPriority.Background);
+        PageList.ScrollIntoView(item);
+        AlignPageToTop(pageIndex, attempts: 4);
+    }
+
+    private void AlignPageToTop(int pageIndex, int attempts)
+    {
+        Dispatcher.BeginInvoke(
+            () =>
+            {
+                if (_pane is null || _scrollViewer is null)
+                {
+                    _programmaticScroll = false;
+                    return;
+                }
+
+                FrameworkElement? container = PageList.ItemContainerGenerator
+                    .ContainerFromItem(PageItem(pageIndex)) as FrameworkElement;
+
+                double top = container is null
+                    ? double.NaN
+                    : container.TransformToVisual(_scrollViewer).Transform(new Point(0, 0)).Y;
+
+                bool aligned = !double.IsNaN(top) && Math.Abs(top) <= 1.0;
+                if (!aligned && attempts > 0)
+                {
+                    if (!double.IsNaN(top))
+                    {
+                        _scrollViewer.ScrollToVerticalOffset(Math.Max(0, _scrollViewer.VerticalOffset + top));
+                    }
+                    else
+                    {
+                        PageList.ScrollIntoView(PageItem(pageIndex));
+                    }
+
+                    AlignPageToTop(pageIndex, attempts - 1);
+                    return;
+                }
+
+                Dispatcher.BeginInvoke(() => _programmaticScroll = false,
+                    System.Windows.Threading.DispatcherPriority.Background);
+            },
+            System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private object? PageItem(int pageIndex)
+    {
+        if (_pane is null)
+        {
+            return null;
+        }
+
+        if (_pane.Mode == ViewMode.Grid)
+        {
+            int columns = Math.Max(1, _pane.GridColumns);
+            int row = pageIndex / columns;
+            return row >= 0 && row < _pane.Rows.Count ? _pane.Rows[row] : null;
+        }
+
+        return pageIndex >= 0 && pageIndex < _pane.Pages.Count ? _pane.Pages[pageIndex] : null;
     }
 
     private void PageList_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
