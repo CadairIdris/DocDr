@@ -38,8 +38,10 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 
 - **Watermark…** scans for content repeated across most pages — text stamps and
   near-full-page overlay images — and lists each with a before/after page preview.
-  Tick what to strip; removal edits the page content (not undoable, so save to a copy
-  to keep the original).
+  Tick what to strip; removal deletes just those operators from the page content
+  streams (so kerned tables and the rest of the page are left byte-for-byte intact)
+  and reloads the document. Not undoable — it clears the undo history, so save to a
+  copy to keep the original.
 
 ### Stage 2 — Page editing (done)
 

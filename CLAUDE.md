@@ -41,6 +41,20 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   `SaveToBytes` does this when metadata was edited *or* the handle was rebuilt (rebuild loses the
   Info dict). Metadata edits are not on the undo stack.
 
+## Watermark removal (`PdfWatermarkStripper`, Stage 4)
+
+- **`FPDFPageRemoveObject` + `FPDFPageGenerateContent` re-serialises the whole page from PDFium's
+  object model and drops the `TJ` positioning arrays** — kerned/tabular text comes out scrambled.
+  So `PdfWatermarkStripper.Strip` works on the `SaveToBytes()` bytes directly: tokenises each page
+  content stream, deletes only the watermark `Tj`/`TJ`/`'`/`"` operators (matched by normalised
+  text against `PdfWatermarks` signatures) and watermark-image `Do` operators, drops any content
+  stream left holding nothing but watermark content, re-Flate-encodes the touched streams, and
+  appends one incremental update. Everything else stays byte-for-byte.
+- `PdfDocument.RemoveWatermarks` runs that, then `AdoptStrippedBytes` reloads: new
+  `FPDF_LoadMemDocument64`, every old source closed, `_pages` reset to identity, **undo history
+  cleared** (not undoable). `_annotations` is kept (page order unchanged). Rewritten stream objects
+  need `/Filter /FlateDecode`, not a bare `/FlateDecode`.
+
 ## Annotations (`PdfDocument`, Stage 3)
 
 - Highlights + text-note comments live in DocDr's model — `_annotations` (a

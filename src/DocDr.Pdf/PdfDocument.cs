@@ -472,9 +472,9 @@ public sealed class PdfDocument : IDisposable
 
     /// <summary>
     /// Strip the given repeating-content watermarks (from <see cref="PdfWatermarks.Scan"/>) from
-    /// every page. This edits page content and is <b>not undoable</b> — Ctrl+Z will still unwind
-    /// later rotate/delete steps, but it will not bring the watermarks back. The original file is
-    /// untouched until the next save.
+    /// every page. This edits page content and is <b>not undoable</b>: it rebuilds the document
+    /// from the cleaned bytes and clears the undo history (any earlier rotate / delete / insert
+    /// can no longer be undone). The original file is untouched until the next save.
     /// </summary>
     public void RemoveWatermarks(IReadOnlyList<WatermarkCandidate> candidates)
     {
@@ -484,107 +484,97 @@ public sealed class PdfDocument : IDisposable
             .Where(c => c.Signature.Kind == WatermarkKind.Text && c.Signature.Text is not null)
             .Select(c => c.Signature.Text!)
             .ToHashSet();
-        var imageSignatures = candidates
+        var imageHashes = candidates
             .Where(c => c.Signature.Kind == WatermarkKind.Image && c.Signature.ImageHash is not null)
             .Select(c => c.Signature.ImageHash!)
             .ToHashSet();
 
-        if (textSignatures.Count == 0 && imageSignatures.Count == 0)
+        if (textSignatures.Count == 0 && imageHashes.Count == 0)
         {
             return;
         }
 
-        Locked(() =>
+        bool changed = Locked(() =>
         {
-            var bySource = new Dictionary<int, HashSet<int>>();
-            foreach (PageRef pr in _pages)
+            // Serialise the current pages (rotations + structural edits included; our annotation
+            // model is left untouched), delete the watermark operators from the bytes, then
+            // reload. Editing the bytes — rather than FPDFPageRemoveObject + GenerateContent —
+            // keeps every other operator byte-for-byte, so kerned tables don't get scrambled.
+            byte[] current = SerialiseCurrentHandle();
+            byte[] stripped = PdfWatermarkStripper.Strip(current, textSignatures, imageHashes);
+            if (ReferenceEquals(stripped, current))
             {
-                if (!bySource.TryGetValue(pr.SourceId, out HashSet<int>? set))
-                {
-                    bySource[pr.SourceId] = set = [];
-                }
-
-                set.Add(pr.SourcePageIndex);
+                return false;
             }
 
-            foreach ((int sourceId, HashSet<int> pageIndices) in bySource)
-            {
-                FpdfDocumentT source = _sources[sourceId].Handle;
-                foreach (int pageIndex in pageIndices)
-                {
-                    CleanPageContent(source, pageIndex, textSignatures, imageSignatures);
-                }
-            }
-
-            Rebuild();
+            AdoptStrippedBytes(stripped);
+            return true;
         });
+
+        if (!changed)
+        {
+            return;
+        }
 
         _pageSizes = null;
         SetDirty(true);
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    private static void CleanPageContent(FpdfDocumentT doc, int pageIndex, HashSet<string> textSignatures, HashSet<string> imageSignatures)
+    /// <summary>Replace every source and the live handle with a freshly loaded copy of <paramref name="bytes"/>.
+    /// Caller holds <see cref="Locked(Action)"/>. The annotation model is index-aligned with the
+    /// (unchanged) page order, so it is kept as-is.</summary>
+    private void AdoptStrippedBytes(byte[] bytes)
     {
-        FpdfPageT? page = fpdfview.FPDF_LoadPage(doc, pageIndex);
-        if (page is null || page.__Instance == IntPtr.Zero)
+        var pin = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+        FpdfDocumentT? fresh = fpdfview.FPDF_LoadMemDocument64(
+            pin.AddrOfPinnedObject(), (ulong)bytes.LongLength, null);
+        if (fresh is null || fresh.__Instance == IntPtr.Zero)
         {
-            return;
+            pin.Free();
+            throw new PdfException(
+                (PdfiumError)fpdfview.FPDF_GetLastError(),
+                "Could not reopen the document after removing watermarks.");
         }
 
-        try
-        {
-            FpdfTextpageT? textPage = fpdf_text.FPDFTextLoadPage(page);
-            var toRemove = new List<FpdfPageobjectT>();
-            try
-            {
-                int count = fpdf_edit.FPDFPageCountObjects(page);
-                for (int i = 0; i < count; i++)
-                {
-                    FpdfPageobjectT obj = fpdf_edit.FPDFPageGetObject(page, i);
-                    int type = fpdf_edit.FPDFPageObjGetType(obj);
+        int pageCount = fpdfview.FPDF_GetPageCount(fresh);
 
-                    if (type == 1 && textSignatures.Count > 0)
-                    {
-                        string norm = PdfWatermarks.NormalizeText(PdfWatermarks.ReadTextObject(obj, textPage));
-                        if (norm.Length >= 4 && textSignatures.Contains(norm))
-                        {
-                            toRemove.Add(obj);
-                        }
-                    }
-                    else if (type == 3 && imageSignatures.Count > 0)
-                    {
-                        string? hash = PdfWatermarks.HashImageObject(obj);
-                        if (hash is not null && imageSignatures.Contains(hash))
-                        {
-                            toRemove.Add(obj);
-                        }
-                    }
+        FpdfDocumentT original = _sources[OriginalSourceId].Handle;
+        if (_handle is not null && !ReferenceEquals(_handle, original))
+        {
+            fpdfview.FPDF_CloseDocument(_handle);
+        }
+
+        foreach (Source source in _sources.Values)
+        {
+            if (source.Owned)
+            {
+                fpdfview.FPDF_CloseDocument(source.Handle);
+                if (source.Pin.IsAllocated)
+                {
+                    source.Pin.Free();
                 }
             }
-            finally
-            {
-                if (textPage is not null && textPage.__Instance != IntPtr.Zero)
-                {
-                    fpdf_text.FPDFTextClosePage(textPage);
-                }
-            }
-
-            foreach (FpdfPageobjectT obj in toRemove)
-            {
-                fpdf_edit.FPDFPageRemoveObject(page, obj);
-                fpdf_edit.FPDFPageObjDestroy(obj);
-            }
-
-            if (toRemove.Count > 0)
-            {
-                fpdf_edit.FPDFPageGenerateContent(page);
-            }
         }
-        finally
+
+        _sources.Clear();
+        _handle = fresh;
+        _sources[OriginalSourceId] = new Source { Handle = fresh, Pin = pin, Owned = true };
+        _nextSourceId = OriginalSourceId + 1;
+
+        // SerialiseCurrentHandle already folded any metadata edit into these bytes.
+        _handleHasOriginalInfo = true;
+        _infoEdited = false;
+
+        var pages = new List<PageRef>(pageCount);
+        for (int i = 0; i < pageCount; i++)
         {
-            fpdfview.FPDF_ClosePage(page);
+            pages.Add(new PageRef(OriginalSourceId, i, GetRotation(fresh, i) & 3));
         }
+
+        _pages = pages;
+        _undo.Clear();
+        _redo.Clear();
     }
 
     public void Undo()

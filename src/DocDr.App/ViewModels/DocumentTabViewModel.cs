@@ -250,7 +250,15 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
             dialog.ShowDialog();
             if (chosen is { Count: > 0 })
             {
-                Document.RemoveWatermarks(chosen);
+                try
+                {
+                    Document.RemoveWatermarks(chosen);
+                }
+                catch (PdfException ex)
+                {
+                    MessageBox.Show($"Could not remove the watermarks: {ex.Message}", "DocDr",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                }
             }
         }, System.Windows.Threading.DispatcherPriority.Input);
     }

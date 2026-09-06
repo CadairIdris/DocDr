@@ -98,6 +98,45 @@ public sealed class PdfWatermarkTests
     }
 
     [Fact]
+    public void Removing_a_watermark_clears_the_undo_history()
+    {
+        using var ws = new TempWorkspace();
+        string path = TestPdfBuilder.WritePdf(ws.Path("wm.pdf"),
+            ["one", "two", "three", "four"], watermark: Mark);
+
+        using var doc = PdfDocument.Load(path);
+        doc.RotatePages([0], PdfRotation.Clockwise90);
+        Assert.True(doc.CanUndo);
+
+        doc.RemoveWatermarks(PdfWatermarks.Scan(doc));
+
+        Assert.False(doc.CanUndo);
+        Assert.False(doc.CanRedo);
+
+        // The rotation is baked into the cleaned bytes and the document still works.
+        doc.RotatePages([1], PdfRotation.Clockwise90);
+        using var reloaded = PdfDocument.Load(doc.SaveToBytes());
+        Assert.Equal(PdfRotation.Clockwise90, reloaded.GetPageRotation(0));
+        Assert.Equal(PdfRotation.Clockwise90, reloaded.GetPageRotation(1));
+    }
+
+    [Fact]
+    public void Body_text_that_looks_like_the_watermark_is_left_alone()
+    {
+        using var ws = new TempWorkspace();
+        // Only page 3 carries this line as real content; the stamp is on every page.
+        string path = TestPdfBuilder.WritePdf(ws.Path("wm.pdf"),
+            ["intro", "method", "quoting the CONTROLLED COPY notice here", "results", "end"],
+            watermark: Mark);
+
+        using var doc = PdfDocument.Load(path);
+        doc.RemoveWatermarks(PdfWatermarks.Scan(doc));
+
+        Assert.Contains("quoting the CONTROLLED COPY notice here", PageText(doc, 2));
+        Assert.DoesNotContain(Mark, PageText(doc, 2));
+    }
+
+    [Fact]
     public void Removing_nothing_selected_is_a_no_op()
     {
         using var ws = new TempWorkspace();
