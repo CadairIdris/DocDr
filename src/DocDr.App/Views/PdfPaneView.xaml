@@ -146,7 +146,8 @@
                  VirtualizingPanel.IsVirtualizing="True"
                  VirtualizingPanel.VirtualizationMode="Recycling"
                  VirtualizingPanel.ScrollUnit="Pixel"
-                 ScrollViewer.ScrollChanged="PageList_ScrollChanged">
+                 ScrollViewer.ScrollChanged="PageList_ScrollChanged"
+                 PreviewMouseWheel="PageList_PreviewMouseWheel">
             <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem">
                     <Setter Property="Padding" Value="0" />

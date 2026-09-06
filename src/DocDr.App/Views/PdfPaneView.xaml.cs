@@ -211,6 +211,47 @@ public partial class PdfPaneView : UserControl
             System.Windows.Threading.DispatcherPriority.Background);
     }
 
+    private void PageList_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (_pane is null || (Keyboard.Modifiers & ModifierKeys.Control) == 0)
+        {
+            return; // plain wheel keeps the ScrollViewer's default scrolling
+        }
+
+        e.Handled = true;
+        _scrollViewer ??= FindScrollViewer(PageList);
+        if (_scrollViewer is null)
+        {
+            _pane.ZoomByWheel(e.Delta);
+            return;
+        }
+
+        // Anchor the zoom on the point under the cursor.
+        Point cursor = e.GetPosition(_scrollViewer);
+        double fracX = _scrollViewer.ExtentWidth > 0
+            ? (_scrollViewer.HorizontalOffset + cursor.X) / _scrollViewer.ExtentWidth
+            : 0;
+        double fracY = _scrollViewer.ExtentHeight > 0
+            ? (_scrollViewer.VerticalOffset + cursor.Y) / _scrollViewer.ExtentHeight
+            : 0;
+
+        _pane.ZoomByWheel(e.Delta);
+
+        _programmaticScroll = true;
+        Dispatcher.BeginInvoke(
+            () =>
+            {
+                if (_scrollViewer is not null)
+                {
+                    _scrollViewer.ScrollToHorizontalOffset((fracX * _scrollViewer.ExtentWidth) - cursor.X);
+                    _scrollViewer.ScrollToVerticalOffset((fracY * _scrollViewer.ExtentHeight) - cursor.Y);
+                }
+
+                _programmaticScroll = false;
+            },
+            System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
     private void PageBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter && sender is TextBox box)

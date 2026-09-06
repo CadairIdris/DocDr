@@ -16,7 +16,8 @@ Done:
 - Collapsible **navigation panel** per tab (off by default): page thumbnails or the
   document's bookmark outline; click either to jump to that page.
 - Per-pane full-text search: all matches, highlight overlays, match counter, next/previous.
-- Zoom (25–800%, Fit Width, Fit Page, 100%) and page navigation.
+- Zoom (25–800%, Fit Width, Fit Page, 100%, **Ctrl+wheel / trackpad pinch**, anchored on the
+  cursor) and page navigation.
 
 Not yet (later stages): page editing, annotations, folder browser, metadata editing,
 SQLite catalog + duplicate finder, OCR.

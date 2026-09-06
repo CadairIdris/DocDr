@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DocDr.App.Services;
@@ -39,6 +40,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     private double _viewportWidth;
     private double _viewportHeight;
     private bool _suppressScrollSync;
+    private bool _deferRerender;
+    private DispatcherTimer? _rerenderTimer;
 
     public PdfPaneViewModel(string title, PdfDocument document, IReadOnlyList<PdfSize> pageSizes, BackgroundRenderQueue queue)
     {
@@ -321,6 +324,29 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     // --- Zoom -----------------------------------------------------------------------------
 
+    /// <summary>
+    /// Ctrl+wheel / trackpad pinch zoom. <paramref name="wheelDelta"/> is the raw delta
+    /// (±120 per mouse notch, small values from a precision trackpad); the factor is smooth so a
+    /// single notch ≈ one <see cref="ZoomIn"/> step.
+    /// </summary>
+    public void ZoomByWheel(int wheelDelta)
+    {
+        if (wheelDelta == 0)
+        {
+            return;
+        }
+
+        _deferRerender = true;
+        try
+        {
+            SetZoom(Zoom * Math.Pow(1.0015, wheelDelta), ZoomMode.Custom);
+        }
+        finally
+        {
+            _deferRerender = false;
+        }
+    }
+
     [RelayCommand]
     private void ZoomIn() => SetZoom(Zoom * ZoomStep, ZoomMode.Custom);
 
@@ -391,6 +417,26 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             ApplyLayout();
         }
 
+        if (_deferRerender)
+        {
+            // Wheel / pinch zoom: let the old bitmaps stretch during the gesture, re-render once
+            // it settles.
+            _rerenderTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(90) };
+            _rerenderTimer.Tick -= OnRerenderTimerTick;
+            _rerenderTimer.Tick += OnRerenderTimerTick;
+            _rerenderTimer.Stop();
+            _rerenderTimer.Start();
+        }
+        else
+        {
+            _rerenderTimer?.Stop();
+            RerenderRealized(clearQueue: true);
+        }
+    }
+
+    private void OnRerenderTimerTick(object? sender, EventArgs e)
+    {
+        _rerenderTimer!.Stop();
         RerenderRealized(clearQueue: true);
     }
 
@@ -717,6 +763,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        _rerenderTimer?.Stop();
         _searchCts?.Cancel();
         _searchCts?.Dispose();
     }
