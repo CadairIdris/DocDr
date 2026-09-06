@@ -117,30 +117,52 @@
 
                 <Border Width="1" Margin="6,2" Background="{DynamicResource BorderBrush}" />
 
+                <!-- No GroupName: these RadioButtons group by their StackPanel parent, so the
+                     left and right pane keep independent selections. A shared GroupName would
+                     put all six buttons (both panes) in one group, and the hidden right pane's
+                     binding would silently steal the check from the visible left pane on launch. -->
                 <StackPanel Orientation="Horizontal" Margin="2,0" VerticalAlignment="Center">
-                    <RadioButton GroupName="Mode" Content="Page" Padding="6,1" VerticalContentAlignment="Center"
-                                 IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=SinglePage}"
+                    <RadioButton Content="Page" Padding="6,1" VerticalContentAlignment="Center"
+                                 Tag="{x:Static vm:ViewMode.SinglePage}" Checked="ModeRadio_Checked"
+                                 IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=SinglePage, Mode=OneWay}"
                                  ToolTip="Single page" />
-                    <RadioButton GroupName="Mode" Content="Continuous" Padding="6,1" VerticalContentAlignment="Center"
-                                 IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Continuous}"
+                    <RadioButton Content="Continuous" Padding="6,1" VerticalContentAlignment="Center"
+                                 Tag="{x:Static vm:ViewMode.Continuous}" Checked="ModeRadio_Checked"
+                                 IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Continuous, Mode=OneWay}"
                                  ToolTip="Continuous scroll" />
-                    <RadioButton GroupName="Mode" Content="Grid" Padding="6,1" VerticalContentAlignment="Center"
-                                 IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Grid}"
+                    <RadioButton Content="Grid" Padding="6,1" VerticalContentAlignment="Center"
+                                 Tag="{x:Static vm:ViewMode.Grid}" Checked="ModeRadio_Checked"
+                                 IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Grid, Mode=OneWay}"
                                  ToolTip="Grid of pages (columns auto-fit the width)" />
                 </StackPanel>
 
                 <Border Width="1" Margin="6,2" Background="{DynamicResource BorderBrush}" />
 
                 <StackPanel Orientation="Horizontal" Margin="2,0" VerticalAlignment="Center">
-                    <TextBox x:Name="SearchBox" Width="150" VerticalContentAlignment="Center"
-                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="Search this view">
-                        <TextBox.InputBindings>
-                            <KeyBinding Key="Return" Command="{Binding SearchCommand}" />
-                        </TextBox.InputBindings>
-                    </TextBox>
-                    <ToggleButton Content="Aa" Width="26" Margin="2,0" IsChecked="{Binding MatchCase}"
-                                  ToolTip="Match case" />
+                    <Grid Width="150">
+                        <TextBox x:Name="SearchBox" VerticalContentAlignment="Center"
+                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="Search this view">
+                            <TextBox.InputBindings>
+                                <KeyBinding Key="Return" Command="{Binding SearchCommand}" />
+                            </TextBox.InputBindings>
+                        </TextBox>
+                        <TextBlock Text="Search this view…" Margin="7,0,0,0" VerticalAlignment="Center"
+                                   IsHitTestVisible="False" Foreground="{DynamicResource HintTextBrush}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SearchText}" Value="">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                    <ToggleButton Content="Aa" MinWidth="30" Padding="4,2" Margin="2,0"
+                                  IsChecked="{Binding MatchCase}" ToolTip="Match case" />
                     <Button Content="Prev" Padding="4,1" Margin="2,0,0,0" Command="{Binding PreviousMatchCommand}" ToolTip="Previous match" />
                     <Button Content="Next" Padding="4,1" Margin="2,0,0,0" Command="{Binding NextMatchCommand}" ToolTip="Next match" />
                     <TextBlock Text="{Binding MatchSummary}" VerticalAlignment="Center" Margin="4,0" MinWidth="52" />

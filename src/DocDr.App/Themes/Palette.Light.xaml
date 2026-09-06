@@ -8,4 +8,6 @@
     <SolidColorBrush x:Key="PrimaryTextBrush" Color="#202020" />
     <SolidColorBrush x:Key="SecondaryTextBrush" Color="#5A5A5A" />
     <SolidColorBrush x:Key="HintTextBrush" Color="#8C8C8C" />
+    <SolidColorBrush x:Key="TabItemBrush" Color="#E4E4E4" />
+    <SolidColorBrush x:Key="TabItemActiveBrush" Color="#FCFCFC" />
 </ResourceDictionary>

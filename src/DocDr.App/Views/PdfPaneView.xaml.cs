@@ -260,6 +260,16 @@ public partial class PdfPaneView : UserControl
             System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
+    private void ModeRadio_Checked(object sender, RoutedEventArgs e)
+    {
+        // A RadioButton's Command doesn't fire reliably when IsChecked is also bound, and the
+        // EnumEquals OneWay binding only reflects Mode outward — so drive Mode from Checked here.
+        if (_pane is not null && sender is RadioButton { Tag: ViewMode mode })
+        {
+            _pane.Mode = mode;
+        }
+    }
+
     private void PageBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter && sender is TextBox box)
