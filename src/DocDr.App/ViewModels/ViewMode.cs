@@ -8,4 +8,7 @@ public enum ViewMode
 
     /// <summary>All pages stacked vertically in a single scroll.</summary>
     Continuous,
+
+    /// <summary>Pages wrapped into rows; the column count auto-fits the pane width.</summary>
+    Grid,
 }

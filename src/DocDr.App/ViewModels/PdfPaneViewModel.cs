@@ -25,6 +25,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     private const double MaxZoom = 8.0;
     private const double ZoomStep = 1.2;
     private const double FitMargin = 24.0;
+    private const int MaxGridColumns = 6;
 
     private readonly PdfDocument _document;
     private readonly BackgroundRenderQueue _queue;
@@ -49,9 +50,10 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
         Pages = new ObservableCollection<PageSlotViewModel>(
             pageSizes.Select((size, index) => new PageSlotViewModel(index, size)));
+        Rows = [];
 
         PagesView = CollectionViewSource.GetDefaultView(Pages);
-        PagesView.Filter = o => Mode == ViewMode.Continuous
+        PagesView.Filter = o => Mode != ViewMode.SinglePage
                                 || (o is PageSlotViewModel slot && slot.PageIndex == CurrentPage - 1);
 
         _currentPage = PageCount > 0 ? 1 : 0;
@@ -63,9 +65,15 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<PageSlotViewModel> Pages { get; }
 
+    /// <summary>Grid-view rows. Rebuilt when the column count changes. Slots are shared with <see cref="Pages"/>.</summary>
+    public ObservableCollection<PageRowViewModel> Rows { get; }
+
     public ICollectionView PagesView { get; }
 
     public int PageCount => _pageSizes.Count;
+
+    [ObservableProperty]
+    private int _gridColumns = 1;
 
     /// <summary>Raised when the pane wants the view to bring a page into view (0-based).</summary>
     public event Action<int>? ScrollToPageRequested;
@@ -127,14 +135,21 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         RerenderRealized(clearQueue: true);
     }
 
-    /// <summary>The view reports its scroll viewport so Fit modes can be computed.</summary>
+    /// <summary>The view reports its scroll viewport so Fit modes and the grid column count can be computed.</summary>
     public void SetViewport(double width, double height)
     {
+        bool widthChanged = Math.Abs(width - _viewportWidth) > 0.5;
         _viewportWidth = width;
         _viewportHeight = height;
+
         if (ZoomMode != ZoomMode.Custom)
         {
             RecomputeFitZoom();
+        }
+
+        if (Mode == ViewMode.Grid && widthChanged)
+        {
+            RebuildGrid();
         }
     }
 
@@ -144,8 +159,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     /// <summary>The view reports which page indices are on-screen (inclusive, 0-based).</summary>
     public void UpdateVisibleRange(int firstVisible, int lastVisible)
     {
-        int first = Math.Max(0, firstVisible - 1);
-        int last = Math.Min(PageCount - 1, lastVisible + 1);
+        int first = Math.Max(0, firstVisible - GridColumns);
+        int last = Math.Min(PageCount - 1, lastVisible + GridColumns);
 
         for (int i = 0; i < Pages.Count; i++)
         {
@@ -158,7 +173,14 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Distance (DIP) from the top of the stack to the top of <paramref name="pageIndex"/>.</summary>
+    /// <summary>Grid view: mark the pages of rows <paramref name="firstRow"/>..<paramref name="lastRow"/> visible.</summary>
+    public void UpdateVisibleRows(int firstRow, int lastRow)
+    {
+        int columns = Math.Max(1, GridColumns);
+        UpdateVisibleRange(firstRow * columns, ((lastRow + 1) * columns) - 1);
+    }
+
+    /// <summary>Distance (DIP) from the top of the stack to the top of <paramref name="pageIndex"/> (single column).</summary>
     public double GetPageOffset(int pageIndex)
     {
         double offset = 0;
@@ -170,7 +192,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         return offset;
     }
 
-    /// <summary>Page index whose top is nearest at or above <paramref name="verticalOffset"/>.</summary>
+    /// <summary>Page index whose top is nearest at or above <paramref name="verticalOffset"/> (single column).</summary>
     public int GetPageAtOffset(double verticalOffset)
     {
         double running = 0;
@@ -186,10 +208,42 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         return Math.Max(0, Pages.Count - 1);
     }
 
+    /// <summary>Grid view: DIP offset to the top of <paramref name="rowIndex"/>.</summary>
+    public double GetRowOffset(int rowIndex)
+    {
+        double offset = 0;
+        for (int i = 0; i < rowIndex && i < Rows.Count; i++)
+        {
+            offset += Rows[i].RowHeight + PageSpacing;
+        }
+
+        return offset;
+    }
+
+    /// <summary>Grid view: row whose top is nearest at or above <paramref name="verticalOffset"/>.</summary>
+    public int GetRowAtOffset(double verticalOffset)
+    {
+        double running = 0;
+        for (int i = 0; i < Rows.Count; i++)
+        {
+            running += Rows[i].RowHeight + PageSpacing;
+            if (verticalOffset < running)
+            {
+                return i;
+            }
+        }
+
+        return Math.Max(0, Rows.Count - 1);
+    }
+
+    /// <summary>Grid view: DIP offset to the row that contains <paramref name="pageIndex"/>.</summary>
+    public double GetRowOffsetForPage(int pageIndex) =>
+        GetRowOffset(pageIndex / Math.Max(1, GridColumns));
+
     /// <summary>The view scrolled; <paramref name="topPageIndex"/> is the top-most visible page (0-based).</summary>
     public void ReportScrolledToPage(int topPageIndex)
     {
-        if (_suppressScrollSync || Mode != ViewMode.Continuous)
+        if (_suppressScrollSync || Mode == ViewMode.SinglePage)
         {
             return;
         }
@@ -243,8 +297,18 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     partial void OnModeChanged(ViewMode value)
     {
+        if (value == ViewMode.Grid)
+        {
+            RebuildGrid();
+        }
+        else
+        {
+            ApplyLayout();
+        }
+
         PagesView.Refresh();
-        RerenderRealized(clearQueue: false);
+        RerenderRealized(clearQueue: true);
+
         if (value == ViewMode.SinglePage)
         {
             RequestRenderForCurrentPage();
@@ -254,10 +318,6 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             ScrollToPageRequested?.Invoke(CurrentPage - 1);
         }
     }
-
-    [RelayCommand]
-    private void ToggleMode() =>
-        Mode = Mode == ViewMode.Continuous ? ViewMode.SinglePage : ViewMode.Continuous;
 
     // --- Zoom -----------------------------------------------------------------------------
 
@@ -322,7 +382,15 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     partial void OnZoomChanged(double value)
     {
-        ApplyLayout();
+        if (Mode == ViewMode.Grid)
+        {
+            RebuildGrid();
+        }
+        else
+        {
+            ApplyLayout();
+        }
+
         RerenderRealized(clearQueue: true);
     }
 
@@ -462,7 +530,9 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 continue;
             }
 
-            double scale = PdfCoordinates.PointToDip * Zoom;
+            double scale = slot.SizePoints.Width > 0
+                ? slot.LayoutWidth / slot.SizePoints.Width
+                : PdfCoordinates.PointToDip * Zoom;
             double pageHeightPoints = slot.SizePoints.Height;
             var rects = new List<HighlightRect>();
 
@@ -484,16 +554,90 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     private void ApplyLayout()
     {
-        double dipScale = PdfCoordinates.PointToDip * Zoom;
-        foreach (PageSlotViewModel slot in Pages)
+        if (Mode == ViewMode.Grid)
         {
-            slot.LayoutWidth = slot.SizePoints.Width * dipScale;
-            slot.LayoutHeight = slot.SizePoints.Height * dipScale;
+            ApplyGridLayout();
+        }
+        else
+        {
+            double dipScale = PdfCoordinates.PointToDip * Zoom;
+            foreach (PageSlotViewModel slot in Pages)
+            {
+                slot.LayoutWidth = slot.SizePoints.Width * dipScale;
+                slot.LayoutHeight = slot.SizePoints.Height * dipScale;
+            }
         }
 
         if (_hits.Count > 0)
         {
             ApplyHighlights();
+        }
+    }
+
+    private void ApplyGridLayout()
+    {
+        int columns = Math.Max(1, GridColumns);
+        double available = _viewportWidth > 0 ? _viewportWidth : columns * 220.0;
+        double tile = ((available - FitMargin) - (PageSpacing * (columns - 1))) / columns;
+        if (tile < 40)
+        {
+            tile = 40;
+        }
+
+        foreach (PageSlotViewModel slot in Pages)
+        {
+            double aspect = slot.SizePoints.Width > 0
+                ? slot.SizePoints.Height / slot.SizePoints.Width
+                : 1.294;
+            slot.LayoutWidth = tile;
+            slot.LayoutHeight = tile * aspect;
+        }
+    }
+
+    /// <summary>Recompute the auto-fit column count, regroup the rows, and re-lay-out.</summary>
+    private void RebuildGrid()
+    {
+        if (PageCount == 0)
+        {
+            return;
+        }
+
+        PdfSize reference = _pageSizes[Math.Clamp(CurrentPage - 1, 0, PageCount - 1)];
+        double targetWidth = reference.Width * PdfCoordinates.PointToDip * Zoom;
+        double available = _viewportWidth > 0 ? _viewportWidth - FitMargin : targetWidth;
+
+        int columns = targetWidth > 0
+            ? (int)Math.Round(available / (targetWidth + PageSpacing))
+            : 1;
+        columns = Math.Clamp(columns, 1, Math.Min(MaxGridColumns, Math.Max(1, PageCount)));
+
+        if (columns != GridColumns)
+        {
+            GridColumns = columns;
+        }
+
+        ApplyGridLayout();
+        RegroupRows(columns);
+
+        if (_hits.Count > 0)
+        {
+            ApplyHighlights();
+        }
+    }
+
+    private void RegroupRows(int columns)
+    {
+        Rows.Clear();
+        for (int start = 0; start < Pages.Count; start += columns)
+        {
+            int count = Math.Min(columns, Pages.Count - start);
+            var slots = new PageSlotViewModel[count];
+            for (int i = 0; i < count; i++)
+            {
+                slots[i] = Pages[start + i];
+            }
+
+            Rows.Add(new PageRowViewModel(start / columns, slots));
         }
     }
 
@@ -563,11 +707,13 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         slot.Image = image;
     }
 
+    // Renders are produced at the slot's exact on-screen size (which already folds in zoom,
+    // grid tiling and DPI), so a stale render from a previous layout is easy to detect.
     private int ExpectedPixelWidth(PageSlotViewModel slot) =>
-        (int)Math.Round(slot.SizePoints.Width * PdfCoordinates.PointToDip * Zoom * _deviceScale);
+        (int)Math.Round(slot.LayoutWidth * _deviceScale);
 
     private int ExpectedPixelHeight(PageSlotViewModel slot) =>
-        (int)Math.Round(slot.SizePoints.Height * PdfCoordinates.PointToDip * Zoom * _deviceScale);
+        (int)Math.Round(slot.LayoutHeight * _deviceScale);
 
     public void Dispose()
     {

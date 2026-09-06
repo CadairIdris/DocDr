@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -35,6 +36,7 @@ public partial class PdfPaneView : UserControl
         if (_pane is not null)
         {
             _pane.ScrollToPageRequested -= OnScrollToPageRequested;
+            _pane.PropertyChanged -= OnPanePropertyChanged;
         }
 
         _pane = e.NewValue as PdfPaneViewModel;
@@ -45,20 +47,54 @@ public partial class PdfPaneView : UserControl
         }
 
         _pane.ScrollToPageRequested += OnScrollToPageRequested;
+        _pane.PropertyChanged += OnPanePropertyChanged;
 
         // WPF's TabControl reuses this single PdfPaneView across every tab, swapping the
         // DataContext underneath it — so a plain event hook isn't enough. Re-establish
-        // viewport metrics, reset the scroll surface, and kick a fresh render for the new pane.
+        // viewport metrics, the item source for the current mode, reset the scroll surface,
+        // and kick a fresh render for the new pane.
         _scrollViewer ??= FindScrollViewer(PageList);
         _programmaticScroll = false;
         _scrollViewer?.ScrollToVerticalOffset(0);
+        ApplyViewMode();
         ScheduleReinitialize();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _scrollViewer = FindScrollViewer(PageList);
+        ApplyViewMode();
         ScheduleReinitialize();
+    }
+
+    private void OnPanePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(PdfPaneViewModel.Mode))
+        {
+            ApplyViewMode();
+            _scrollViewer?.ScrollToVerticalOffset(0);
+            ScheduleReinitialize();
+        }
+    }
+
+    /// <summary>Point the list at the right collection + template for the pane's current mode.</summary>
+    private void ApplyViewMode()
+    {
+        if (_pane is null)
+        {
+            return;
+        }
+
+        if (_pane.Mode == ViewMode.Grid)
+        {
+            PageList.ItemTemplate = (DataTemplate)Resources["PageRowTemplate"];
+            PageList.ItemsSource = _pane.Rows;
+        }
+        else
+        {
+            PageList.ItemTemplate = (DataTemplate)Resources["PageListItemTemplate"];
+            PageList.ItemsSource = _pane.PagesView;
+        }
     }
 
     private void ScheduleReinitialize()
@@ -75,7 +111,7 @@ public partial class PdfPaneView : UserControl
                 PushViewportMetrics();
                 RefreshVisibleRange();
 
-                if (_pane is { Mode: ViewMode.Continuous, CurrentPage: > 1 })
+                if (_pane.CurrentPage > 1 && _pane.Mode != ViewMode.SinglePage)
                 {
                     OnScrollToPageRequested(_pane.CurrentPage - 1);
                 }
@@ -118,10 +154,18 @@ public partial class PdfPaneView : UserControl
 
         RefreshVisibleRange();
 
-        if (!_programmaticScroll && _pane.Mode == ViewMode.Continuous)
+        if (!_programmaticScroll && _pane.Mode != ViewMode.SinglePage)
         {
-            _pane.ReportScrolledToPage(_pane.GetPageAtOffset(_scrollViewer.VerticalOffset));
+            _pane.ReportScrolledToPage(TopVisiblePageIndex());
         }
+    }
+
+    private int TopVisiblePageIndex()
+    {
+        double offset = _scrollViewer!.VerticalOffset;
+        return _pane!.Mode == ViewMode.Grid
+            ? _pane.GetRowAtOffset(offset) * Math.Max(1, _pane.GridColumns)
+            : _pane.GetPageAtOffset(offset);
     }
 
     private void RefreshVisibleRange()
@@ -139,9 +183,15 @@ public partial class PdfPaneView : UserControl
 
         double top = _scrollViewer.VerticalOffset;
         double bottom = top + Math.Max(1, _scrollViewer.ViewportHeight);
-        int first = _pane.GetPageAtOffset(top);
-        int last = _pane.GetPageAtOffset(bottom);
-        _pane.UpdateVisibleRange(first, last);
+
+        if (_pane.Mode == ViewMode.Grid)
+        {
+            _pane.UpdateVisibleRows(_pane.GetRowAtOffset(top), _pane.GetRowAtOffset(bottom));
+        }
+        else
+        {
+            _pane.UpdateVisibleRange(_pane.GetPageAtOffset(top), _pane.GetPageAtOffset(bottom));
+        }
     }
 
     private void OnScrollToPageRequested(int pageIndex)
@@ -151,8 +201,12 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        double offset = _pane.Mode == ViewMode.Grid
+            ? _pane.GetRowOffsetForPage(pageIndex)
+            : _pane.GetPageOffset(pageIndex);
+
         _programmaticScroll = true;
-        _scrollViewer.ScrollToVerticalOffset(_pane.GetPageOffset(pageIndex));
+        _scrollViewer.ScrollToVerticalOffset(offset);
         Dispatcher.BeginInvoke(() => _programmaticScroll = false,
             System.Windows.Threading.DispatcherPriority.Background);
     }
