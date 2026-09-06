@@ -36,6 +36,10 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   `FPDFPageDelete` do work in place. Rotation carries through `FPDF_ImportPages`.
 - Undo/redo = snapshots of the `List<PageRef>`. `FPDF_SaveAsCopy` needs a `FPDF_FILEWRITE_`
   with `Version = 1` and a `WriteBlock` delegate; keep the delegate alive across the call.
+- **PDFium has no metadata setter.** `PdfMetadataWriter.AppendInfo` appends an incremental-update
+  Info object to the saved bytes (PDFium always emits a classic `xref` table + `trailer`).
+  `SaveToBytes` does this when metadata was edited *or* the handle was rebuilt (rebuild loses the
+  Info dict). Metadata edits are not on the undo stack.
 
 ## Testing
 

@@ -6,6 +6,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DocDr.App.Services;
+using DocDr.App.Views;
 using DocDr.Pdf;
 using Microsoft.Win32;
 
@@ -177,6 +178,16 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
             MessageBox.Show($"Could not insert that PDF: {ex.Message}", "DocDr",
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    [RelayCommand]
+    private void ShowProperties()
+    {
+        var dialog = new DocumentPropertiesWindow(new DocumentPropertiesViewModel(Document))
+        {
+            Owner = Application.Current?.MainWindow,
+        };
+        dialog.ShowDialog();
     }
 
     [RelayCommand(CanExecute = nameof(CanUndo))]

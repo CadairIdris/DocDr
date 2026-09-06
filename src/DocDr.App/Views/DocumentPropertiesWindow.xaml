@@ -1,0 +1,93 @@
+<Window x:Class="DocDr.App.Views.DocumentPropertiesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:DocDr.App.ViewModels"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance vm:DocumentPropertiesViewModel}"
+        Title="Document Properties" Width="460" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        ResizeMode="NoResize">
+    <Window.Resources>
+        <Style TargetType="TextBlock" x:Key="FieldLabel">
+            <Setter Property="Margin" Value="0,0,10,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="Foreground" Value="#555" />
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Margin" Value="0,3" />
+            <Setter Property="Padding" Value="3,2" />
+        </Style>
+        <Style TargetType="TextBlock" x:Key="ReadOnlyValue">
+            <Setter Property="Margin" Value="0,4" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+    </Window.Resources>
+
+    <DockPanel Margin="16">
+        <Border DockPanel.Dock="Bottom" Margin="0,14,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="OK" IsDefault="True" MinWidth="80" Padding="8,4"
+                        Command="{Binding OkCommand}" />
+                <Button Content="Cancel" IsCancel="True" MinWidth="80" Padding="8,4" Margin="8,0,0,0"
+                        Command="{Binding CancelCommand}" />
+            </StackPanel>
+        </Border>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Title" Style="{StaticResource FieldLabel}" />
+            <TextBox   Grid.Row="0" Grid.Column="1" Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}" />
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Author" Style="{StaticResource FieldLabel}" />
+            <TextBox   Grid.Row="1" Grid.Column="1" Text="{Binding Author, UpdateSourceTrigger=PropertyChanged}" />
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Subject" Style="{StaticResource FieldLabel}" />
+            <TextBox   Grid.Row="2" Grid.Column="1" Text="{Binding Subject, UpdateSourceTrigger=PropertyChanged}" />
+
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Keywords" Style="{StaticResource FieldLabel}" />
+            <TextBox   Grid.Row="3" Grid.Column="1" Text="{Binding Keywords, UpdateSourceTrigger=PropertyChanged}" />
+
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Creator" Style="{StaticResource FieldLabel}" />
+            <TextBox   Grid.Row="4" Grid.Column="1" Text="{Binding Creator, UpdateSourceTrigger=PropertyChanged}" />
+
+            <Separator Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,10" />
+
+            <TextBlock Grid.Row="6" Grid.Column="0" Text="Producer" Style="{StaticResource FieldLabel}" />
+            <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding Producer}" Style="{StaticResource ReadOnlyValue}" />
+
+            <TextBlock Grid.Row="7" Grid.Column="0" Text="Created" Style="{StaticResource FieldLabel}" />
+            <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding Created}" Style="{StaticResource ReadOnlyValue}" />
+
+            <TextBlock Grid.Row="8" Grid.Column="0" Text="Modified" Style="{StaticResource FieldLabel}" />
+            <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding Modified}" Style="{StaticResource ReadOnlyValue}" />
+
+            <TextBlock Grid.Row="9" Grid.Column="0" Text="File" Style="{StaticResource FieldLabel}" />
+            <StackPanel Grid.Row="9" Grid.Column="1" Margin="0,4">
+                <TextBlock Text="{Binding FilePath}" Style="{StaticResource ReadOnlyValue}" ToolTip="{Binding FilePath}" />
+                <TextBlock Foreground="#777" FontSize="11">
+                    <Run Text="{Binding PageCountText, Mode=OneWay}" /><Run Text=" pages · " /><Run Text="{Binding FileSizeText, Mode=OneWay}" />
+                </TextBlock>
+            </StackPanel>
+        </Grid>
+    </DockPanel>
+</Window>

@@ -46,6 +46,10 @@
             </ToolBar>
 
             <ToolBar>
+                <Button Content="Properties…" Padding="8,3" Command="{Binding SelectedTab.ShowPropertiesCommand}"
+                        IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Properties"
+                        ToolTip="View / edit document metadata" />
+                <Separator />
                 <Button Content="Save" Padding="8,3" Command="{Binding SelectedTab.SaveCommand}"
                         IsEnabled="{Binding HasTabs}" ToolTip="Save (Ctrl+S)" />
                 <Button Content="Save As…" Padding="8,3" Margin="4,0,0,0"

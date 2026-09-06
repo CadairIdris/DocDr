@@ -12,12 +12,15 @@ public sealed record PdfDocumentInfo(
     string Creator,
     string Producer,
     string CreationDate,
-    string ModificationDate);
+    string ModificationDate)
+{
+    public static PdfDocumentInfo Empty { get; } = new("", "", "", "", "", "", "", "");
+}
 
 /// <summary>
-/// Reads standard Info-dictionary metadata via PDFium. Read-only in Stage 1; writing is a
-/// Stage 4 question (PDFium's public API has no setter and the SQLite catalog is the source
-/// of truth for user-managed fields regardless).
+/// Reads standard Info-dictionary metadata via PDFium. PDFium has no metadata *setter*, so
+/// writes are done by <see cref="PdfMetadataWriter"/> appending an incremental update to the
+/// saved bytes.
 /// </summary>
 public static class PdfMetadata
 {

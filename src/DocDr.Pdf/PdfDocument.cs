@@ -42,6 +42,10 @@ public sealed class PdfDocument : IDisposable
     private IReadOnlyList<PdfSize>? _pageSizes;
     private bool _disposed;
 
+    private PdfDocumentInfo _info = PdfDocumentInfo.Empty;
+    private bool _infoEdited;
+    private bool _handleHasOriginalInfo = true;
+
     private PdfDocument(FpdfDocumentT handle, GCHandle pin, string? path, int pageCount)
     {
         _handle = handle;
@@ -53,6 +57,7 @@ public sealed class PdfDocument : IDisposable
             _pages.Add(new PageRef(OriginalSourceId, i, GetRotation(handle, i) & 3));
         }
 
+        _info = PdfMetadata.GetInfo(this);
         FilePath = path;
     }
 
@@ -74,6 +79,27 @@ public sealed class PdfDocument : IDisposable
 
     /// <summary>Raised when <see cref="IsDirty"/> changes.</summary>
     public event EventHandler? DirtyChanged;
+
+    /// <summary>Raised when <see cref="UpdateInfo"/> changes the document metadata.</summary>
+    public event EventHandler? MetadataChanged;
+
+    /// <summary>Current Info-dictionary metadata (as loaded, plus any edits via <see cref="UpdateInfo"/>).</summary>
+    public PdfDocumentInfo Info => _info;
+
+    /// <summary>Replace the document metadata. Applied to the file on the next save; not part of undo.</summary>
+    public void UpdateInfo(PdfDocumentInfo info)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+        if (info == _info)
+        {
+            return;
+        }
+
+        _info = info;
+        _infoEdited = true;
+        SetDirty(true);
+        MetadataChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     internal FpdfDocumentT Handle =>
         _handle ?? throw new ObjectDisposedException(nameof(PdfDocument));
@@ -457,6 +483,7 @@ public sealed class PdfDocument : IDisposable
 
         FpdfDocumentT? old = _handle;
         _handle = fresh;
+        _handleHasOriginalInfo = false; // FPDF_CreateNewDocument has no Info dict; re-added at save time
         if (old is not null && !ReferenceEquals(old, _sources[OriginalSourceId].Handle))
         {
             fpdfview.FPDF_CloseDocument(old);
@@ -539,7 +566,17 @@ public sealed class PdfDocument : IDisposable
                 fileWrite.Dispose();
             }
 
-            return stream.ToArray();
+            byte[] bytes = stream.ToArray();
+
+            // FPDF_SaveAsCopy keeps the original Info dict, but a rebuilt handle has none, and
+            // PDFium can't write our metadata edits — so append an incremental Info update.
+            if (_infoEdited || !_handleHasOriginalInfo)
+            {
+                PdfDocumentInfo toWrite = _info with { ModificationDate = PdfDate.Now() };
+                bytes = PdfMetadataWriter.AppendInfo(bytes, toWrite);
+            }
+
+            return bytes;
         });
     }
 
@@ -554,6 +591,12 @@ public sealed class PdfDocument : IDisposable
         File.Move(temp, fullPath, overwrite: true);
 
         FilePath = fullPath;
+        if (_infoEdited || !_handleHasOriginalInfo)
+        {
+            _info = _info with { ModificationDate = PdfDate.Now() };
+        }
+
+        _infoEdited = false;
         SetDirty(false);
     }
 

@@ -5,6 +5,14 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 
 ## Status
 
+### Document properties (Stage 4 — partial)
+
+- **Properties…** dialog: view and edit the Info-dictionary fields (Title, Author, Subject,
+  Keywords, Creator), with Producer / dates / page count / file size shown read-only.
+- PDFium has no metadata *setter*, so on save DocDr appends an incremental-update Info object
+  to the bytes PDFium produced. This also re-attaches metadata that a structural edit
+  (rebuild) would otherwise drop, and stamps `ModDate`.
+
 ### Stage 2 — Page editing (done)
 
 - **Rotate / delete / insert pages.** Targets the thumbnail-strip selection when the Pages
@@ -37,7 +45,7 @@ SQLite catalog + duplicate finder, OCR.
 
 | Project | Purpose |
 |---|---|
-| `src/DocDr.Pdf` | PDFium wrapper: `PdfiumLibrary`, `PdfDocument` (in-memory load, page edit + undo/redo + save), `PageRenderer` (+ LRU cache), `PdfSearch`, `PdfTextExtractor`, `PdfMetadata`, `PdfBookmarks`. All PDFium calls are serialised process-wide. |
+| `src/DocDr.Pdf` | PDFium wrapper: `PdfiumLibrary`, `PdfDocument` (in-memory load, page edit + undo/redo + save + metadata), `PageRenderer` (+ LRU cache), `PdfSearch`, `PdfTextExtractor`, `PdfMetadata` (+ `PdfMetadataWriter`, `PdfDate`), `PdfBookmarks`. All PDFium calls are serialised process-wide. |
 | `src/DocDr.App` | WPF app (MVVM via CommunityToolkit.Mvvm): tab shell, panes, background render queue. |
 | `tests/DocDr.Pdf.Tests` | xUnit tests over `DocDr.Pdf`, including concurrency stress tests. Fixtures are generated at test time (`TestPdfBuilder`). |
 
