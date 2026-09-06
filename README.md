@@ -27,7 +27,9 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   the popup. **Comment**: "Comment…" in that popup attaches a note to the highlight, or the
   **💬 Note** toolbar toggle drops a standalone sticky note where you click.
 - Click a note marker to edit or delete; the nav panel's **Annotations** tab lists every
-  annotation and jumps to it.
+  annotation (with its author and date) and jumps to it.
+- Each annotation records its author and creation / modification dates in standard PDF
+  fields, and DocDr reads that data back from files annotated in other apps.
 - Annotations are DocDr's own model during a session (so they survive rotate / delete /
   insert / undo and stay on the right page); on save they are written into the PDF as
   standard `Highlight` / `Text` annotations, visible in any other reader.

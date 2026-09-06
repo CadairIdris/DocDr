@@ -52,6 +52,10 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   is the only thing drawing them. `SaveToBytes` bakes them onto the pages via
   `PdfAnnotationWriter.Write` around `FPDF_SaveAsCopy`, then strips them again (idempotent).
 - Other annotation subtypes (ink, stamps, widgets…) are left untouched and still render.
+- Metadata: `PdfAnnotation` carries `Author` / `Created` / `Modified`. Reader pulls `/T`,
+  `/CreationDate`, `/M`, and a GUID-shaped `/NM` (kept as the id so identity round-trips);
+  writer emits all four. New annotations stamp `Environment.UserName` + now; an edit keeps
+  `/CreationDate` and only bumps `/M`.
 - `AnnotationsChanged` is the light event (overlay rebuild only); `Changed` is the heavy one
   (full pane/thumbnail reload). Undo/redo raises `Changed` only when pages/rotations actually
   moved, `AnnotationsChanged` always.
