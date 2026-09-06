@@ -9,7 +9,7 @@
              d:DesignHeight="600" d:DesignWidth="150">
     <ListBox x:Name="ThumbList"
              ItemsSource="{Binding Thumbnails}"
-             SelectedItem="{Binding Selected, Mode=TwoWay}"
+             SelectionMode="Extended"
              Background="{StaticResource ChromeBrush}"
              BorderThickness="0"
              HorizontalContentAlignment="Center"
@@ -19,7 +19,18 @@
              VirtualizingPanel.IsVirtualizing="True"
              VirtualizingPanel.VirtualizationMode="Recycling"
              VirtualizingPanel.ScrollUnit="Pixel"
-             ScrollViewer.ScrollChanged="ThumbList_ScrollChanged">
+             ScrollViewer.ScrollChanged="ThumbList_ScrollChanged"
+             SelectionChanged="ThumbList_SelectionChanged">
+        <ListBox.ContextMenu>
+            <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                <MenuItem Header="Rotate right" Command="{Binding ContextEditCommand}" CommandParameter="RotateRight" />
+                <MenuItem Header="Rotate left" Command="{Binding ContextEditCommand}" CommandParameter="RotateLeft" />
+                <MenuItem Header="Rotate 180°" Command="{Binding ContextEditCommand}" CommandParameter="Rotate180" />
+                <Separator />
+                <MenuItem Header="Delete page(s)" Command="{Binding ContextEditCommand}" CommandParameter="Delete" />
+                <MenuItem Header="Insert PDF after…" Command="{Binding ContextEditCommand}" CommandParameter="InsertAfter" />
+            </ContextMenu>
+        </ListBox.ContextMenu>
         <ListBox.ItemTemplate>
             <DataTemplate DataType="{x:Type vm:ThumbnailViewModel}">
                 <StackPanel Width="140" Margin="0,4">

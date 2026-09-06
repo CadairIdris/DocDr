@@ -3,9 +3,20 @@
 A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 (see [`_specs/001-pdf-desktop-app-spec.md`](_specs/001-pdf-desktop-app-spec.md)).
 
-## Status — Stage 1 (Core Viewer + PDFium plumbing)
+## Status
 
-Done:
+### Stage 2 — Page editing (done)
+
+- **Rotate / delete / insert pages.** Targets the thumbnail-strip selection when the Pages
+  panel is showing it, otherwise the active pane's current page. Delete confirms first;
+  Insert brings in every page of another PDF.
+- **Undo / redo** (`Ctrl+Z` / `Ctrl+Y`, ~30 deep). The document is modelled as an ordered
+  list of page references into one or more source PDFs; structural edits rebuild the live
+  PDFium handle, undo restores an earlier version of the list.
+- **Save / Save As** (`Ctrl+S` / `Ctrl+Shift+S`). Files are loaded fully into memory so Save
+  overwrites the original in place. Dirty tabs show `•` and prompt on close.
+
+### Stage 1 — Core viewer + PDFium plumbing (done)
 
 - Load a PDF via PDFium (`PDFiumCore`, Apache-2.0) and render pages to WPF.
 - Tabbed shell — several documents open at once, the same file openable in more than one tab.
@@ -19,14 +30,14 @@ Done:
 - Zoom (25–800%, Fit Width, Fit Page, 100%, **Ctrl+wheel / trackpad pinch**, anchored on the
   cursor) and page navigation.
 
-Not yet (later stages): page editing, annotations, folder browser, metadata editing,
+Not yet (later stages): annotations, folder browser, metadata editing,
 SQLite catalog + duplicate finder, OCR.
 
 ## Layout
 
 | Project | Purpose |
 |---|---|
-| `src/DocDr.Pdf` | PDFium wrapper: `PdfiumLibrary`, `PdfDocument`, `PageRenderer` (+ LRU cache), `PdfSearch`, `PdfTextExtractor`, `PdfMetadata`, `PdfBookmarks`. All PDFium calls are serialised process-wide. |
+| `src/DocDr.Pdf` | PDFium wrapper: `PdfiumLibrary`, `PdfDocument` (in-memory load, page edit + undo/redo + save), `PageRenderer` (+ LRU cache), `PdfSearch`, `PdfTextExtractor`, `PdfMetadata`, `PdfBookmarks`. All PDFium calls are serialised process-wide. |
 | `src/DocDr.App` | WPF app (MVVM via CommunityToolkit.Mvvm): tab shell, panes, background render queue. |
 | `tests/DocDr.Pdf.Tests` | xUnit tests over `DocDr.Pdf`, including concurrency stress tests. Fixtures are generated at test time (`TestPdfBuilder`). |
 

@@ -33,17 +33,29 @@ public sealed partial class BookmarkNodeViewModel : ObservableObject
 }
 
 /// <summary>The document outline for a tab, plus jump-to-page activation.</summary>
-public sealed class BookmarksViewModel
+public sealed partial class BookmarksViewModel : ObservableObject
 {
     public BookmarksViewModel(IReadOnlyList<PdfBookmark> bookmarks)
     {
-        Roots = new ObservableCollection<BookmarkNodeViewModel>(
-            bookmarks.Select(b => new BookmarkNodeViewModel(b, 0)));
+        Roots = [];
+        Reload(bookmarks);
     }
 
     public ObservableCollection<BookmarkNodeViewModel> Roots { get; }
 
     public bool HasBookmarks => Roots.Count > 0;
+
+    /// <summary>Rebuild the tree after the document's outline changed (pages inserted / deleted).</summary>
+    public void Reload(IReadOnlyList<PdfBookmark> bookmarks)
+    {
+        Roots.Clear();
+        foreach (PdfBookmark bookmark in bookmarks)
+        {
+            Roots.Add(new BookmarkNodeViewModel(bookmark, 0));
+        }
+
+        OnPropertyChanged(nameof(HasBookmarks));
+    }
 
     /// <summary>Raised when a bookmark with a target is chosen; carries the 0-based page index.</summary>
     public event Action<int>? BookmarkActivated;

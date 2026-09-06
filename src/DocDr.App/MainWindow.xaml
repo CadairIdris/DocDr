@@ -13,7 +13,15 @@
         PreviewDragEnter="OnPreviewDragOver"
         PreviewDragOver="OnPreviewDragOver"
         PreviewDragLeave="OnPreviewDragLeave"
-        PreviewDrop="OnPreviewDrop">
+        PreviewDrop="OnPreviewDrop"
+        Closing="OnWindowClosing">
+    <Window.InputBindings>
+        <KeyBinding Modifiers="Control" Key="S" Command="{Binding SelectedTab.SaveCommand}" />
+        <KeyBinding Modifiers="Control+Shift" Key="S" Command="{Binding SelectedTab.SaveAsCommand}" />
+        <KeyBinding Modifiers="Control" Key="Z" Command="{Binding SelectedTab.UndoCommand}" />
+        <KeyBinding Modifiers="Control" Key="Y" Command="{Binding SelectedTab.RedoCommand}" />
+        <KeyBinding Modifiers="Control" Key="O" Command="{Binding OpenCommand}" />
+    </Window.InputBindings>
     <Grid>
     <DockPanel>
         <ToolBarTray DockPanel.Dock="Top">
@@ -35,6 +43,37 @@
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.IsSplitView, Mode=TwoWay}"
                               ToolTip="Show a second, independent pane for this document" />
+            </ToolBar>
+
+            <ToolBar>
+                <Button Content="Save" Padding="8,3" Command="{Binding SelectedTab.SaveCommand}"
+                        IsEnabled="{Binding HasTabs}" ToolTip="Save (Ctrl+S)" />
+                <Button Content="Save As…" Padding="8,3" Margin="4,0,0,0"
+                        Command="{Binding SelectedTab.SaveAsCommand}" IsEnabled="{Binding HasTabs}"
+                        AutomationProperties.Name="Save As"
+                        ToolTip="Save a copy (Ctrl+Shift+S)" />
+                <Separator />
+                <Button Content="↶" FontSize="14" Padding="7,1" Command="{Binding SelectedTab.UndoCommand}"
+                        AutomationProperties.Name="Undo" ToolTip="Undo (Ctrl+Z)" />
+                <Button Content="↷" FontSize="14" Padding="7,1" Margin="2,0,0,0"
+                        Command="{Binding SelectedTab.RedoCommand}"
+                        AutomationProperties.Name="Redo" ToolTip="Redo (Ctrl+Y)" />
+                <Separator />
+                <Button Content="Rotate ⟲" Padding="8,3" Command="{Binding SelectedTab.RotateLeftCommand}"
+                        IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Rotate left"
+                        ToolTip="Rotate selected / current page left" />
+                <Button Content="Rotate ⟳" Padding="8,3" Margin="2,0,0,0"
+                        Command="{Binding SelectedTab.RotateRightCommand}" IsEnabled="{Binding HasTabs}"
+                        AutomationProperties.Name="Rotate right"
+                        ToolTip="Rotate selected / current page right" />
+                <Button Content="Delete page(s)" Padding="8,3" Margin="4,0,0,0"
+                        Command="{Binding SelectedTab.DeletePagesCommand}" IsEnabled="{Binding HasTabs}"
+                        AutomationProperties.Name="Delete pages"
+                        ToolTip="Delete selected / current page(s)" />
+                <Button Content="Insert PDF…" Padding="8,3" Margin="4,0,0,0"
+                        Command="{Binding SelectedTab.InsertPdfCommand}" IsEnabled="{Binding HasTabs}"
+                        AutomationProperties.Name="Insert PDF"
+                        ToolTip="Insert every page of another PDF" />
             </ToolBar>
         </ToolBarTray>
 

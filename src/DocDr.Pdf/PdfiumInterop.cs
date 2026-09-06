@@ -39,6 +39,18 @@ public enum PdfSearchOptions
 }
 
 /// <summary>
+/// A quarter-turn amount, matching PDFium's page-rotation values
+/// (0/1/2/3 = 0°/90°/180°/270° clockwise).
+/// </summary>
+public enum PdfRotation
+{
+    None = 0,
+    Clockwise90 = 1,
+    Rotate180 = 2,
+    CounterClockwise90 = 3,
+}
+
+/// <summary>
 /// Error codes returned by <c>FPDF_GetLastError</c>.
 /// </summary>
 public enum PdfiumError

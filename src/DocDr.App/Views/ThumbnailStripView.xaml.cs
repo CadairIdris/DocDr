@@ -34,27 +34,49 @@ public partial class ThumbnailStripView : UserControl
         };
     }
 
+    private bool _syncingSelection;
+
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         if (_vm is not null)
         {
-            _vm.PropertyChanged -= OnVmPropertyChanged;
+            _vm.CurrentPageChanged -= OnCurrentPageChanged;
         }
 
         _vm = e.NewValue as ThumbnailStripViewModel;
 
         if (_vm is not null)
         {
-            _vm.PropertyChanged += OnVmPropertyChanged;
+            _vm.CurrentPageChanged += OnCurrentPageChanged;
         }
     }
 
-    private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    private void OnCurrentPageChanged(int pageIndex)
     {
-        if (e.PropertyName == nameof(ThumbnailStripViewModel.Selected) && _vm?.Selected is { } selected)
+        if (pageIndex < 0 || pageIndex >= ThumbList.Items.Count)
         {
-            Dispatcher.BeginInvoke(() => ThumbList.ScrollIntoView(selected),
-                System.Windows.Threading.DispatcherPriority.Background);
+            return;
+        }
+
+        Dispatcher.BeginInvoke(() => ThumbList.ScrollIntoView(ThumbList.Items[pageIndex]),
+            System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    private void ThumbList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || _syncingSelection)
+        {
+            return;
+        }
+
+        _syncingSelection = true;
+        try
+        {
+            _vm.SetSelection(ThumbList.SelectedItems);
+        }
+        finally
+        {
+            _syncingSelection = false;
         }
     }
 

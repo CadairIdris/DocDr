@@ -34,6 +34,27 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(WindowTitle))]
     private DocumentTabViewModel? _selectedTab;
 
+    partial void OnSelectedTabChanging(DocumentTabViewModel? oldValue, DocumentTabViewModel? newValue)
+    {
+        if (oldValue is not null)
+        {
+            oldValue.PropertyChanged -= OnSelectedTabPropertyChanged;
+        }
+
+        if (newValue is not null)
+        {
+            newValue.PropertyChanged += OnSelectedTabPropertyChanged;
+        }
+    }
+
+    private void OnSelectedTabPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(DocumentTabViewModel.Title))
+        {
+            OnPropertyChanged(nameof(WindowTitle));
+        }
+    }
+
     [ObservableProperty]
     private string _statusText = "Open a PDF to begin.";
 
@@ -104,6 +125,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (!tab.ConfirmClose())
+        {
+            return;
+        }
+
         Tabs.Remove(tab);
         _renderQueue.Clear();
 
@@ -132,6 +158,20 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 return candidate;
             }
         }
+    }
+
+    /// <summary>Prompt to save every dirty tab. Returns false if the user cancelled (abort the shutdown).</summary>
+    public bool ConfirmShutdown()
+    {
+        foreach (DocumentTabViewModel tab in Tabs.ToArray())
+        {
+            if (!tab.ConfirmClose())
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void OnTabsChanged(object? sender, NotifyCollectionChangedEventArgs e)

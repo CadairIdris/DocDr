@@ -37,6 +37,7 @@ public partial class PdfPaneView : UserControl
         {
             _pane.ScrollToPageRequested -= OnScrollToPageRequested;
             _pane.PropertyChanged -= OnPanePropertyChanged;
+            _pane.PagesReloaded -= OnPagesReloaded;
         }
 
         _pane = e.NewValue as PdfPaneViewModel;
@@ -48,6 +49,7 @@ public partial class PdfPaneView : UserControl
 
         _pane.ScrollToPageRequested += OnScrollToPageRequested;
         _pane.PropertyChanged += OnPanePropertyChanged;
+        _pane.PagesReloaded += OnPagesReloaded;
 
         // WPF's TabControl reuses this single PdfPaneView across every tab, swapping the
         // DataContext underneath it — so a plain event hook isn't enough. Re-establish
@@ -75,6 +77,12 @@ public partial class PdfPaneView : UserControl
             _scrollViewer?.ScrollToVerticalOffset(0);
             ScheduleReinitialize();
         }
+    }
+
+    private void OnPagesReloaded()
+    {
+        ApplyViewMode();
+        ScheduleReinitialize();
     }
 
     /// <summary>Point the list at the right collection + template for the pane's current mode.</summary>

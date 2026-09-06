@@ -31,7 +31,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     private readonly PdfDocument _document;
     private readonly BackgroundRenderQueue _queue;
     private readonly PdfSearch _search;
-    private readonly IReadOnlyList<PdfSize> _pageSizes;
+    private IReadOnlyList<PdfSize> _pageSizes;
 
     private CancellationTokenSource? _searchCts;
     private IReadOnlyList<SearchHit> _hits = [];
@@ -80,6 +80,50 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     /// <summary>Raised when the pane wants the view to bring a page into view (0-based).</summary>
     public event Action<int>? ScrollToPageRequested;
+
+    /// <summary>Raised after <see cref="ReloadPages"/> rebuilds the page list (the view re-initialises).</summary>
+    public event Action? PagesReloaded;
+
+    /// <summary>
+    /// Rebuild the page list after the document's pages changed (rotate / delete / insert / undo).
+    /// Search state is dropped because hit coordinates and page indices are no longer valid.
+    /// </summary>
+    public void ReloadPages(IReadOnlyList<PdfSize> pageSizes)
+    {
+        _pageSizes = pageSizes;
+
+        ResetSearchState();
+        SearchText = string.Empty;
+        _searchCts?.Cancel();
+        _searchCts = null;
+
+        Pages.Clear();
+        for (int i = 0; i < pageSizes.Count; i++)
+        {
+            Pages.Add(new PageSlotViewModel(i, pageSizes[i]));
+        }
+
+        int clamped = PageCount == 0 ? 0 : Math.Clamp(CurrentPage, 1, PageCount);
+        _suppressScrollSync = true;
+        CurrentPage = clamped;
+        _suppressScrollSync = false;
+
+        if (Mode == ViewMode.Grid)
+        {
+            RebuildGrid();
+        }
+        else
+        {
+            ApplyLayout();
+        }
+
+        PagesView.Refresh();
+        OnPropertyChanged(nameof(PageCount));
+        OnPropertyChanged(nameof(PageCountText));
+        NextPageCommand.NotifyCanExecuteChanged();
+        PreviousPageCommand.NotifyCanExecuteChanged();
+        PagesReloaded?.Invoke();
+    }
 
     [ObservableProperty]
     private ViewMode _mode = ViewMode.Continuous;

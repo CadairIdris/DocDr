@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -11,6 +12,14 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+    }
+
+    private void OnWindowClosing(object sender, CancelEventArgs e)
+    {
+        if (DataContext is MainViewModel viewModel && !viewModel.ConfirmShutdown())
+        {
+            e.Cancel = true;
+        }
     }
 
     private void OnPreviewDragOver(object sender, DragEventArgs e)
