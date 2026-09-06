@@ -8,7 +8,8 @@ than one large build.
 
 **Core capabilities (in scope):**
 - View PDFs in single-page, continuous, and grid (multi-column, auto-fit) modes
-- Thumbnail navigation panel (collapsible) for jumping around a document
+- Collapsible navigation panel per tab: page thumbnails and the document's bookmark
+  outline, either one for jumping around the document
 - Tabbed workspace: multiple documents open at once, each in its own tab; a document
   can also be opened in more than one tab (independent view of the same file)
 - Two independent views into the same document, each at a different page, each with its own search
@@ -72,7 +73,9 @@ before investing in anything else.
 - Load a PDF via PDFium and render pages to WPF via `WriteableBitmap`.
 - View modes per pane: single-page, continuous (scrollable), and grid — pages wrapped into
   rows, column count auto-fitting the pane width at the current zoom (zoom out ⇒ more columns).
-- A collapsible thumbnail strip per tab; clicking a thumbnail navigates the active pane.
+- A collapsible navigation panel per tab with two sections: a page-thumbnail strip and the
+  PDF's bookmark/outline tree (read via PDFium). Clicking a thumbnail or a bookmark navigates
+  the active pane to that page.
 - Split view is optional and off by default (one pane per tab); a toggle reveals the second
   independent pane on the same document.
 - The two panes (when split) can each be scrolled/paged to a different location independently.

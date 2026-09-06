@@ -12,20 +12,27 @@ internal static class TestPdfBuilder
     public const double PageWidth = 612;
     public const double PageHeight = 792;
 
+    public sealed record PdfInfo(string? Title = null, string? Author = null, string? Subject = null);
+
+    /// <summary>A flat outline entry: a title that jumps to a 0-based page.</summary>
+    public sealed record Bookmark(string Title, int PageIndex);
+
     /// <summary>
     /// Write a PDF whose page <c>i</c> contains the line <paramref name="pageLines"/>[i] drawn in
     /// 24pt Helvetica near the top-left.
     /// </summary>
-    public static string WritePdf(string path, IReadOnlyList<string> pageLines, PdfInfo? info = null)
+    public static string WritePdf(
+        string path,
+        IReadOnlyList<string> pageLines,
+        PdfInfo? info = null,
+        IReadOnlyList<Bookmark>? bookmarks = null)
     {
-        byte[] bytes = Build(pageLines, info);
+        byte[] bytes = Build(pageLines, info, bookmarks ?? []);
         File.WriteAllBytes(path, bytes);
         return path;
     }
 
-    public sealed record PdfInfo(string? Title = null, string? Author = null, string? Subject = null);
-
-    private static byte[] Build(IReadOnlyList<string> pageLines, PdfInfo? info)
+    private static byte[] Build(IReadOnlyList<string> pageLines, PdfInfo? info, IReadOnlyList<Bookmark> bookmarks)
     {
         int pageCount = pageLines.Count;
         var buffer = new MemoryStream();
@@ -38,18 +45,28 @@ internal static class TestPdfBuilder
             Write($"{number} 0 obj\n");
         }
 
+        int PageObj(int index) => 4 + (2 * index);
+
+        // Object-number plan (written strictly in this order).
+        int next = 4 + (2 * pageCount);
+        int? infoObj = info is not null ? next++ : null;
+        int? outlinesObj = bookmarks.Count > 0 ? next++ : null;
+        int firstItemObj = next;
+        int totalObjects = next + bookmarks.Count - 1;
+
         Write("%PDF-1.7\n");
         buffer.Write([0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A]); // binary marker comment
 
-        // 1: Catalog, 2: Pages, 3: Font
         BeginObject(1);
-        Write("<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+        Write(outlinesObj is null
+            ? "<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+            : $"<< /Type /Catalog /Pages 2 0 R /Outlines {outlinesObj} 0 R >>\nendobj\n");
 
         BeginObject(2);
         var kids = new StringBuilder();
         for (int i = 0; i < pageCount; i++)
         {
-            kids.Append(CultureInfo.InvariantCulture, $"{4 + (2 * i)} 0 R ");
+            kids.Append(CultureInfo.InvariantCulture, $"{PageObj(i)} 0 R ");
         }
 
         Write($"<< /Type /Pages /Kids [ {kids.ToString().TrimEnd()} ] /Count {pageCount} >>\nendobj\n");
@@ -59,33 +76,47 @@ internal static class TestPdfBuilder
 
         for (int i = 0; i < pageCount; i++)
         {
-            int pageObj = 4 + (2 * i);
-            int contentObj = 5 + (2 * i);
-
-            BeginObject(pageObj);
+            BeginObject(PageObj(i));
             Write($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {F(PageWidth)} {F(PageHeight)}] " +
-                  $"/Resources << /Font << /F1 3 0 R >> >> /Contents {contentObj} 0 R >>\nendobj\n");
+                  $"/Resources << /Font << /F1 3 0 R >> >> /Contents {5 + (2 * i)} 0 R >>\nendobj\n");
 
-            string escaped = Escape(pageLines[i]);
-            string stream = $"BT /F1 24 Tf 72 {F(PageHeight - 96)} Td ({escaped}) Tj ET\n";
-            BeginObject(contentObj);
+            string stream = $"BT /F1 24 Tf 72 {F(PageHeight - 96)} Td ({Escape(pageLines[i])}) Tj ET\n";
+            BeginObject(5 + (2 * i));
             Write($"<< /Length {Encoding.ASCII.GetByteCount(stream)} >>\nstream\n{stream}endstream\nendobj\n");
         }
 
-        int totalObjects = 3 + (2 * pageCount);
-
-        int? infoObj = null;
-        if (info is not null)
+        if (infoObj is not null)
         {
-            infoObj = totalObjects + 1;
             BeginObject(infoObj.Value);
             var dict = new StringBuilder("<< ");
-            if (info.Title is not null) dict.Append(CultureInfo.InvariantCulture, $"/Title ({Escape(info.Title)}) ");
+            if (info!.Title is not null) dict.Append(CultureInfo.InvariantCulture, $"/Title ({Escape(info.Title)}) ");
             if (info.Author is not null) dict.Append(CultureInfo.InvariantCulture, $"/Author ({Escape(info.Author)}) ");
             if (info.Subject is not null) dict.Append(CultureInfo.InvariantCulture, $"/Subject ({Escape(info.Subject)}) ");
             dict.Append(">>");
             Write($"{dict}\nendobj\n");
-            totalObjects++;
+        }
+
+        if (outlinesObj is not null)
+        {
+            BeginObject(outlinesObj.Value);
+            Write($"<< /Type /Outlines /First {firstItemObj} 0 R " +
+                  $"/Last {firstItemObj + bookmarks.Count - 1} 0 R /Count {bookmarks.Count} >>\nendobj\n");
+
+            for (int i = 0; i < bookmarks.Count; i++)
+            {
+                int self = firstItemObj + i;
+                var dict = new StringBuilder();
+                dict.Append(CultureInfo.InvariantCulture,
+                    $"<< /Title ({Escape(bookmarks[i].Title)}) /Parent {outlinesObj} 0 R ");
+                dict.Append(CultureInfo.InvariantCulture,
+                    $"/Dest [ {PageObj(bookmarks[i].PageIndex)} 0 R /Fit ] ");
+                if (i > 0) dict.Append(CultureInfo.InvariantCulture, $"/Prev {self - 1} 0 R ");
+                if (i < bookmarks.Count - 1) dict.Append(CultureInfo.InvariantCulture, $"/Next {self + 1} 0 R ");
+                dict.Append(">>");
+
+                BeginObject(self);
+                Write($"{dict}\nendobj\n");
+            }
         }
 
         long xrefPos = buffer.Position;

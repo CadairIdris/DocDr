@@ -13,7 +13,8 @@ Done:
   document — independent page position, zoom, view mode, and text search.
 - Three view modes per pane: single-page, continuous (virtualised), and grid (rows of pages,
   column count auto-fits the width at the current zoom).
-- Collapsible **thumbnail navigation strip** per tab (off by default).
+- Collapsible **navigation panel** per tab (off by default): page thumbnails or the
+  document's bookmark outline; click either to jump to that page.
 - Per-pane full-text search: all matches, highlight overlays, match counter, next/previous.
 - Zoom (25–800%, Fit Width, Fit Page, 100%) and page navigation.
 
@@ -24,7 +25,7 @@ SQLite catalog + duplicate finder, OCR.
 
 | Project | Purpose |
 |---|---|
-| `src/DocDr.Pdf` | PDFium wrapper: `PdfiumLibrary`, `PdfDocument`, `PageRenderer` (+ LRU cache), `PdfSearch`, `PdfTextExtractor`, `PdfMetadata`. All PDFium calls are serialised process-wide. |
+| `src/DocDr.Pdf` | PDFium wrapper: `PdfiumLibrary`, `PdfDocument`, `PageRenderer` (+ LRU cache), `PdfSearch`, `PdfTextExtractor`, `PdfMetadata`, `PdfBookmarks`. All PDFium calls are serialised process-wide. |
 | `src/DocDr.App` | WPF app (MVVM via CommunityToolkit.Mvvm): tab shell, panes, background render queue. |
 | `tests/DocDr.Pdf.Tests` | xUnit tests over `DocDr.Pdf`, including concurrency stress tests. Fixtures are generated at test time (`TestPdfBuilder`). |
 

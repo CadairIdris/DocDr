@@ -65,6 +65,16 @@ public sealed class ThumbnailBoxHeightConverter : IValueConverter
         Binding.DoNothing;
 }
 
+/// <summary>Enum value → Visible when it matches the parameter's member name, else Collapsed.</summary>
+public sealed class EnumToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value?.ToString() == parameter?.ToString() ? Visibility.Visible : Visibility.Collapsed;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        Binding.DoNothing;
+}
+
 /// <summary>Enum equality test usable as a converter (parameter = enum member name).</summary>
 public sealed class EnumEqualsConverter : IValueConverter
 {

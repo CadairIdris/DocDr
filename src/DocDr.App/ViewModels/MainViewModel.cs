@@ -68,14 +68,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         StatusText = $"Opening {Path.GetFileName(path)}…";
         try
         {
-            (PdfDocument document, System.Collections.Generic.IReadOnlyList<PdfSize> sizes) =
+            (PdfDocument document,
+             System.Collections.Generic.IReadOnlyList<PdfSize> sizes,
+             System.Collections.Generic.IReadOnlyList<PdfBookmark> bookmarks) =
                 await Task.Run(() =>
                 {
                     PdfDocument doc = PdfDocument.Load(path);
-                    return (doc, doc.GetPageSizes());
+                    return (doc, doc.GetPageSizes(), PdfBookmarks.Read(doc));
                 }).ConfigureAwait(true);
 
-            var tab = new DocumentTabViewModel(UniqueTitle(Path.GetFileName(path)), document, sizes, _renderQueue, _cache);
+            var tab = new DocumentTabViewModel(
+                UniqueTitle(Path.GetFileName(path)), document, sizes, bookmarks, _renderQueue, _cache);
             tab.CloseRequested += (_, _) => CloseTab(tab);
             Tabs.Add(tab);
             SelectedTab = tab;

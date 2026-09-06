@@ -20,11 +20,18 @@
             <ToolBar>
                 <Button Command="{Binding OpenCommand}" Content="Open PDF…" Padding="10,3" />
                 <Separator />
-                <ToggleButton Content="Thumbnails" Padding="8,3"
-                              IsEnabled="{Binding HasTabs}"
-                              IsChecked="{Binding SelectedTab.IsThumbnailStripVisible, Mode=TwoWay}"
-                              ToolTip="Show the page thumbnail strip" />
-                <ToggleButton Content="Split view" Padding="8,3" Margin="4,0,0,0"
+                <Button Content="Pages" Padding="8,3"
+                        IsEnabled="{Binding HasTabs}"
+                        Command="{Binding SelectedTab.ToggleNavigationCommand}"
+                        CommandParameter="{x:Static vm:NavigationTab.Pages}"
+                        ToolTip="Page thumbnail strip" />
+                <Button Content="Bookmarks" Padding="8,3" Margin="4,0,0,0"
+                        IsEnabled="{Binding HasTabs}"
+                        Command="{Binding SelectedTab.ToggleNavigationCommand}"
+                        CommandParameter="{x:Static vm:NavigationTab.Bookmarks}"
+                        ToolTip="Document outline / bookmarks" />
+                <Separator />
+                <ToggleButton Content="Split view" Padding="8,3"
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.IsSplitView, Mode=TwoWay}"
                               ToolTip="Show a second, independent pane for this document" />

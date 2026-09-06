@@ -17,15 +17,12 @@
             <ColumnDefinition Width="{Binding IsSplitView, Converter={StaticResource SplitViewWidth}}" MinWidth="0" />
         </Grid.ColumnDefinitions>
 
-        <views:ThumbnailStripView Grid.Column="0" Width="156"
-                                  DataContext="{Binding Thumbnails}"
-                                  Visibility="{Binding DataContext.IsThumbnailStripVisible,
-                                               RelativeSource={RelativeSource AncestorType={x:Type views:DocumentTabView}},
-                                               Converter={StaticResource BoolToVisibility}}" />
+        <views:NavigationPanelView Grid.Column="0" Width="196"
+                                   Visibility="{Binding IsNavigationPanelVisible, Converter={StaticResource BoolToVisibility}}" />
 
         <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"
                       Background="{StaticResource BorderBrush}" ResizeBehavior="PreviousAndNext"
-                      Visibility="{Binding IsThumbnailStripVisible, Converter={StaticResource BoolToVisibility}}" />
+                      Visibility="{Binding IsNavigationPanelVisible, Converter={StaticResource BoolToVisibility}}" />
 
         <views:PdfPaneView Grid.Column="2" DataContext="{Binding LeftPane}" />
 

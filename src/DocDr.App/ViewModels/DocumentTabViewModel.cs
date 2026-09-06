@@ -19,6 +19,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         string title,
         PdfDocument document,
         IReadOnlyList<PdfSize> pageSizes,
+        IReadOnlyList<PdfBookmark> bookmarks,
         BackgroundRenderQueue queue,
         CachingPageRenderer cache)
     {
@@ -31,6 +32,10 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
         Thumbnails = new ThumbnailStripViewModel(document, pageSizes, queue);
         Thumbnails.PageActivated += pageIndex => LeftPane.GoToPage(pageIndex + 1);
+
+        Bookmarks = new BookmarksViewModel(bookmarks);
+        Bookmarks.BookmarkActivated += pageIndex => LeftPane.GoToPage(pageIndex + 1);
+
         LeftPane.PropertyChanged += OnLeftPanePropertyChanged;
         Thumbnails.SetCurrentPage(LeftPane.CurrentPage);
     }
@@ -43,9 +48,13 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isSplitView;
 
-    /// <summary>Whether the thumbnail navigation strip is shown. Off by default.</summary>
+    /// <summary>Whether the navigation panel (page thumbnails / bookmarks) is shown. Off by default.</summary>
     [ObservableProperty]
-    private bool _isThumbnailStripVisible;
+    private bool _isNavigationPanelVisible;
+
+    /// <summary>Which navigation-panel section is showing.</summary>
+    [ObservableProperty]
+    private NavigationTab _navigationTab = NavigationTab.Pages;
 
     public PdfDocument Document { get; }
 
@@ -54,6 +63,23 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     public PdfPaneViewModel RightPane { get; }
 
     public ThumbnailStripViewModel Thumbnails { get; }
+
+    public BookmarksViewModel Bookmarks { get; }
+
+    /// <summary>Toolbar: open the navigation panel on <paramref name="tab"/>, or close it if that section is already showing.</summary>
+    [RelayCommand]
+    private void ToggleNavigation(NavigationTab tab)
+    {
+        if (IsNavigationPanelVisible && NavigationTab == tab)
+        {
+            IsNavigationPanelVisible = false;
+        }
+        else
+        {
+            NavigationTab = tab;
+            IsNavigationPanelVisible = true;
+        }
+    }
 
     private void OnLeftPanePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
