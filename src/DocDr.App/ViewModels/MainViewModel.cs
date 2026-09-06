@@ -21,15 +21,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
     private readonly BackgroundRenderQueue _renderQueue;
     private readonly CachingPageRenderer _cache;
+    private readonly AppSettings _settings;
 
-    public MainViewModel(BackgroundRenderQueue renderQueue, CachingPageRenderer cache)
+    public MainViewModel(BackgroundRenderQueue renderQueue, CachingPageRenderer cache, AppSettings settings)
     {
         _renderQueue = renderQueue;
         _cache = cache;
+        _settings = settings;
         Tabs.CollectionChanged += OnTabsChanged;
+        RebuildRecentFiles();
     }
 
     public ObservableCollection<DocumentTabViewModel> Tabs { get; } = [];
+
+    /// <summary>Recent documents shown on the home screen (most recent first).</summary>
+    public ObservableCollection<RecentFileViewModel> RecentFiles { get; } = [];
+
+    public bool HasRecentFiles => RecentFiles.Count > 0;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(WindowTitle))]
@@ -113,11 +121,69 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             Tabs.Add(tab);
             SelectedTab = tab;
             StatusText = $"{document.PageCount} page(s) — {Tabs.Count} tab(s) open.";
+
+            _settings.PushRecentFile(Path.GetFullPath(path));
+            _settings.Save();
+            RebuildRecentFiles();
         }
         catch (Exception ex) when (ex is PdfException or IOException or UnauthorizedAccessException)
         {
             StatusText = $"Could not open {Path.GetFileName(path)}: {ex.Message}";
         }
+    }
+
+    // --- Recent files ------------------------------------------------------------------
+
+    [RelayCommand]
+    private async Task OpenRecentAsync(RecentFileViewModel? recent)
+    {
+        if (recent is null)
+        {
+            return;
+        }
+
+        if (!File.Exists(recent.Path))
+        {
+            StatusText = $"{recent.FileName} is no longer at that location.";
+            _settings.RecentFiles.RemoveAll(p => string.Equals(p, recent.Path, StringComparison.OrdinalIgnoreCase));
+            _settings.Save();
+            RebuildRecentFiles();
+            return;
+        }
+
+        await OpenPathAsync(recent.Path).ConfigureAwait(true);
+    }
+
+    [RelayCommand]
+    private void ClearRecentFiles()
+    {
+        _settings.RecentFiles.Clear();
+        _settings.Save();
+        RebuildRecentFiles();
+    }
+
+    [RelayCommand]
+    private void RemoveRecentFile(RecentFileViewModel? recent)
+    {
+        if (recent is null)
+        {
+            return;
+        }
+
+        _settings.RecentFiles.RemoveAll(p => string.Equals(p, recent.Path, StringComparison.OrdinalIgnoreCase));
+        _settings.Save();
+        RebuildRecentFiles();
+    }
+
+    private void RebuildRecentFiles()
+    {
+        RecentFiles.Clear();
+        foreach (string path in _settings.RecentFiles)
+        {
+            RecentFiles.Add(new RecentFileViewModel(path));
+        }
+
+        OnPropertyChanged(nameof(HasRecentFiles));
     }
 
     [RelayCommand]

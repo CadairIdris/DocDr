@@ -41,7 +41,7 @@ public partial class App : Application
         var imageService = new PageImageService(cache);
         var renderQueue = new BackgroundRenderQueue(imageService, Dispatcher);
 
-        _mainViewModel = new MainViewModel(renderQueue, cache);
+        _mainViewModel = new MainViewModel(renderQueue, cache, settings);
 
         var window = new MainWindow { DataContext = _mainViewModel };
         MainWindow = window;

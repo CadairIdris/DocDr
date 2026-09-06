@@ -144,10 +144,90 @@
                 </TabControl.ContentTemplate>
             </TabControl>
 
-            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
-                       FontSize="16" Foreground="{DynamicResource HintTextBrush}"
-                       Text="Open a PDF to begin, or drop PDF files here."
-                       Visibility="{Binding HasTabs, Converter={StaticResource InverseBoolToVisibility}}" />
+            <!-- Home screen (shown when no document is open) -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          Visibility="{Binding HasTabs, Converter={StaticResource InverseBoolToVisibility}}">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                            Width="460" Margin="24,40">
+                    <Image Source="/DocDr.App;component/Assets/DocDr.png" Width="56" Height="56"
+                           HorizontalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality" />
+                    <TextBlock Text="DocDr" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center"
+                               Margin="0,10,0,2" Foreground="{DynamicResource PrimaryTextBrush}" />
+                    <TextBlock Text="Open a PDF to begin, or drop PDF files anywhere in this window."
+                               HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                               Foreground="{DynamicResource SecondaryTextBrush}" />
+                    <Button Content="Open PDF…" Command="{Binding OpenCommand}" Padding="16,5"
+                            HorizontalAlignment="Center" Margin="0,14,0,0" />
+
+                    <Grid Margin="0,30,0,6"
+                          Visibility="{Binding HasRecentFiles, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="Recent" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource SecondaryTextBrush}" />
+                        <Button Content="Clear" HorizontalAlignment="Right" Padding="6,1"
+                                Background="Transparent" BorderThickness="0"
+                                Foreground="{DynamicResource HintTextBrush}"
+                                Command="{Binding ClearRecentFilesCommand}" />
+                    </Grid>
+
+                    <ItemsControl ItemsSource="{Binding RecentFiles}"
+                                  Visibility="{Binding HasRecentFiles, Converter={StaticResource BoolToVisibility}}">
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:RecentFileViewModel}">
+                                <Button Margin="0,1" Padding="0" HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Stretch"
+                                        Background="Transparent" BorderThickness="1"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        Command="{Binding DataContext.OpenRecentCommand,
+                                                  RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                        CommandParameter="{Binding}"
+                                        ToolTip="{Binding Path}">
+                                    <Grid Margin="10,7">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding FileName}"
+                                                           Foreground="{DynamicResource PrimaryTextBrush}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="  (not found)" FontSize="11"
+                                                           Foreground="{DynamicResource HintTextBrush}"
+                                                           Visibility="{Binding Exists, Converter={StaticResource InverseBoolToVisibility}}" />
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding Folder}" FontSize="11"
+                                                       Foreground="{DynamicResource HintTextBrush}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="✕" FontSize="10" Padding="5,2"
+                                                VerticalAlignment="Center"
+                                                Background="Transparent" BorderThickness="0"
+                                                Foreground="{DynamicResource HintTextBrush}"
+                                                ToolTip="Remove from list"
+                                                Command="{Binding DataContext.RemoveRecentFileCommand,
+                                                          RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding}" />
+                                    </Grid>
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Exists}" Value="False">
+                                                    <Setter Property="Opacity" Value="0.55" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
         </Grid>
     </DockPanel>
 
