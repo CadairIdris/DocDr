@@ -22,9 +22,9 @@ public sealed partial class DocumentPropertiesViewModel : ObservableObject
         _keywords = info.Keywords;
         _creator = info.Creator;
 
-        Producer = info.Producer;
-        Created = PdfDate.ForDisplay(info.CreationDate);
-        Modified = PdfDate.ForDisplay(info.ModificationDate);
+        Producer = OrDash(info.Producer);
+        Created = OrDash(PdfDate.ForDisplay(info.CreationDate));
+        Modified = OrDash(PdfDate.ForDisplay(info.ModificationDate));
         PageCountText = document.PageCount.ToString();
         FilePath = document.FilePath ?? "(unsaved)";
         FileSizeText = document.FilePath is { } p && File.Exists(p)
@@ -67,4 +67,6 @@ public sealed partial class DocumentPropertiesViewModel : ObservableObject
 
     [RelayCommand]
     private void Cancel() => CloseRequested?.Invoke(false);
+
+    private static string OrDash(string value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
 }
