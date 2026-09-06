@@ -51,6 +51,13 @@ Set `DOCDR_BINDING_LOG=<path>` to have the app log WPF data-binding errors to th
 DataContext="{Binding RightPane}"`) resolves its *other* bindings against that new context —
 use `RelativeSource AncestorType=...` to reach the parent VM.
 
+Gotcha: `RadioButton.GroupName` is **not scoped to a view instance**. `PdfPaneView` is
+instantiated twice (left + right pane), so a shared `GroupName="Mode"` grouped all six
+buttons — the hidden right pane's `IsChecked` binding stole the check from the visible left
+pane at startup, leaving nothing selected. Fix: no `GroupName` (RadioButtons then group by
+their common parent panel, which is per-pane) and drive the VM from the `Checked` event with
+a `OneWay` `IsChecked` binding back to state.
+
 ## Theming
 
 `ThemeService` sets .NET 9's `Application.ThemeMode` (Fluent light/dark for built-in controls;
