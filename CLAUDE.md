@@ -64,6 +64,17 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   highlights on rotated pages). `PdfDocument.GetUnrotatedPageSize` swaps W/H for 90/270 —
   `FPDF_GetPageSizeByIndex` in this build returns the *rotated* size.
 
+## Watermark removal (`PdfWatermarks`, `PdfDocument.RemoveWatermarks`)
+
+- `PdfWatermarks.Scan` groups page-content text objects (normalised string) and
+  near-full-page image objects (raw-bytes SHA-256) by repetition; a group on ≥ 80 % of
+  pages is a `WatermarkCandidate`.
+- `RemoveWatermarks` strips the matched objects from every **source** page
+  (`FPDFPageRemoveObject` + `FPDFPageObjDestroy` + **`FPDFPageGenerateContent`** — the last
+  is mandatory) then `Rebuild()`s. `FPDF_ImportPages` carries in-place page-object edits, so
+  this survives later rotate/delete. It does **not** push undo — it's confirm-gated and
+  marks the doc dirty instead.
+
 ## Testing
 
 `dotnet test`. Fixtures are generated in-process by `TestPdfBuilder` (a minimal PDF writer) —

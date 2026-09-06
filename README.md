@@ -34,6 +34,13 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   insert / undo and stay on the right page); on save they are written into the PDF as
   standard `Highlight` / `Text` annotations, visible in any other reader.
 
+### Remove watermark (Stage 4 — partial)
+
+- **Watermark…** scans for content repeated across most pages — text stamps and
+  near-full-page overlay images — and lists each with a before/after page preview.
+  Tick what to strip; removal edits the page content (not undoable, so save to a copy
+  to keep the original).
+
 ### Stage 2 — Page editing (done)
 
 - **Rotate / delete / insert pages.** Targets the thumbnail-strip selection when the Pages
