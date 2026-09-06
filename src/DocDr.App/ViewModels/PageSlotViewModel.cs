@@ -47,6 +47,10 @@ public sealed partial class PageSlotViewModel : ObservableObject
     [ObservableProperty]
     private IReadOnlyList<AnnotationVisual> _annotations = [];
 
+    /// <summary>Clickable link regions (TOC entries, cross-references, URLs) on this page, in DIP space.</summary>
+    [ObservableProperty]
+    private IReadOnlyList<LinkVisual> _links = [];
+
     /// <summary>Live text-selection rectangles during a drag, in DIP space.</summary>
     [ObservableProperty]
     private IReadOnlyList<System.Windows.Rect> _selectionRects = [];

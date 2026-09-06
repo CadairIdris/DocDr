@@ -78,16 +78,20 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   highlights on rotated pages). `PdfDocument.GetUnrotatedPageSize` swaps W/H for 90/270 —
   `FPDF_GetPageSizeByIndex` in this build returns the *rotated* size.
 
-## Watermark removal (`PdfWatermarks`, `PdfDocument.RemoveWatermarks`)
+## In-document links (`PdfLinks`, Stage 1)
 
-- `PdfWatermarks.Scan` groups page-content text objects (normalised string) and
-  near-full-page image objects (raw-bytes SHA-256) by repetition; a group on ≥ 80 % of
-  pages is a `WatermarkCandidate`.
-- `RemoveWatermarks` strips the matched objects from every **source** page
-  (`FPDFPageRemoveObject` + `FPDFPageObjDestroy` + **`FPDFPageGenerateContent`** — the last
-  is mandatory) then `Rebuild()`s. `FPDF_ImportPages` carries in-place page-object edits, so
-  this survives later rotate/delete. It does **not** push undo — it's confirm-gated and
-  marks the doc dirty instead.
+- `PdfLinks.Read` walks a page's subtype-2 (`/Link`) annotations: `FPDFAnnotGetRect` for the
+  region, `FPDFAnnotGetLink` → `FPDFLinkGetDest` / `FPDFLinkGetAction` (GoTo → `FPDFActionGetDest`,
+  URI → `FPDFActionGetURIPath`) → `FPDFDestGetDestPageIndex`. Same dest/action dance as
+  `PdfBookmarks`. Rects are **unrotated** page space.
+- `PdfWatermarks.Scan` counts them as body content (a page with links isn't blanked by a
+  watermark strip). Link annotations do **not** survive `FPDF_ImportPages` — after a page edit
+  the overlay is gone until reload; acceptable (viewing, not authoring).
+- App: `PdfPaneViewModel._linkCache` (raw links per page, cleared on `ReloadPages`),
+  `BuildLinkOverlays` projects them for realised slots only (called from `UpdateVisibleRange`
+  / layout). Overlay = transparent `Button`s (so a click follows the link, not starts a
+  selection — `PageList_MouseLeftButtonDown` already skips `ButtonBase`). `FollowLinkCommand`
+  → `GoToPage`, or `Process.Start` for `http`/`https`/`mailto`.
 
 ## Testing
 

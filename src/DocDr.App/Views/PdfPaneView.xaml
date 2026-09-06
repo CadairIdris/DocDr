@@ -89,6 +89,45 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                <!-- In-document link regions (TOC entries, cross-references, URLs). Transparent
+                     buttons so a click follows the link instead of starting a text selection. -->
+                <ItemsControl ItemsSource="{Binding Links}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemContainerStyle>
+                        <Style TargetType="ContentPresenter">
+                            <Setter Property="Canvas.Left" Value="{Binding Bounds.X}" />
+                            <Setter Property="Canvas.Top" Value="{Binding Bounds.Y}" />
+                        </Style>
+                    </ItemsControl.ItemContainerStyle>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:LinkVisual}">
+                            <Button Width="{Binding Bounds.Width}" Height="{Binding Bounds.Height}"
+                                    Padding="0" MinWidth="0" MinHeight="0" Cursor="Hand"
+                                    BorderThickness="0" Focusable="False"
+                                    ToolTip="{Binding Tooltip}"
+                                    AutomationProperties.Name="{Binding Tooltip}"
+                                    Command="{Binding DataContext.FollowLinkCommand, RelativeSource={RelativeSource AncestorType={x:Type views:PdfPaneView}}}"
+                                    CommandParameter="{Binding}">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Hit" Background="Transparent">
+                                            <Border x:Name="Glow" Background="{DynamicResource AccentBrush}"
+                                                    Opacity="0" CornerRadius="1" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Glow" Property="Opacity" Value="0.18" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
                 <!-- Annotation overlay: highlight bands + a note marker per annotation. -->
                 <ItemsControl ItemsSource="{Binding Annotations}">
                     <ItemsControl.ItemsPanel>

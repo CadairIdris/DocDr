@@ -66,6 +66,9 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 - Collapsible, resizable **navigation panel** per tab (off by default): an icon tab strip
   for page thumbnails / the bookmark outline (and annotations, from Stage 3); click either
   to jump to that page.
+- **Clickable in-document links**: a table-of-contents entry, cross-reference, or URL in the
+  page (a PDF `/Link` annotation) is followed on click — internal links jump to the page,
+  `http`/`https`/`mailto` links open in the browser.
 - Per-pane full-text search: all matches, highlight overlays, match counter, next/previous.
 - Zoom (25–800%, Fit Width, Fit Page, 100%, **Ctrl+wheel / trackpad pinch**, anchored on the
   cursor) and page navigation.
@@ -76,7 +79,7 @@ Not yet (later stages): folder browser, SQLite catalog + duplicate finder, OCR.
 
 | Project | Purpose |
 |---|---|
-| `src/DocDr.Pdf` | PDFium wrapper: `PdfiumLibrary`, `PdfDocument` (in-memory load, page edit + undo/redo + save + metadata + annotations), `PageRenderer` (+ LRU cache), `PdfSearch`, `PdfTextExtractor`, `PdfMetadata` (+ `PdfMetadataWriter`, `PdfDate`), `PdfBookmarks`, `PdfAnnotations` (+ `PdfAnnotationWriter`). All PDFium calls are serialised process-wide. |
+| `src/DocDr.Pdf` | PDFium wrapper: `PdfiumLibrary`, `PdfDocument` (in-memory load, page edit + undo/redo + save + metadata + annotations), `PageRenderer` (+ LRU cache), `PdfSearch`, `PdfTextExtractor`, `PdfMetadata` (+ `PdfMetadataWriter`, `PdfDate`), `PdfBookmarks`, `PdfLinks`, `PdfAnnotations` (+ `PdfAnnotationWriter`), `PdfWatermarks` (+ `PdfWatermarkStripper`). All PDFium calls are serialised process-wide. |
 | `src/DocDr.App` | WPF app (MVVM via CommunityToolkit.Mvvm): tab shell, panes, background render queue. |
 | `tests/DocDr.Pdf.Tests` | xUnit tests over `DocDr.Pdf`, including concurrency stress tests. Fixtures are generated at test time (`TestPdfBuilder`). |
 

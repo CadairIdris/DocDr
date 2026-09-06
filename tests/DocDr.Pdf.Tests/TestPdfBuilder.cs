@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 using System.Text;
 
 namespace DocDr.Pdf.Tests;
@@ -21,22 +22,27 @@ internal static class TestPdfBuilder
     /// Write a PDF whose page <c>i</c> contains the line <paramref name="pageLines"/>[i] drawn in
     /// 24pt Helvetica near the top-left.
     /// </summary>
+    /// <summary>A <c>/Link</c> annotation: a rectangle near the top of <paramref name="FromPage"/>
+    /// that jumps to <paramref name="ToPage"/> (both 0-based).</summary>
+    public sealed record Link(int FromPage, int ToPage);
+
     public static string WritePdf(
         string path,
         IReadOnlyList<string> pageLines,
         PdfInfo? info = null,
         IReadOnlyList<Bookmark>? bookmarks = null,
         string? watermark = null,
-        int watermarkOnFirstNPages = int.MaxValue)
+        int watermarkOnFirstNPages = int.MaxValue,
+        IReadOnlyList<Link>? links = null)
     {
-        byte[] bytes = Build(pageLines, info, bookmarks ?? [], watermark, watermarkOnFirstNPages);
+        byte[] bytes = Build(pageLines, info, bookmarks ?? [], watermark, watermarkOnFirstNPages, links ?? []);
         File.WriteAllBytes(path, bytes);
         return path;
     }
 
     private static byte[] Build(
         IReadOnlyList<string> pageLines, PdfInfo? info, IReadOnlyList<Bookmark> bookmarks,
-        string? watermark = null, int watermarkOnFirstNPages = int.MaxValue)
+        string? watermark, int watermarkOnFirstNPages, IReadOnlyList<Link> links)
     {
         int pageCount = pageLines.Count;
         var buffer = new MemoryStream();
@@ -56,7 +62,20 @@ internal static class TestPdfBuilder
         int? infoObj = info is not null ? next++ : null;
         int? outlinesObj = bookmarks.Count > 0 ? next++ : null;
         int firstItemObj = next;
-        int totalObjects = next + bookmarks.Count - 1;
+        int linkFirstObj = next + bookmarks.Count;
+        int totalObjects = linkFirstObj + links.Count - 1;
+
+        // page index -> the link-annot object numbers on that page
+        var annotsByPage = new Dictionary<int, List<int>>();
+        for (int k = 0; k < links.Count; k++)
+        {
+            if (!annotsByPage.TryGetValue(links[k].FromPage, out List<int>? list))
+            {
+                annotsByPage[links[k].FromPage] = list = [];
+            }
+
+            list.Add(linkFirstObj + k);
+        }
 
         Write("%PDF-1.7\n");
         buffer.Write([0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A]); // binary marker comment
@@ -81,8 +100,11 @@ internal static class TestPdfBuilder
         for (int i = 0; i < pageCount; i++)
         {
             BeginObject(PageObj(i));
+            string annots = annotsByPage.TryGetValue(i, out List<int>? pageAnnots)
+                ? $" /Annots [ {string.Join(" ", pageAnnots.Select(a => $"{a} 0 R"))} ]"
+                : string.Empty;
             Write($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {F(PageWidth)} {F(PageHeight)}] " +
-                  $"/Resources << /Font << /F1 3 0 R >> >> /Contents {5 + (2 * i)} 0 R >>\nendobj\n");
+                  $"/Resources << /Font << /F1 3 0 R >> >> /Contents {5 + (2 * i)} 0 R{annots} >>\nendobj\n");
 
             string stream = $"BT /F1 24 Tf 72 {F(PageHeight - 96)} Td ({Escape(pageLines[i])}) Tj ET\n";
             if (watermark is not null && i < watermarkOnFirstNPages)
@@ -126,6 +148,16 @@ internal static class TestPdfBuilder
                 BeginObject(self);
                 Write($"{dict}\nendobj\n");
             }
+        }
+
+        for (int k = 0; k < links.Count; k++)
+        {
+            // A wide band near the top of the source page.
+            double y1 = PageHeight - 60;
+            double y0 = y1 - 16;
+            BeginObject(linkFirstObj + k);
+            Write($"<< /Type /Annot /Subtype /Link /Rect [ 60 {F(y0)} {F(PageWidth - 60)} {F(y1)} ] " +
+                  $"/Border [0 0 0] /Dest [ {PageObj(links[k].ToPage)} 0 R /Fit ] >>\nendobj\n");
         }
 
         long xrefPos = buffer.Position;

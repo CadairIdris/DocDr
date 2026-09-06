@@ -98,6 +98,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         _searchCts?.Cancel();
         _searchCts = null;
         _charBoxCache.Clear();
+        _linkCache.Clear();
         ClearTextSelection();
 
         Pages.Clear();
@@ -221,6 +222,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 RequestRender(Pages[i]);
             }
         }
+
+        BuildLinkOverlays();
     }
 
     /// <summary>Grid view: mark the pages of rows <paramref name="firstRow"/>..<paramref name="lastRow"/> visible.</summary>
@@ -731,6 +734,93 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     private double SlotScale(PageSlotViewModel slot) =>
         slot.SizePoints.Width > 0 ? slot.LayoutWidth / slot.SizePoints.Width : PdfCoordinates.PointToDip * Zoom;
 
+    // --- In-document links ----------------------------------------------------------------
+
+    /// <summary>Raw link regions per page (from PDFium), read once and kept until the pages reload.</summary>
+    private readonly Dictionary<int, IReadOnlyList<PdfLink>> _linkCache = [];
+
+    /// <summary>
+    /// Project each realised page's <c>/Link</c> regions into its slot's DIP space. Reads are
+    /// lazy and cached, so this is cheap to call on every scroll / zoom / layout change.
+    /// </summary>
+    public void BuildLinkOverlays()
+    {
+        foreach (PageSlotViewModel slot in Pages)
+        {
+            if (!slot.IsRealized)
+            {
+                if (slot.Links.Count > 0)
+                {
+                    slot.Links = [];
+                }
+
+                continue;
+            }
+
+            if (!_linkCache.TryGetValue(slot.PageIndex, out IReadOnlyList<PdfLink>? links))
+            {
+                links = PdfLinks.Read(_document, slot.PageIndex);
+                _linkCache[slot.PageIndex] = links;
+            }
+
+            if (links.Count == 0)
+            {
+                if (slot.Links.Count > 0)
+                {
+                    slot.Links = [];
+                }
+
+                continue;
+            }
+
+            double scale = SlotScale(slot);
+            PdfSize unrotated = _document.GetUnrotatedPageSize(slot.PageIndex);
+            PdfRotation rotation = _document.GetPageRotation(slot.PageIndex);
+
+            var visuals = new List<LinkVisual>(links.Count);
+            foreach (PdfLink link in links)
+            {
+                DeviceRect d = PdfCoordinates.PageToDevice(link.Rect, unrotated, rotation, scale);
+                visuals.Add(new LinkVisual(new Rect(d.X, d.Y, d.Width, d.Height), link.TargetPageIndex, link.Uri));
+            }
+
+            slot.Links = visuals;
+        }
+    }
+
+    /// <summary>Follow a link the user clicked: jump to its page, or open its URL.</summary>
+    [RelayCommand]
+    private void FollowLink(LinkVisual? link)
+    {
+        if (link is null)
+        {
+            return;
+        }
+
+        if (link.TargetPageIndex is int page)
+        {
+            GoToPage(page + 1);
+            return;
+        }
+
+        if (link.Uri is { Length: > 0 } uri
+            && Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsed)
+            && parsed.Scheme is "http" or "https" or "mailto")
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(parsed.AbsoluteUri)
+                {
+                    UseShellExecute = true,
+                });
+            }
+            catch (System.Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+            {
+                // Nothing to do — the OS declined to open the link.
+            }
+        }
+    }
+
     // --- Text selection (driven by PdfPaneView mouse handlers) --------------------------
 
     public void BeginTextSelection(int pageIndex, PdfPoint pagePoint)
@@ -1101,6 +1191,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
 
         BuildAnnotationOverlays();
+        BuildLinkOverlays();
     }
 
     private void ApplyGridLayout()
@@ -1154,6 +1245,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
 
         BuildAnnotationOverlays();
+        BuildLinkOverlays();
     }
 
     private void RegroupRows(int columns)
