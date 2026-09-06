@@ -468,6 +468,125 @@ public sealed class PdfDocument : IDisposable
         AfterEdit();
     }
 
+    // --- Watermark removal --------------------------------------------------------------
+
+    /// <summary>
+    /// Strip the given repeating-content watermarks (from <see cref="PdfWatermarks.Scan"/>) from
+    /// every page. This edits page content and is <b>not undoable</b> — Ctrl+Z will still unwind
+    /// later rotate/delete steps, but it will not bring the watermarks back. The original file is
+    /// untouched until the next save.
+    /// </summary>
+    public void RemoveWatermarks(IReadOnlyList<WatermarkCandidate> candidates)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+
+        var textSignatures = candidates
+            .Where(c => c.Signature.Kind == WatermarkKind.Text && c.Signature.Text is not null)
+            .Select(c => c.Signature.Text!)
+            .ToHashSet();
+        var imageSignatures = candidates
+            .Where(c => c.Signature.Kind == WatermarkKind.Image && c.Signature.ImageHash is not null)
+            .Select(c => c.Signature.ImageHash!)
+            .ToHashSet();
+
+        if (textSignatures.Count == 0 && imageSignatures.Count == 0)
+        {
+            return;
+        }
+
+        Locked(() =>
+        {
+            var bySource = new Dictionary<int, HashSet<int>>();
+            foreach (PageRef pr in _pages)
+            {
+                if (!bySource.TryGetValue(pr.SourceId, out HashSet<int>? set))
+                {
+                    bySource[pr.SourceId] = set = [];
+                }
+
+                set.Add(pr.SourcePageIndex);
+            }
+
+            foreach ((int sourceId, HashSet<int> pageIndices) in bySource)
+            {
+                FpdfDocumentT source = _sources[sourceId].Handle;
+                foreach (int pageIndex in pageIndices)
+                {
+                    CleanPageContent(source, pageIndex, textSignatures, imageSignatures);
+                }
+            }
+
+            Rebuild();
+        });
+
+        _pageSizes = null;
+        SetDirty(true);
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static void CleanPageContent(FpdfDocumentT doc, int pageIndex, HashSet<string> textSignatures, HashSet<string> imageSignatures)
+    {
+        FpdfPageT? page = fpdfview.FPDF_LoadPage(doc, pageIndex);
+        if (page is null || page.__Instance == IntPtr.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            FpdfTextpageT? textPage = fpdf_text.FPDFTextLoadPage(page);
+            var toRemove = new List<FpdfPageobjectT>();
+            try
+            {
+                int count = fpdf_edit.FPDFPageCountObjects(page);
+                for (int i = 0; i < count; i++)
+                {
+                    FpdfPageobjectT obj = fpdf_edit.FPDFPageGetObject(page, i);
+                    int type = fpdf_edit.FPDFPageObjGetType(obj);
+
+                    if (type == 1 && textSignatures.Count > 0)
+                    {
+                        string norm = PdfWatermarks.NormalizeText(PdfWatermarks.ReadTextObject(obj, textPage));
+                        if (norm.Length >= 4 && textSignatures.Contains(norm))
+                        {
+                            toRemove.Add(obj);
+                        }
+                    }
+                    else if (type == 3 && imageSignatures.Count > 0)
+                    {
+                        string? hash = PdfWatermarks.HashImageObject(obj);
+                        if (hash is not null && imageSignatures.Contains(hash))
+                        {
+                            toRemove.Add(obj);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                if (textPage is not null && textPage.__Instance != IntPtr.Zero)
+                {
+                    fpdf_text.FPDFTextClosePage(textPage);
+                }
+            }
+
+            foreach (FpdfPageobjectT obj in toRemove)
+            {
+                fpdf_edit.FPDFPageRemoveObject(page, obj);
+                fpdf_edit.FPDFPageObjDestroy(obj);
+            }
+
+            if (toRemove.Count > 0)
+            {
+                fpdf_edit.FPDFPageGenerateContent(page);
+            }
+        }
+        finally
+        {
+            fpdfview.FPDF_ClosePage(page);
+        }
+    }
+
     public void Undo()
     {
         HistoryResult result = Locked(() =>

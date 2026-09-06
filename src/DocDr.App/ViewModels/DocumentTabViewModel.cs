@@ -211,6 +211,50 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         dialog.ShowDialog();
     }
 
+    [RelayCommand]
+    private void RemoveWatermarks()
+    {
+        IReadOnlyList<WatermarkCandidate> candidates;
+        try
+        {
+            candidates = PdfWatermarks.Scan(Document);
+        }
+        catch (Exception ex) when (ex is PdfException)
+        {
+            MessageBox.Show($"Could not scan for watermarks: {ex.Message}", "DocDr",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        if (candidates.Count == 0)
+        {
+            MessageBox.Show(
+                "No content repeated across the pages was detected — nothing to remove.",
+                "DocDr", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        // Defer past the current click so the modal window activates (see the CLAUDE.md note
+        // on ShowDialog from an input handler).
+        Application.Current?.Dispatcher.BeginInvoke(() =>
+        {
+            var viewModel = new WatermarkReviewViewModel(Document, candidates);
+            var dialog = new WatermarkReviewWindow(viewModel) { Owner = Application.Current?.MainWindow };
+            IReadOnlyList<WatermarkCandidate>? chosen = null;
+            viewModel.Closed = result =>
+            {
+                chosen = result;
+                dialog.Close();
+            };
+
+            dialog.ShowDialog();
+            if (chosen is { Count: > 0 })
+            {
+                Document.RemoveWatermarks(chosen);
+            }
+        }, System.Windows.Threading.DispatcherPriority.Input);
+    }
+
     [RelayCommand(CanExecute = nameof(CanUndo))]
     private void Undo() => Document.Undo();
 

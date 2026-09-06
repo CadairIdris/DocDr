@@ -25,14 +25,18 @@ internal static class TestPdfBuilder
         string path,
         IReadOnlyList<string> pageLines,
         PdfInfo? info = null,
-        IReadOnlyList<Bookmark>? bookmarks = null)
+        IReadOnlyList<Bookmark>? bookmarks = null,
+        string? watermark = null,
+        int watermarkOnFirstNPages = int.MaxValue)
     {
-        byte[] bytes = Build(pageLines, info, bookmarks ?? []);
+        byte[] bytes = Build(pageLines, info, bookmarks ?? [], watermark, watermarkOnFirstNPages);
         File.WriteAllBytes(path, bytes);
         return path;
     }
 
-    private static byte[] Build(IReadOnlyList<string> pageLines, PdfInfo? info, IReadOnlyList<Bookmark> bookmarks)
+    private static byte[] Build(
+        IReadOnlyList<string> pageLines, PdfInfo? info, IReadOnlyList<Bookmark> bookmarks,
+        string? watermark = null, int watermarkOnFirstNPages = int.MaxValue)
     {
         int pageCount = pageLines.Count;
         var buffer = new MemoryStream();
@@ -81,6 +85,11 @@ internal static class TestPdfBuilder
                   $"/Resources << /Font << /F1 3 0 R >> >> /Contents {5 + (2 * i)} 0 R >>\nendobj\n");
 
             string stream = $"BT /F1 24 Tf 72 {F(PageHeight - 96)} Td ({Escape(pageLines[i])}) Tj ET\n";
+            if (watermark is not null && i < watermarkOnFirstNPages)
+            {
+                stream += $"BT /F1 8 Tf 40 40 Td ({Escape(watermark)}) Tj ET\n";
+            }
+
             BeginObject(5 + (2 * i));
             Write($"<< /Length {Encoding.ASCII.GetByteCount(stream)} >>\nstream\n{stream}endstream\nendobj\n");
         }
