@@ -105,6 +105,15 @@
                     </DataTemplate>
                 </ContentControl.ContentTemplate>
             </ContentControl>
+
+            <ContentControl Content="{Binding Annotations}"
+                            Visibility="{Binding NavigationTab, Converter={StaticResource EnumToVisibility}, ConverterParameter=Annotations}">
+                <ContentControl.ContentTemplate>
+                    <DataTemplate>
+                        <views:AnnotationListView />
+                    </DataTemplate>
+                </ContentControl.ContentTemplate>
+            </ContentControl>
         </Grid>
     </Grid>
 </UserControl>

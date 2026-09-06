@@ -19,6 +19,9 @@ public readonly record struct PdfRect(double Left, double Top, double Right, dou
 /// </summary>
 public readonly record struct DeviceRect(double X, double Y, double Width, double Height);
 
+/// <summary>A point in PDFium page space (points, bottom-left origin).</summary>
+public readonly record struct PdfPoint(double X, double Y);
+
 /// <summary>
 /// Conversions between PDFium page space (points, bottom-left origin) and device space
 /// (pixels or DIPs, top-left origin). The single place this flip is expressed.
@@ -95,5 +98,28 @@ public static class PdfCoordinates
         }
 
         return new DeviceRect(minX, minY, maxX - minX, maxY - minY);
+    }
+
+    /// <summary>
+    /// Inverse of the rotation-aware <see cref="PageToDevice(PdfRect,PdfSize,PdfRotation,double)"/>:
+    /// map a top-left-origin device point on the displayed (rotated) page back to unrotated
+    /// PDFium page space (points, bottom-left origin).
+    /// </summary>
+    /// <param name="deviceX">X in DIP within the displayed page (0 = left edge).</param>
+    /// <param name="deviceY">Y in DIP within the displayed page (0 = top edge).</param>
+    public static PdfPoint DeviceToPage(double deviceX, double deviceY, PdfSize unrotatedPageSize, PdfRotation rotation, double scale)
+    {
+        double w = unrotatedPageSize.Width * scale;
+        double h = unrotatedPageSize.Height * scale;
+
+        (double dx, double dy) = rotation switch
+        {
+            PdfRotation.Clockwise90 => (deviceY, h - deviceX),
+            PdfRotation.Rotate180 => (w - deviceX, h - deviceY),
+            PdfRotation.CounterClockwise90 => (w - deviceY, deviceX),
+            _ => (deviceX, deviceY),
+        };
+
+        return new PdfPoint(dx / scale, unrotatedPageSize.Height - (dy / scale));
     }
 }

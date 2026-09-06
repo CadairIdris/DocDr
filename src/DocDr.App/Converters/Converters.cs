@@ -65,6 +65,16 @@ public sealed class ThumbnailBoxHeightConverter : IValueConverter
         Binding.DoNothing;
 }
 
+/// <summary>Highlight palette key (string) → an opaque swatch brush.</summary>
+public sealed class HighlightSwatchConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        new SolidColorBrush(ViewModels.AnnotationColors.ToColor(value as string));
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        Binding.DoNothing;
+}
+
 /// <summary>Enum value → Visible when it matches the parameter's member name, else Collapsed.</summary>
 public sealed class EnumToVisibilityConverter : IValueConverter
 {

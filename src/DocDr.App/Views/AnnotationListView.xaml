@@ -1,0 +1,48 @@
+<UserControl x:Class="DocDr.App.Views.AnnotationListView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:DocDr.App.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance vm:AnnotationListViewModel}"
+             d:DesignHeight="500" d:DesignWidth="200">
+    <Grid Background="{DynamicResource ChromeBrush}">
+        <ListBox x:Name="List" ItemsSource="{Binding Rows}"
+                 BorderThickness="0" Background="Transparent"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 SelectionChanged="List_SelectionChanged">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                    <Setter Property="Padding" Value="4,5" />
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+                <DataTemplate DataType="{x:Type vm:AnnotationRowViewModel}">
+                    <Grid MinWidth="150">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="12" Height="12" CornerRadius="2" Margin="0,1,7,0"
+                                VerticalAlignment="Top" Background="{Binding Swatch}"
+                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" />
+                        <TextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap"
+                                   MaxHeight="48" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text}" />
+                        <TextBlock Grid.Column="2" Text="{Binding PageLabel}" VerticalAlignment="Top"
+                                   Foreground="{DynamicResource SecondaryTextBrush}" FontSize="10" Margin="6,1,2,0" />
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <TextBlock Text="No annotations yet. Select text on a page to highlight it."
+                   Foreground="{DynamicResource HintTextBrush}" FontSize="11"
+                   HorizontalAlignment="Center" VerticalAlignment="Top" Margin="10,16"
+                   TextWrapping="Wrap" TextAlignment="Center"
+                   Visibility="{Binding HasAnnotations, Converter={StaticResource InverseBoolToVisibility}}" />
+    </Grid>
+</UserControl>

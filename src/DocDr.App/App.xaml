@@ -18,6 +18,7 @@
             <conv:EnumEqualsConverter x:Key="EnumEquals" />
             <conv:EnumToVisibilityConverter x:Key="EnumToVisibility" />
             <conv:SplitViewWidthConverter x:Key="SplitViewWidth" />
+            <conv:HighlightSwatchConverter x:Key="HighlightSwatch" />
             <conv:ThumbnailBoxHeightConverter x:Key="ThumbnailBoxHeight" />
         </ResourceDictionary>
     </Application.Resources>

@@ -11,6 +11,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DocDr.App.Services;
+using DocDr.App.Views;
 using DocDr.Pdf;
 
 namespace DocDr.App.ViewModels;
@@ -96,6 +97,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         SearchText = string.Empty;
         _searchCts?.Cancel();
         _searchCts = null;
+        _charBoxCache.Clear();
+        ClearTextSelection();
 
         Pages.Clear();
         for (int i = 0; i < pageSizes.Count; i++)
@@ -640,6 +643,427 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
     }
 
+    // --- Annotations ------------------------------------------------------------------------
+
+    private readonly Dictionary<int, IReadOnlyList<PdfCharBox>> _charBoxCache = [];
+
+    private int _selectionPage = -1;
+    private int _selectionAnchor = -1;
+    private int _selectionHead = -1;
+    private IReadOnlyList<PdfRect> _pendingQuads = [];
+
+    [ObservableProperty]
+    private bool _commentToolActive;
+
+    /// <summary>Id of the annotation to draw as selected (e.g. picked from the annotations list).</summary>
+    [ObservableProperty]
+    private System.Guid? _selectedAnnotationId;
+
+    /// <summary>Page a finished text selection is on, or -1. The view watches this to raise the popup.</summary>
+    public int PendingSelectionPage { get; private set; } = -1;
+
+    /// <summary>Bounding box of a finished text selection, in that page slot's DIP space.</summary>
+    public Rect PendingSelectionBounds { get; private set; }
+
+    public bool HasPendingSelection => PendingSelectionPage >= 0 && _pendingQuads.Count > 0;
+
+    /// <summary>Author stamped on annotations this session.</summary>
+    private static string Author => System.Environment.UserName;
+
+    /// <summary>The fixed highlight palette, for the selection popup.</summary>
+    public IReadOnlyList<string> HighlightColorKeys => AnnotationColors.Keys;
+
+    /// <summary>Map a point within a page slot (DIP, top-left origin) to unrotated page space.</summary>
+    public PdfPoint DevicePointToPage(int pageIndex, double deviceX, double deviceY)
+    {
+        PageSlotViewModel slot = Pages[pageIndex];
+        return PdfCoordinates.DeviceToPage(deviceX, deviceY,
+            _document.GetUnrotatedPageSize(pageIndex), _document.GetPageRotation(pageIndex), SlotScale(slot));
+    }
+
+    partial void OnSelectedAnnotationIdChanged(System.Guid? value) => BuildAnnotationOverlays();
+
+    /// <summary>Project every page's annotations into its slot's DIP space for the overlay.</summary>
+    public void BuildAnnotationOverlays()
+    {
+        foreach (PageSlotViewModel slot in Pages)
+        {
+            IReadOnlyList<PdfAnnotation> annotations = _document.GetAnnotations(slot.PageIndex);
+            if (annotations.Count == 0)
+            {
+                if (slot.Annotations.Count > 0)
+                {
+                    slot.Annotations = [];
+                }
+
+                continue;
+            }
+
+            double scale = SlotScale(slot);
+            PdfSize unrotated = _document.GetUnrotatedPageSize(slot.PageIndex);
+            PdfRotation rotation = _document.GetPageRotation(slot.PageIndex);
+
+            var visuals = new List<AnnotationVisual>(annotations.Count);
+            foreach (PdfAnnotation annotation in annotations)
+            {
+                var rects = new List<Rect>();
+                if (annotation.Kind == PdfAnnotationKind.Highlight)
+                {
+                    foreach (PdfRect quad in annotation.Quads)
+                    {
+                        DeviceRect d = PdfCoordinates.PageToDevice(quad, unrotated, rotation, scale);
+                        rects.Add(new Rect(d.X, d.Y, d.Width, d.Height));
+                    }
+                }
+
+                DeviceRect bounds = PdfCoordinates.PageToDevice(annotation.Bounds, unrotated, rotation, scale);
+                var marker = new Rect(Math.Max(0, bounds.X + bounds.Width - 8), Math.Max(0, bounds.Y - 6), 17, 17);
+
+                visuals.Add(new AnnotationVisual(annotation.Id, annotation.Kind, rects, marker,
+                    AnnotationColors.ToColor(annotation.ColorArgb), annotation.HasNote,
+                    annotation.Id == SelectedAnnotationId));
+            }
+
+            slot.Annotations = visuals;
+        }
+    }
+
+    private double SlotScale(PageSlotViewModel slot) =>
+        slot.SizePoints.Width > 0 ? slot.LayoutWidth / slot.SizePoints.Width : PdfCoordinates.PointToDip * Zoom;
+
+    // --- Text selection (driven by PdfPaneView mouse handlers) --------------------------
+
+    public void BeginTextSelection(int pageIndex, PdfPoint pagePoint)
+    {
+        ClearTextSelection();
+        _selectionPage = pageIndex;
+        _selectionAnchor = _selectionHead = NearestCharIndex(pageIndex, pagePoint);
+        UpdateSelectionRects();
+    }
+
+    public void ExtendTextSelection(PdfPoint pagePoint)
+    {
+        if (_selectionPage < 0)
+        {
+            return;
+        }
+
+        _selectionHead = NearestCharIndex(_selectionPage, pagePoint);
+        UpdateSelectionRects();
+    }
+
+    /// <summary>Finish a drag. Returns true when a non-empty run of text was selected.</summary>
+    public bool EndTextSelection()
+    {
+        if (_selectionPage < 0 || _selectionAnchor < 0 || _selectionHead < 0)
+        {
+            ClearTextSelection();
+            return false;
+        }
+
+        int lo = Math.Min(_selectionAnchor, _selectionHead);
+        int hi = Math.Max(_selectionAnchor, _selectionHead);
+        IReadOnlyList<PdfRect> quads = BuildLineQuads(_selectionPage, lo, hi);
+        if (quads.Count == 0)
+        {
+            ClearTextSelection();
+            return false;
+        }
+
+        _pendingQuads = quads;
+        PendingSelectionPage = _selectionPage;
+
+        double scale = SlotScale(Pages[_selectionPage]);
+        PdfSize unrotated = _document.GetUnrotatedPageSize(_selectionPage);
+        PdfRotation rotation = _document.GetPageRotation(_selectionPage);
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        foreach (PdfRect quad in quads)
+        {
+            DeviceRect d = PdfCoordinates.PageToDevice(quad, unrotated, rotation, scale);
+            minX = Math.Min(minX, d.X);
+            minY = Math.Min(minY, d.Y);
+            maxX = Math.Max(maxX, d.X + d.Width);
+            maxY = Math.Max(maxY, d.Y + d.Height);
+        }
+
+        PendingSelectionBounds = new Rect(minX, minY, maxX - minX, maxY - minY);
+        OnPropertyChanged(nameof(HasPendingSelection));
+        return true;
+    }
+
+    public void ClearTextSelection()
+    {
+        _selectionPage = _selectionAnchor = _selectionHead = -1;
+        _pendingQuads = [];
+        PendingSelectionPage = -1;
+        foreach (PageSlotViewModel slot in Pages)
+        {
+            if (slot.SelectionRects.Count > 0)
+            {
+                slot.SelectionRects = [];
+            }
+        }
+
+        OnPropertyChanged(nameof(HasPendingSelection));
+    }
+
+    private void UpdateSelectionRects()
+    {
+        if (_selectionPage < 0)
+        {
+            return;
+        }
+
+        int lo = Math.Min(_selectionAnchor, _selectionHead);
+        int hi = Math.Max(_selectionAnchor, _selectionHead);
+        PageSlotViewModel slot = Pages[_selectionPage];
+        double scale = SlotScale(slot);
+        PdfSize unrotated = _document.GetUnrotatedPageSize(_selectionPage);
+        PdfRotation rotation = _document.GetPageRotation(_selectionPage);
+
+        var rects = new List<Rect>();
+        foreach (PdfRect quad in BuildLineQuads(_selectionPage, lo, hi))
+        {
+            DeviceRect d = PdfCoordinates.PageToDevice(quad, unrotated, rotation, scale);
+            rects.Add(new Rect(d.X, d.Y, d.Width, d.Height));
+        }
+
+        slot.SelectionRects = rects;
+    }
+
+    private IReadOnlyList<PdfCharBox> CharBoxes(int pageIndex)
+    {
+        if (!_charBoxCache.TryGetValue(pageIndex, out IReadOnlyList<PdfCharBox>? boxes))
+        {
+            boxes = PdfTextExtractor.GetCharBoxes(_document, pageIndex);
+            _charBoxCache[pageIndex] = boxes;
+        }
+
+        return boxes;
+    }
+
+    private int NearestCharIndex(int pageIndex, PdfPoint pt)
+    {
+        IReadOnlyList<PdfCharBox> boxes = CharBoxes(pageIndex);
+        int best = -1;
+        double bestDist = double.MaxValue;
+        for (int i = 0; i < boxes.Count; i++)
+        {
+            PdfRect b = boxes[i].Box;
+            double cx = (b.Left + b.Right) / 2;
+            double cy = (b.Top + b.Bottom) / 2;
+            if (pt.X >= b.Left && pt.X <= b.Right && pt.Y >= b.Bottom && pt.Y <= b.Top)
+            {
+                return i;
+            }
+
+            double dist = ((pt.X - cx) * (pt.X - cx)) + ((pt.Y - cy) * (pt.Y - cy));
+            if (dist < bestDist)
+            {
+                bestDist = dist;
+                best = i;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>Merge the char boxes over [start, end] into one rectangle per text line.</summary>
+    private IReadOnlyList<PdfRect> BuildLineQuads(int pageIndex, int start, int end)
+    {
+        IReadOnlyList<PdfCharBox> boxes = CharBoxes(pageIndex);
+        if (boxes.Count == 0)
+        {
+            return [];
+        }
+
+        start = Math.Clamp(start, 0, boxes.Count - 1);
+        end = Math.Clamp(end, 0, boxes.Count - 1);
+
+        var quads = new List<PdfRect>();
+        double left = 0, right = 0, top = 0, bottom = 0, lastMid = double.NaN;
+        bool inRun = false;
+
+        void Flush()
+        {
+            if (inRun && right > left && top > bottom)
+            {
+                quads.Add(new PdfRect(left, top, right, bottom));
+            }
+
+            inRun = false;
+        }
+
+        for (int i = start; i <= end; i++)
+        {
+            PdfRect b = boxes[i].Box;
+            if (b.Right <= b.Left && b.Top <= b.Bottom)
+            {
+                continue;
+            }
+
+            double mid = (b.Top + b.Bottom) / 2;
+            double lineHeight = Math.Max(1, b.Top - b.Bottom);
+            if (inRun && Math.Abs(mid - lastMid) > lineHeight * 0.6)
+            {
+                Flush();
+            }
+
+            if (!inRun)
+            {
+                left = b.Left;
+                right = b.Right;
+                top = b.Top;
+                bottom = b.Bottom;
+                inRun = true;
+            }
+            else
+            {
+                left = Math.Min(left, b.Left);
+                right = Math.Max(right, b.Right);
+                top = Math.Max(top, b.Top);
+                bottom = Math.Min(bottom, b.Bottom);
+            }
+
+            lastMid = mid;
+        }
+
+        Flush();
+        return quads;
+    }
+
+    // --- Annotation commands ----------------------------------------------------------------
+
+    [RelayCommand]
+    private void CreateHighlight(string colorKey)
+    {
+        if (!HasPendingSelection)
+        {
+            return;
+        }
+
+        _document.AddAnnotation(PendingSelectionPage,
+            PdfAnnotation.NewHighlight(_pendingQuads, AnnotationColors.ToArgb(colorKey), null, Author));
+        ClearTextSelection();
+    }
+
+    [RelayCommand]
+    private void CommentOnSelection()
+    {
+        if (!HasPendingSelection)
+        {
+            return;
+        }
+
+        int page = PendingSelectionPage;
+        IReadOnlyList<PdfRect> quads = _pendingQuads;
+        ClearTextSelection();
+
+        OpenEditor(PdfAnnotationKind.Highlight, string.Empty, AnnotationColors.Default, canDelete: false, result =>
+        {
+            if (result.Outcome == AnnotationEditorOutcome.Save)
+            {
+                _document.AddAnnotation(page, PdfAnnotation.NewHighlight(
+                    quads, AnnotationColors.ToArgb(result.ColorKey),
+                    string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents, Author));
+            }
+        });
+    }
+
+    /// <summary>Drop a standalone note where the Comment tool was clicked.</summary>
+    public void AddCommentAt(int pageIndex, PdfPoint pagePoint)
+    {
+        var iconRect = new PdfRect(pagePoint.X, pagePoint.Y + 18, pagePoint.X + 18, pagePoint.Y);
+        CommentToolActive = false;
+
+        OpenEditor(PdfAnnotationKind.Comment, string.Empty, null, canDelete: false, result =>
+        {
+            if (result.Outcome == AnnotationEditorOutcome.Save)
+            {
+                _document.AddAnnotation(pageIndex, PdfAnnotation.NewComment(
+                    iconRect, string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents, Author));
+            }
+        });
+    }
+
+    [RelayCommand]
+    private void EditAnnotation(System.Guid id)
+    {
+        (int page, PdfAnnotation? found) = FindAnnotation(id);
+        if (found is not { } annotation)
+        {
+            return;
+        }
+
+        string? colorKey = annotation.Kind == PdfAnnotationKind.Highlight
+            ? AnnotationColors.FromArgb(annotation.ColorArgb)
+            : null;
+
+        OpenEditor(annotation.Kind, annotation.Contents, colorKey, canDelete: true, result =>
+        {
+            switch (result.Outcome)
+            {
+                case AnnotationEditorOutcome.Save:
+                    _document.UpdateAnnotation(page, annotation with
+                    {
+                        Contents = string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents,
+                        ColorArgb = annotation.Kind == PdfAnnotationKind.Highlight
+                            ? AnnotationColors.ToArgb(result.ColorKey)
+                            : annotation.ColorArgb,
+                        Modified = System.DateTimeOffset.Now,
+                    });
+                    break;
+                case AnnotationEditorOutcome.Delete:
+                    _document.RemoveAnnotation(page, id);
+                    break;
+            }
+        });
+    }
+
+    [RelayCommand]
+    private void DeleteAnnotation(System.Guid id)
+    {
+        (int page, PdfAnnotation? found) = FindAnnotation(id);
+        if (found is not null)
+        {
+            _document.RemoveAnnotation(page, id);
+        }
+    }
+
+    private (int Page, PdfAnnotation? Annotation) FindAnnotation(System.Guid id)
+    {
+        for (int page = 0; page < _document.PageCount; page++)
+        {
+            foreach (PdfAnnotation annotation in _document.GetAnnotations(page))
+            {
+                if (annotation.Id == id)
+                {
+                    return (page, annotation);
+                }
+            }
+        }
+
+        return (-1, null);
+    }
+
+    private static void OpenEditor(PdfAnnotationKind kind, string? contents, string? colorKey, bool canDelete, Action<AnnotationEditorResult> onClosed)
+    {
+        var viewModel = new AnnotationEditorViewModel(kind, contents, colorKey, canDelete);
+        var window = new AnnotationEditorWindow(viewModel) { Owner = Application.Current?.MainWindow };
+        AnnotationEditorResult? result = null;
+        viewModel.Closed = r =>
+        {
+            result = r;
+            window.Close();
+        };
+
+        window.ShowDialog();
+        if (result is not null && result.Outcome != AnnotationEditorOutcome.Cancel)
+        {
+            onClosed(result);
+        }
+    }
+
     // --- Rendering ----------------------------------------------------------------------
 
     private void ApplyLayout()
@@ -662,6 +1086,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         {
             ApplyHighlights();
         }
+
+        BuildAnnotationOverlays();
     }
 
     private void ApplyGridLayout()
@@ -713,6 +1139,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         {
             ApplyHighlights();
         }
+
+        BuildAnnotationOverlays();
     }
 
     private void RegroupRows(int columns)

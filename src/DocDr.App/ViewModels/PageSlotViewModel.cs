@@ -43,6 +43,14 @@ public sealed partial class PageSlotViewModel : ObservableObject
     [ObservableProperty]
     private IReadOnlyList<HighlightRect> _highlights = [];
 
+    /// <summary>Annotation overlays (highlights + note markers) on this page, in DIP space.</summary>
+    [ObservableProperty]
+    private IReadOnlyList<AnnotationVisual> _annotations = [];
+
+    /// <summary>Live text-selection rectangles during a drag, in DIP space.</summary>
+    [ObservableProperty]
+    private IReadOnlyList<System.Windows.Rect> _selectionRects = [];
+
     /// <summary>True while a container for this slot is realised in the visual tree.</summary>
     public bool IsRealized { get; set; }
 }

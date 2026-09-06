@@ -44,9 +44,15 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Bookmarks = new BookmarksViewModel(bookmarks);
         Bookmarks.BookmarkActivated += pageIndex => LeftPane.GoToPage(pageIndex + 1);
 
+        Annotations = new AnnotationListViewModel();
+        Annotations.Reload(document);
+        Annotations.AnnotationActivated += OnAnnotationActivated;
+
         LeftPane.PropertyChanged += OnLeftPanePropertyChanged;
+        RightPane.PropertyChanged += OnRightPanePropertyChanged;
         Document.Changed += OnDocumentChanged;
         Document.DirtyChanged += OnDocumentDirtyChanged;
+        Document.AnnotationsChanged += OnAnnotationsChanged;
 
         Thumbnails.SetCurrentPage(LeftPane.CurrentPage);
     }
@@ -60,6 +66,8 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     public ThumbnailStripViewModel Thumbnails { get; }
 
     public BookmarksViewModel Bookmarks { get; }
+
+    public AnnotationListViewModel Annotations { get; }
 
     public string Title => Document.IsDirty ? $"{_baseTitle} •" : _baseTitle;
 
@@ -78,8 +86,18 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private NavigationTab _navigationTab = NavigationTab.Pages;
 
-    /// <summary>Whether the Annotations navigation tab is offered. Wired up in Stage 3.</summary>
-    public bool HasAnnotations => false;
+    /// <summary>When on, clicking a page drops a standalone comment. Mirrored to both panes.</summary>
+    [ObservableProperty]
+    private bool _commentToolActive;
+
+    partial void OnCommentToolActiveChanged(bool value)
+    {
+        LeftPane.CommentToolActive = value;
+        RightPane.CommentToolActive = value;
+    }
+
+    /// <summary>Whether the Annotations navigation tab is offered (the document has any).</summary>
+    public bool HasAnnotations => Document.HasAnnotations;
 
     /// <summary>Raised when the tab's own close affordance is used.</summary>
     public event EventHandler? CloseRequested;
@@ -301,10 +319,32 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         RightPane.ReloadPages(sizes);
         Thumbnails.Reload(sizes);
         Bookmarks.Reload(PdfBookmarks.Read(Document));
+        Annotations.Reload(Document);
         Thumbnails.SetCurrentPage(LeftPane.CurrentPage);
 
         OnPropertyChanged(nameof(Title));
+        OnPropertyChanged(nameof(HasAnnotations));
         RaiseEditState();
+    }
+
+    private void OnAnnotationsChanged(object? sender, AnnotationsChangedEventArgs e)
+    {
+        LeftPane.BuildAnnotationOverlays();
+        RightPane.BuildAnnotationOverlays();
+        Annotations.Reload(Document);
+        OnPropertyChanged(nameof(HasAnnotations));
+
+        if (!Document.HasAnnotations && NavigationTab == NavigationTab.Annotations)
+        {
+            NavigationTab = NavigationTab.Pages;
+        }
+    }
+
+    private void OnAnnotationActivated(int pageIndex, Guid id)
+    {
+        LeftPane.SelectedAnnotationId = id;
+        RightPane.SelectedAnnotationId = id;
+        LeftPane.GoToPage(pageIndex + 1);
     }
 
     private void OnDocumentDirtyChanged(object? sender, EventArgs e)
@@ -327,6 +367,18 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         {
             Thumbnails.SetCurrentPage(LeftPane.CurrentPage);
         }
+        else if (e.PropertyName == nameof(PdfPaneViewModel.CommentToolActive) && !LeftPane.CommentToolActive)
+        {
+            CommentToolActive = false;
+        }
+    }
+
+    private void OnRightPanePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(PdfPaneViewModel.CommentToolActive) && !RightPane.CommentToolActive)
+        {
+            CommentToolActive = false;
+        }
     }
 
     [RelayCommand]
@@ -335,9 +387,12 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         LeftPane.PropertyChanged -= OnLeftPanePropertyChanged;
+        RightPane.PropertyChanged -= OnRightPanePropertyChanged;
         Document.Changed -= OnDocumentChanged;
         Document.DirtyChanged -= OnDocumentDirtyChanged;
+        Document.AnnotationsChanged -= OnAnnotationsChanged;
         Thumbnails.EditRequested -= OnThumbnailEditRequested;
+        Annotations.AnnotationActivated -= OnAnnotationActivated;
         LeftPane.Dispose();
         RightPane.Dispose();
         _cache.Purge(Document);

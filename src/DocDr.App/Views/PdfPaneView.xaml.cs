@@ -1,9 +1,11 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using DocDr.App.ViewModels;
+using DocDr.Pdf;
 
 namespace DocDr.App.Views;
 
@@ -12,6 +14,10 @@ public partial class PdfPaneView : UserControl
     private PdfPaneViewModel? _pane;
     private ScrollViewer? _scrollViewer;
     private bool _programmaticScroll;
+
+    private bool _selecting;
+    private FrameworkElement? _selectionSlot;
+    private int _selectionPageIndex = -1;
 
     public PdfPaneView()
     {
@@ -268,6 +274,116 @@ public partial class PdfPaneView : UserControl
         {
             _pane.Mode = mode;
         }
+    }
+
+    // --- Annotation text selection ---------------------------------------------------------
+
+    private void PageList_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_pane is null || (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        {
+            return;
+        }
+
+        // Let the note markers / popup handle their own clicks.
+        if (e.OriginalSource is DependencyObject src && FindAncestor<ButtonBase>(src) is not null)
+        {
+            return;
+        }
+
+        (FrameworkElement Element, PageSlotViewModel Slot)? hit = FindSlot(e.OriginalSource as DependencyObject);
+        if (hit is not { } target)
+        {
+            return;
+        }
+
+        Point local = e.GetPosition(target.Element);
+        PdfPoint pagePoint = _pane.DevicePointToPage(target.Slot.PageIndex, local.X, local.Y);
+
+        if (_pane.CommentToolActive)
+        {
+            _pane.AddCommentAt(target.Slot.PageIndex, pagePoint);
+            e.Handled = true;
+            return;
+        }
+
+        _pane.SelectedAnnotationId = null;
+        SelectionPopup.IsOpen = false;
+        _selecting = true;
+        _selectionSlot = target.Element;
+        _selectionPageIndex = target.Slot.PageIndex;
+        _pane.BeginTextSelection(target.Slot.PageIndex, pagePoint);
+        PageList.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void PageList_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_selecting || _pane is null || _selectionSlot is null || e.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+
+        Point local = e.GetPosition(_selectionSlot);
+        _pane.ExtendTextSelection(_pane.DevicePointToPage(_selectionPageIndex, local.X, local.Y));
+    }
+
+    private void PageList_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_selecting || _pane is null)
+        {
+            return;
+        }
+
+        _selecting = false;
+        PageList.ReleaseMouseCapture();
+
+        if (_pane.EndTextSelection())
+        {
+            SelectionPopup.IsOpen = true;
+        }
+    }
+
+    private void ColorSwatch_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: string key } && _pane?.CreateHighlightCommand.CanExecute(key) == true)
+        {
+            _pane.CreateHighlightCommand.Execute(key);
+        }
+
+        SelectionPopup.IsOpen = false;
+    }
+
+    private void PopupAction_Click(object sender, RoutedEventArgs e) => SelectionPopup.IsOpen = false;
+
+    private (FrameworkElement Element, PageSlotViewModel Slot)? FindSlot(DependencyObject? source)
+    {
+        while (source is not null)
+        {
+            if (source is Grid { DataContext: PageSlotViewModel slot } grid)
+            {
+                return (grid, slot);
+            }
+
+            source = VisualTreeHelper.GetParent(source);
+        }
+
+        return null;
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? node) where T : DependencyObject
+    {
+        while (node is not null)
+        {
+            if (node is T match)
+            {
+                return match;
+            }
+
+            node = VisualTreeHelper.GetParent(node);
+        }
+
+        return null;
     }
 
     private void PageBox_KeyDown(object sender, KeyEventArgs e)
