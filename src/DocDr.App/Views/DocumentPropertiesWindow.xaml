@@ -7,6 +7,7 @@
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance vm:DocumentPropertiesViewModel}"
         Title="Document Properties" Width="460" SizeToContent="Height"
+        Icon="/DocDr.App;component/Assets/DocDr.ico"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
         ResizeMode="NoResize">
     <Window.Resources>

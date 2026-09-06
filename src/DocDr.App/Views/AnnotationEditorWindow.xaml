@@ -7,6 +7,7 @@
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance vm:AnnotationEditorViewModel}"
         Title="{Binding Title}" Width="360" SizeToContent="Height"
+        Icon="/DocDr.App;component/Assets/DocDr.ico"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False" ResizeMode="NoResize">
     <Window.Resources>
         <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}" />
