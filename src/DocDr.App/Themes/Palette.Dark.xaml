@@ -10,4 +10,6 @@
     <SolidColorBrush x:Key="HintTextBrush" Color="#7A7A7A" />
     <SolidColorBrush x:Key="TabItemBrush" Color="#333337" />
     <SolidColorBrush x:Key="TabItemActiveBrush" Color="#3F3F46" />
+    <!-- Matches the Fluent dark-theme accent (checked RadioButton fill). -->
+    <SolidColorBrush x:Key="AccentBrush" Color="#C8B9DE" />
 </ResourceDictionary>

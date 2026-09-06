@@ -125,7 +125,7 @@
                             <DataTrigger Value="True"
                                          Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType={x:Type TabItem}}}">
                                 <Setter TargetName="TabChrome" Property="Background" Value="{DynamicResource TabItemActiveBrush}" />
-                                <Setter TargetName="TabChrome" Property="BorderBrush" Value="{DynamicResource ActiveHighlightPen}" />
+                                <Setter TargetName="TabChrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                 <Setter TargetName="TabChrome" Property="BorderThickness" Value="1,2,1,0" />
                             </DataTrigger>
                         </DataTemplate.Triggers>
