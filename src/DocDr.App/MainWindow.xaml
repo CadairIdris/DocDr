@@ -43,6 +43,11 @@
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.IsSplitView, Mode=TwoWay}"
                               ToolTip="Show a second, independent pane for this document" />
+                <ToggleButton Content="💬 Note" Padding="8,3" Margin="4,0,0,0"
+                              IsEnabled="{Binding HasTabs}"
+                              IsChecked="{Binding SelectedTab.CommentToolActive, Mode=TwoWay}"
+                              AutomationProperties.Name="Comment tool"
+                              ToolTip="Click a page to drop a comment. Or select text and use the highlight popup." />
                 <Separator />
                 <TextBlock Text="Theme" VerticalAlignment="Center" Margin="2,0,4,0"
                            Foreground="{DynamicResource SecondaryTextBrush}" />
@@ -88,12 +93,6 @@
                         Command="{Binding SelectedTab.InsertPdfCommand}" IsEnabled="{Binding HasTabs}"
                         AutomationProperties.Name="Insert PDF"
                         ToolTip="Insert every page of another PDF" />
-                <Separator />
-                <ToggleButton Content="💬 Note" Padding="8,3"
-                              IsEnabled="{Binding HasTabs}"
-                              IsChecked="{Binding SelectedTab.CommentToolActive, Mode=TwoWay}"
-                              AutomationProperties.Name="Comment tool"
-                              ToolTip="Click a page to drop a comment. Or select text and use the highlight popup." />
             </ToolBar>
         </ToolBarTray>
 

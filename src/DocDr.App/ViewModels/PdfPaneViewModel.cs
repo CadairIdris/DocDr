@@ -1048,20 +1048,27 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     private static void OpenEditor(PdfAnnotationKind kind, string? contents, string? colorKey, bool canDelete, Action<AnnotationEditorResult> onClosed)
     {
-        var viewModel = new AnnotationEditorViewModel(kind, contents, colorKey, canDelete);
-        var window = new AnnotationEditorWindow(viewModel) { Owner = Application.Current?.MainWindow };
-        AnnotationEditorResult? result = null;
-        viewModel.Closed = r =>
-        {
-            result = r;
-            window.Close();
-        };
+        // Defer past the current input event: a modal ShowDialog raised directly from a
+        // mouse-down / popup-click handler opens without activating.
+        Application.Current?.Dispatcher.BeginInvoke(
+            () =>
+            {
+                var viewModel = new AnnotationEditorViewModel(kind, contents, colorKey, canDelete);
+                var window = new AnnotationEditorWindow(viewModel) { Owner = Application.Current?.MainWindow };
+                AnnotationEditorResult? result = null;
+                viewModel.Closed = r =>
+                {
+                    result = r;
+                    window.Close();
+                };
 
-        window.ShowDialog();
-        if (result is not null && result.Outcome != AnnotationEditorOutcome.Cancel)
-        {
-            onClosed(result);
-        }
+                window.ShowDialog();
+                if (result is not null && result.Outcome != AnnotationEditorOutcome.Cancel)
+                {
+                    onClosed(result);
+                }
+            },
+            DispatcherPriority.Input);
     }
 
     // --- Rendering ----------------------------------------------------------------------
