@@ -43,3 +43,6 @@ Thumbs.db
 
 ## App-local scratch
 /scratch/
+
+## Publish output (see publish.ps1)
+/publish/

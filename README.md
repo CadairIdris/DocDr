@@ -92,6 +92,22 @@ dotnet run --project src/DocDr.App -- a.pdf b.pdf   # opens files as tabs
 Requires the .NET 9 SDK and Windows (x64). PDFium native binaries come with the `PDFiumCore`
 NuGet package.
 
+## Publish
+
+`publish.ps1` produces a `win-x64` build under `publish/`:
+
+```
+pwsh publish.ps1                          # self-contained (bundles the .NET runtime)
+pwsh publish.ps1 -SingleFile              # self-contained, packed into one DocDr.App.exe
+pwsh publish.ps1 -Mode framework-dependent   # needs the .NET 9 Desktop Runtime installed (~6 MB)
+```
+
+Self-contained runs on a machine with no .NET installed (~140 MB folder, or a ~150 MB
+single `.exe`); framework-dependent is much smaller but needs the runtime. The same three
+options are in `.vscode/tasks.json` and as VS / Rider publish profiles
+(`src/DocDr.App/Properties/PublishProfiles`). `ReadyToRun` is on; WPF can't be trimmed so
+trimming stays off.
+
 ## Threading note
 
 PDFium (the `pdfium-binaries` build) is not safe for concurrent use, even across different

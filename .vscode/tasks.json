@@ -64,6 +64,65 @@
         "reveal": "always",
         "clear": true
       }
+    },
+    {
+      "label": "publish (self-contained)",
+      "detail": "publish.ps1 -Mode self-contained  (bundles the .NET runtime)",
+      "command": "powershell",
+      "type": "process",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/publish.ps1",
+        "-Mode",
+        "self-contained"
+      ],
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "always",
+        "clear": true
+      }
+    },
+    {
+      "label": "publish (self-contained, single file)",
+      "detail": "publish.ps1 -SingleFile  (one .exe, runtime bundled)",
+      "command": "powershell",
+      "type": "process",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/publish.ps1",
+        "-SingleFile"
+      ],
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "always",
+        "clear": true
+      }
+    },
+    {
+      "label": "publish (framework-dependent)",
+      "detail": "publish.ps1 -Mode framework-dependent  (needs .NET 9 Desktop Runtime)",
+      "command": "powershell",
+      "type": "process",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/publish.ps1",
+        "-Mode",
+        "framework-dependent"
+      ],
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "always",
+        "clear": true
+      }
     }
   ]
 }
