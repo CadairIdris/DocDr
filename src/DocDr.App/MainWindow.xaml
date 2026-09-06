@@ -13,6 +13,11 @@
         <ToolBarTray DockPanel.Dock="Top">
             <ToolBar>
                 <Button Command="{Binding OpenCommand}" Content="Open PDF…" Padding="10,3" />
+                <Separator />
+                <ToggleButton Content="Split view" Padding="8,3"
+                              IsEnabled="{Binding HasTabs}"
+                              IsChecked="{Binding SelectedTab.IsSplitView, Mode=TwoWay}"
+                              ToolTip="Show a second, independent pane for this document" />
             </ToolBar>
         </ToolBarTray>
 

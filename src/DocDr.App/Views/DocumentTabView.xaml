@@ -11,15 +11,17 @@
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" MinWidth="320" />
-            <ColumnDefinition Width="Auto" />
-            <ColumnDefinition Width="*" MinWidth="320" />
+            <ColumnDefinition Width="{Binding IsSplitView, Converter={StaticResource SplitViewWidth}, ConverterParameter=auto}" />
+            <ColumnDefinition Width="{Binding IsSplitView, Converter={StaticResource SplitViewWidth}}" MinWidth="0" />
         </Grid.ColumnDefinitions>
 
         <views:PdfPaneView Grid.Column="0" DataContext="{Binding LeftPane}" />
 
         <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"
-                      Background="{StaticResource BorderBrush}" ResizeBehavior="PreviousAndNext" />
+                      Background="{StaticResource BorderBrush}" ResizeBehavior="PreviousAndNext"
+                      Visibility="{Binding IsSplitView, Converter={StaticResource BoolToVisibility}}" />
 
-        <views:PdfPaneView Grid.Column="2" DataContext="{Binding RightPane}" />
+        <views:PdfPaneView Grid.Column="2" DataContext="{Binding RightPane}"
+                           Visibility="{Binding IsSplitView, Converter={StaticResource BoolToVisibility}}" />
     </Grid>
 </UserControl>

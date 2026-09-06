@@ -9,6 +9,7 @@
             <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility" />
             <conv:HighlightFillConverter x:Key="HighlightFill" />
             <conv:EnumEqualsConverter x:Key="EnumEquals" />
+            <conv:SplitViewWidthConverter x:Key="SplitViewWidth" />
 
             <!-- Colour tokens -->
             <SolidColorBrush x:Key="ChromeBrush" Color="#F3F3F3" />

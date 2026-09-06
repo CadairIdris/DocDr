@@ -33,6 +33,10 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
     public string FilePath => Document.FilePath;
 
+    /// <summary>Whether the second (right) pane is shown. Off by default — one pane per tab.</summary>
+    [ObservableProperty]
+    private bool _isSplitView;
+
     public PdfDocument Document { get; }
 
     public PdfPaneViewModel LeftPane { get; }

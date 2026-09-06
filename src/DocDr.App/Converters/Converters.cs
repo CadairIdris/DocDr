@@ -30,6 +30,28 @@ public sealed class HighlightFillConverter : IValueConverter
         Binding.DoNothing;
 }
 
+/// <summary>
+/// Maps the split-view flag to a <see cref="GridLength"/>: false collapses the column to 0;
+/// true gives a star column, or <c>Auto</c> when the parameter is "auto" (used for the splitter).
+/// </summary>
+public sealed class SplitViewWidthConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is not true)
+        {
+            return new GridLength(0);
+        }
+
+        return string.Equals(parameter as string, "auto", StringComparison.OrdinalIgnoreCase)
+            ? GridLength.Auto
+            : new GridLength(1, GridUnitType.Star);
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        Binding.DoNothing;
+}
+
 /// <summary>Enum equality test usable as a converter (parameter = enum member name).</summary>
 public sealed class EnumEqualsConverter : IValueConverter
 {

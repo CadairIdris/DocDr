@@ -17,6 +17,17 @@ public partial class PdfPaneView : UserControl
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
         Loaded += OnLoaded;
+        IsVisibleChanged += OnIsVisibleChanged;
+    }
+
+    private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        // The right pane starts collapsed (split view is off by default); when it is first
+        // shown it needs the same kick as a fresh DataContext.
+        if (e.NewValue is true && _pane is not null)
+        {
+            ScheduleReinitialize();
+        }
     }
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
