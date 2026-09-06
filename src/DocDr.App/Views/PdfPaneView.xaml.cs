@@ -28,18 +28,48 @@ public partial class PdfPaneView : UserControl
 
         _pane = e.NewValue as PdfPaneViewModel;
 
-        if (_pane is not null)
+        if (_pane is null)
         {
-            _pane.ScrollToPageRequested += OnScrollToPageRequested;
-            PushViewportMetrics();
+            return;
         }
+
+        _pane.ScrollToPageRequested += OnScrollToPageRequested;
+
+        // WPF's TabControl reuses this single PdfPaneView across every tab, swapping the
+        // DataContext underneath it — so a plain event hook isn't enough. Re-establish
+        // viewport metrics, reset the scroll surface, and kick a fresh render for the new pane.
+        _scrollViewer ??= FindScrollViewer(PageList);
+        _programmaticScroll = false;
+        _scrollViewer?.ScrollToVerticalOffset(0);
+        ScheduleReinitialize();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _scrollViewer = FindScrollViewer(PageList);
-        PushViewportMetrics();
-        Dispatcher.BeginInvoke(RefreshVisibleRange, System.Windows.Threading.DispatcherPriority.Loaded);
+        ScheduleReinitialize();
+    }
+
+    private void ScheduleReinitialize()
+    {
+        Dispatcher.BeginInvoke(
+            () =>
+            {
+                if (_pane is null)
+                {
+                    return;
+                }
+
+                _scrollViewer ??= FindScrollViewer(PageList);
+                PushViewportMetrics();
+                RefreshVisibleRange();
+
+                if (_pane is { Mode: ViewMode.Continuous, CurrentPage: > 1 })
+                {
+                    OnScrollToPageRequested(_pane.CurrentPage - 1);
+                }
+            },
+            System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     private void PushViewportMetrics()

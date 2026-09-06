@@ -1,0 +1,34 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug DocDr.App",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/DocDr.App/bin/Debug/net9.0-windows/DocDr.App.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}/src/DocDr.App",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Debug DocDr.App (open a PDF)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/DocDr.App/bin/Debug/net9.0-windows/DocDr.App.exe",
+      "args": ["${input:pdfPath}"],
+      "cwd": "${workspaceFolder}/src/DocDr.App",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "pdfPath",
+      "type": "promptString",
+      "description": "Path to a PDF to open on launch"
+    }
+  ]
+}
