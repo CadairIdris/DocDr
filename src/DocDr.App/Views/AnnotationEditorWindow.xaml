@@ -43,6 +43,16 @@
             <TextBox Text="{Binding Contents, UpdateSourceTrigger=PropertyChanged}"
                      AcceptsReturn="True" TextWrapping="Wrap" MinHeight="90" MaxHeight="220"
                      VerticalScrollBarVisibility="Auto" x:Name="ContentsBox" />
+
+            <StackPanel Margin="0,8,0,0">
+                <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11">
+                    <Run Text="{Binding Author, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Created, Mode=OneWay}" />
+                </TextBlock>
+                <TextBlock Foreground="{DynamicResource HintTextBrush}" FontSize="11"
+                           Visibility="{Binding ShowModified, Converter={StaticResource BoolToVisibility}}">
+                    <Run Text="edited " /><Run Text="{Binding Modified, Mode=OneWay}" />
+                </TextBlock>
+            </StackPanel>
         </StackPanel>
     </DockPanel>
 </Window>

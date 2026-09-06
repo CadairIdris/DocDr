@@ -63,6 +63,27 @@ public sealed class PdfAnnotationTests
         Assert.Equal(PdfAnnotationKind.Comment, a.Kind);
         Assert.Equal("see figure 2", a.Contents);
         Assert.Equal("rob", a.Author);
+        Assert.NotNull(a.Created);
+        Assert.NotNull(a.Modified);
+        Assert.True((System.DateTimeOffset.Now - a.Created!.Value).Duration() < System.TimeSpan.FromMinutes(5));
+    }
+
+    [Fact]
+    public void Editing_keeps_the_creation_date_and_advances_the_modified_date()
+    {
+        using var ws = new TempWorkspace();
+        using PdfDocument doc = Make(ws, "dates.pdf", "alpha beta gamma");
+
+        PdfAnnotation created = PdfAnnotation.NewComment(new PdfRect(72, 700, 90, 682), "first", "rob")
+            with { Created = new System.DateTimeOffset(2020, 1, 2, 3, 4, 5, System.TimeSpan.Zero) };
+        doc.AddAnnotation(0, created);
+
+        doc.UpdateAnnotation(0, doc.GetAnnotations(0)[0] with { Contents = "edited", Modified = System.DateTimeOffset.Now });
+
+        using PdfDocument reloaded = PdfDocument.Load(doc.SaveToBytes());
+        PdfAnnotation a = Assert.Single(reloaded.GetAnnotations(0));
+        Assert.Equal(2020, a.Created!.Value.Year);
+        Assert.Equal(System.DateTime.Now.Year, a.Modified!.Value.Year);
     }
 
     [Fact]

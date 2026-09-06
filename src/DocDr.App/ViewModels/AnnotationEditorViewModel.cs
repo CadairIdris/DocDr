@@ -18,15 +18,34 @@ public sealed record AnnotationEditorResult(AnnotationEditorOutcome Outcome, str
 /// <summary>Backs the small modal editor for a comment / noted highlight.</summary>
 public sealed partial class AnnotationEditorViewModel : ObservableObject
 {
-    public AnnotationEditorViewModel(PdfAnnotationKind kind, string? contents, string? colorKey, bool canDelete)
+    public AnnotationEditorViewModel(
+        PdfAnnotationKind kind, string? contents, string? colorKey, bool canDelete,
+        string? author = null, DateTimeOffset? created = null, DateTimeOffset? modified = null)
     {
         Kind = kind;
         _contents = contents ?? string.Empty;
         _selectedColorKey = colorKey ?? AnnotationColors.Default;
         CanDelete = canDelete;
+        Author = string.IsNullOrWhiteSpace(author) ? "—" : author;
+        Created = Format(created);
+        Modified = Format(modified);
+        ShowModified = modified is { } m && created is { } c && (m - c).Duration() > TimeSpan.FromMinutes(1);
     }
 
     public PdfAnnotationKind Kind { get; }
+
+    public string Author { get; }
+
+    /// <summary>Date the annotation was first created, formatted for display (or "—").</summary>
+    public string Created { get; }
+
+    public string Modified { get; }
+
+    /// <summary>Whether to show the "edited" line (the annotation has been changed since creation).</summary>
+    public bool ShowModified { get; }
+
+    private static string Format(DateTimeOffset? value) =>
+        value is { } v ? v.LocalDateTime.ToString("yyyy-MM-dd HH:mm") : "—";
 
     public bool IsHighlight => Kind == PdfAnnotationKind.Highlight;
 

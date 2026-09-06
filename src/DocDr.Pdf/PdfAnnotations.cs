@@ -51,20 +51,18 @@ public static class PdfAnnotations
 
                     string? contents = ReadString(annot, "Contents");
                     string? author = ReadString(annot, "T");
-                    PdfDate.TryParse(ReadString(annot, "M"), out DateTimeOffset modified);
+                    DateTimeOffset? created = PdfDate.TryParse(ReadString(annot, "CreationDate"), out DateTimeOffset c) ? c : null;
+                    DateTimeOffset? modified = PdfDate.TryParse(ReadString(annot, "M"), out DateTimeOffset m) ? m : null;
+                    Guid id = Guid.TryParse(ReadString(annot, "NM"), out Guid nm) ? nm : Guid.NewGuid();
 
-                    if (subtype == SubtypeHighlight)
-                    {
-                        result.Add(new PdfAnnotation(Guid.NewGuid(), PdfAnnotationKind.Highlight,
-                            ReadQuads(annot), ReadColor(annot), contents, author,
-                            modified == default ? null : modified));
-                    }
-                    else
-                    {
-                        result.Add(new PdfAnnotation(Guid.NewGuid(), PdfAnnotationKind.Comment,
-                            [ReadRect(annot)], ReadColor(annot), contents, author,
-                            modified == default ? null : modified));
-                    }
+                    PdfAnnotationKind kind = subtype == SubtypeHighlight
+                        ? PdfAnnotationKind.Highlight
+                        : PdfAnnotationKind.Comment;
+                    IReadOnlyList<PdfRect> quads = subtype == SubtypeHighlight
+                        ? ReadQuads(annot)
+                        : [ReadRect(annot)];
+
+                    result.Add(new PdfAnnotation(id, kind, quads, ReadColor(annot), contents, author, created, modified));
                 }
                 finally
                 {

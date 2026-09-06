@@ -959,7 +959,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         IReadOnlyList<PdfRect> quads = _pendingQuads;
         ClearTextSelection();
 
-        OpenEditor(PdfAnnotationKind.Highlight, string.Empty, AnnotationColors.Default, canDelete: false, result =>
+        OpenEditor(PdfAnnotationKind.Highlight, string.Empty, AnnotationColors.Default, canDelete: false,
+            Author, System.DateTimeOffset.Now, null, result =>
         {
             if (result.Outcome == AnnotationEditorOutcome.Save)
             {
@@ -976,7 +977,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         var iconRect = new PdfRect(pagePoint.X, pagePoint.Y + 18, pagePoint.X + 18, pagePoint.Y);
         CommentToolActive = false;
 
-        OpenEditor(PdfAnnotationKind.Comment, string.Empty, null, canDelete: false, result =>
+        OpenEditor(PdfAnnotationKind.Comment, string.Empty, null, canDelete: false,
+            Author, System.DateTimeOffset.Now, null, result =>
         {
             if (result.Outcome == AnnotationEditorOutcome.Save)
             {
@@ -999,7 +1001,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             ? AnnotationColors.FromArgb(annotation.ColorArgb)
             : null;
 
-        OpenEditor(annotation.Kind, annotation.Contents, colorKey, canDelete: true, result =>
+        OpenEditor(annotation.Kind, annotation.Contents, colorKey, canDelete: true,
+            annotation.Author, annotation.Created, annotation.Modified, result =>
         {
             switch (result.Outcome)
             {
@@ -1046,14 +1049,17 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         return (-1, null);
     }
 
-    private static void OpenEditor(PdfAnnotationKind kind, string? contents, string? colorKey, bool canDelete, Action<AnnotationEditorResult> onClosed)
+    private static void OpenEditor(
+        PdfAnnotationKind kind, string? contents, string? colorKey, bool canDelete,
+        string? author, System.DateTimeOffset? created, System.DateTimeOffset? modified,
+        Action<AnnotationEditorResult> onClosed)
     {
         // Defer past the current input event: a modal ShowDialog raised directly from a
         // mouse-down / popup-click handler opens without activating.
         Application.Current?.Dispatcher.BeginInvoke(
             () =>
             {
-                var viewModel = new AnnotationEditorViewModel(kind, contents, colorKey, canDelete);
+                var viewModel = new AnnotationEditorViewModel(kind, contents, colorKey, canDelete, author, created, modified);
                 var window = new AnnotationEditorWindow(viewModel) { Owner = Application.Current?.MainWindow };
                 AnnotationEditorResult? result = null;
                 viewModel.Closed = r =>

@@ -22,6 +22,7 @@ public sealed record PdfAnnotation(
     uint ColorArgb,
     string? Contents,
     string? Author,
+    DateTimeOffset? Created,
     DateTimeOffset? Modified)
 {
     /// <summary>PDF annotation subtype number for <see cref="Kind"/> (matches the PDF spec / PDFium).</summary>
@@ -52,11 +53,17 @@ public sealed record PdfAnnotation(
 
     public bool HasNote => !string.IsNullOrWhiteSpace(Contents);
 
-    public static PdfAnnotation NewHighlight(IReadOnlyList<PdfRect> quads, uint colorArgb, string? note = null, string? author = null) =>
-        new(Guid.NewGuid(), PdfAnnotationKind.Highlight, quads.ToArray(), colorArgb, note, author, DateTimeOffset.Now);
+    public static PdfAnnotation NewHighlight(IReadOnlyList<PdfRect> quads, uint colorArgb, string? note = null, string? author = null)
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+        return new(Guid.NewGuid(), PdfAnnotationKind.Highlight, quads.ToArray(), colorArgb, note, author, now, now);
+    }
 
-    public static PdfAnnotation NewComment(PdfRect iconRect, string? text, string? author = null) =>
-        new(Guid.NewGuid(), PdfAnnotationKind.Comment, [iconRect], 0xFFFFD54F, text, author, DateTimeOffset.Now);
+    public static PdfAnnotation NewComment(PdfRect iconRect, string? text, string? author = null)
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+        return new(Guid.NewGuid(), PdfAnnotationKind.Comment, [iconRect], 0xFFFFD54F, text, author, now, now);
+    }
 }
 
 /// <summary>Payload for <see cref="PdfDocument.AnnotationsChanged"/>.</summary>

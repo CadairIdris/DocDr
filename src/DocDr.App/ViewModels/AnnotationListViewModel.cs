@@ -26,6 +26,27 @@ public sealed class AnnotationRowViewModel(int pageIndex, PdfAnnotation annotati
     public string Text => string.IsNullOrWhiteSpace(annotation.Contents)
         ? (annotation.Kind == PdfAnnotationKind.Highlight ? "(highlight)" : "(empty note)")
         : annotation.Contents.ReplaceLineEndings(" ").Trim();
+
+    /// <summary>"author · date" for the annotation, or just one of them, or empty.</summary>
+    public string Attribution
+    {
+        get
+        {
+            string? who = string.IsNullOrWhiteSpace(annotation.Author) ? null : annotation.Author.Trim();
+            string? when = (annotation.Created ?? annotation.Modified) is { } d
+                ? d.LocalDateTime.ToString("yyyy-MM-dd")
+                : null;
+            return (who, when) switch
+            {
+                (not null, not null) => $"{who} · {when}",
+                (not null, null) => who,
+                (null, not null) => when,
+                _ => string.Empty,
+            };
+        }
+    }
+
+    public bool HasAttribution => Attribution.Length > 0;
 }
 
 /// <summary>Flat list of every annotation in the document, for the nav panel Annotations tab.</summary>

@@ -63,7 +63,12 @@ internal static class PdfAnnotationWriter
                     SetString(annot, "T", a.Author);
                 }
 
-                SetString(annot, "M", PdfDate.Format(a.Modified ?? DateTimeOffset.Now));
+                DateTimeOffset now = DateTimeOffset.Now;
+                SetString(annot, "CreationDate", PdfDate.Format(a.Created ?? a.Modified ?? now));
+                SetString(annot, "M", PdfDate.Format(a.Modified ?? now));
+
+                // A stable id lets other readers thread replies / recognise the annotation.
+                SetString(annot, "NM", a.Id.ToString());
             }
             finally
             {
