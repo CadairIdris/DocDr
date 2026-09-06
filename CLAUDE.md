@@ -41,3 +41,8 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 
 `dotnet test`. Fixtures are generated in-process by `TestPdfBuilder` (a minimal PDF writer) —
 no binary files in the repo. Test parallelism is disabled (native interop).
+
+Set `DOCDR_BINDING_LOG=<path>` to have the app log WPF data-binding errors to that file
+(`App.OnStartup`). Gotcha: a child view that sets its own `DataContext` (e.g. `PdfPaneView
+DataContext="{Binding RightPane}"`) resolves its *other* bindings against that new context —
+use `RelativeSource AncestorType=...` to reach the parent VM.

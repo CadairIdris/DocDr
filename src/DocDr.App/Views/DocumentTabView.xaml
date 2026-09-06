@@ -31,6 +31,8 @@
                       Visibility="{Binding IsSplitView, Converter={StaticResource BoolToVisibility}}" />
 
         <views:PdfPaneView Grid.Column="4" DataContext="{Binding RightPane}"
-                           Visibility="{Binding IsSplitView, Converter={StaticResource BoolToVisibility}}" />
+                           Visibility="{Binding DataContext.IsSplitView,
+                                        RelativeSource={RelativeSource AncestorType={x:Type views:DocumentTabView}},
+                                        Converter={StaticResource BoolToVisibility}}" />
     </Grid>
 </UserControl>
