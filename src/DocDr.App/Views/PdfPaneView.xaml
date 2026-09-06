@@ -23,6 +23,31 @@
             <Setter Property="FontSize" Value="13" />
         </Style>
 
+        <!-- View-mode selector: icon toggle buttons (a RadioButton wears the Fluent
+             ToggleButton look, so it picks up the accent fill when checked). -->
+        <Geometry x:Key="IconSinglePage">M4.5,2.5 H11.5 V13.5 H4.5 Z</Geometry>
+        <Geometry x:Key="IconContinuous">M5,0.5 H11 V6 H5 Z M5,10 H11 V15.5 H5 Z</Geometry>
+        <Geometry x:Key="IconGrid">M2.5,2.5 H7 V7 H2.5 Z M9,2.5 H13.5 V7 H9 Z M2.5,9 H7 V13.5 H2.5 Z M9,9 H13.5 V13.5 H9 Z</Geometry>
+
+        <Style x:Key="ModeToggle" TargetType="RadioButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Margin" Value="1,0" />
+            <Setter Property="Padding" Value="6,3" />
+        </Style>
+        <Style x:Key="ModeIcon" TargetType="Path">
+            <Setter Property="Width" Value="16" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="Stretch" Value="None" />
+            <Setter Property="StrokeThickness" Value="1.2" />
+            <Setter Property="StrokeStartLineCap" Value="Round" />
+            <Setter Property="StrokeEndLineCap" Value="Round" />
+            <Setter Property="StrokeLineJoin" Value="Round" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="Stroke"
+                    Value="{Binding (TextElement.Foreground), RelativeSource={RelativeSource Self}}" />
+        </Style>
+
         <!-- One rendered page: its bitmap plus any search-highlight overlay. -->
         <DataTemplate x:Key="PageSlotTemplate" DataType="{x:Type vm:PageSlotViewModel}">
             <Grid Width="{Binding LayoutWidth}" Height="{Binding LayoutHeight}"
@@ -122,18 +147,24 @@
                      put all six buttons (both panes) in one group, and the hidden right pane's
                      binding would silently steal the check from the visible left pane on launch. -->
                 <StackPanel Orientation="Horizontal" Margin="2,0" VerticalAlignment="Center">
-                    <RadioButton Content="Page" Padding="6,1" VerticalContentAlignment="Center"
+                    <RadioButton Style="{StaticResource ModeToggle}"
                                  Tag="{x:Static vm:ViewMode.SinglePage}" Checked="ModeRadio_Checked"
                                  IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=SinglePage, Mode=OneWay}"
-                                 ToolTip="Single page" />
-                    <RadioButton Content="Continuous" Padding="6,1" VerticalContentAlignment="Center"
+                                 AutomationProperties.Name="Page" ToolTip="Single page">
+                        <Path Style="{StaticResource ModeIcon}" Data="{StaticResource IconSinglePage}" />
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource ModeToggle}"
                                  Tag="{x:Static vm:ViewMode.Continuous}" Checked="ModeRadio_Checked"
                                  IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Continuous, Mode=OneWay}"
-                                 ToolTip="Continuous scroll" />
-                    <RadioButton Content="Grid" Padding="6,1" VerticalContentAlignment="Center"
+                                 AutomationProperties.Name="Continuous" ToolTip="Continuous scroll">
+                        <Path Style="{StaticResource ModeIcon}" Data="{StaticResource IconContinuous}" />
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource ModeToggle}"
                                  Tag="{x:Static vm:ViewMode.Grid}" Checked="ModeRadio_Checked"
                                  IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Grid, Mode=OneWay}"
-                                 ToolTip="Grid of pages (columns auto-fit the width)" />
+                                 AutomationProperties.Name="Grid" ToolTip="Grid of pages (columns auto-fit the width)">
+                        <Path Style="{StaticResource ModeIcon}" Data="{StaticResource IconGrid}" />
+                    </RadioButton>
                 </StackPanel>
 
                 <Border Width="1" Margin="6,2" Background="{DynamicResource BorderBrush}" />
