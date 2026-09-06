@@ -8,41 +8,103 @@
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance vm:DocumentTabViewModel}"
              d:DesignHeight="600" d:DesignWidth="200">
+    <UserControl.Resources>
+        <!-- Tab-strip icons: stroke geometry that tracks the RadioButton's foreground. -->
+        <Geometry x:Key="IconPages">M4,2 H12 V14 H4 Z M6,5.5 H10 M6,8 H10 M6,10.5 H10</Geometry>
+        <Geometry x:Key="IconBookmarks">M5,2.5 H11 V13.5 L8,10.8 L5,13.5 Z</Geometry>
+        <Geometry x:Key="IconAnnotations">M3,3.5 H13 V10.5 H7.5 L4.5,13 V10.5 H3 Z</Geometry>
+
+        <Style x:Key="NavTabIcon" TargetType="Path">
+            <Setter Property="Width" Value="16" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="Stretch" Value="None" />
+            <Setter Property="StrokeThickness" Value="1.3" />
+            <Setter Property="StrokeStartLineCap" Value="Round" />
+            <Setter Property="StrokeEndLineCap" Value="Round" />
+            <Setter Property="StrokeLineJoin" Value="Round" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="Stroke"
+                    Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" />
+        </Style>
+
+        <Style x:Key="NavTab" TargetType="RadioButton">
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="0">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource TabItemBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource TabItemActiveBrush}" />
+                                <Setter TargetName="Bd" Property="BorderThickness" Value="0,0,0,2" />
+                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <UniformGrid Grid.Row="0" Rows="1" Background="{DynamicResource ChromeBrush}">
-            <RadioButton GroupName="NavSection" Content="Pages" Padding="4,4"
-                         HorizontalContentAlignment="Center"
-                         IsChecked="{Binding NavigationTab, Converter={StaticResource EnumEquals}, ConverterParameter=Pages}" />
-            <RadioButton GroupName="NavSection" Content="Bookmarks" Padding="4,4"
-                         HorizontalContentAlignment="Center"
-                         IsChecked="{Binding NavigationTab, Converter={StaticResource EnumEquals}, ConverterParameter=Bookmarks}" />
-        </UniformGrid>
-
-        <Border Grid.Row="1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
-            <Grid>
-                <ContentControl Content="{Binding Thumbnails}"
-                                Visibility="{Binding NavigationTab, Converter={StaticResource EnumToVisibility}, ConverterParameter=Pages}">
-                    <ContentControl.ContentTemplate>
-                        <DataTemplate>
-                            <views:ThumbnailStripView />
-                        </DataTemplate>
-                    </ContentControl.ContentTemplate>
-                </ContentControl>
-
-                <ContentControl Content="{Binding Bookmarks}"
-                                Visibility="{Binding NavigationTab, Converter={StaticResource EnumToVisibility}, ConverterParameter=Bookmarks}">
-                    <ContentControl.ContentTemplate>
-                        <DataTemplate>
-                            <views:BookmarksPanelView />
-                        </DataTemplate>
-                    </ContentControl.ContentTemplate>
-                </ContentControl>
-            </Grid>
+        <!-- Icon tab strip. No GroupName: the RadioButtons group by this UniformGrid parent. -->
+        <Border Grid.Row="0" Background="{DynamicResource ChromeBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+            <UniformGrid Rows="1">
+                <RadioButton Style="{StaticResource NavTab}" Tag="{x:Static vm:NavigationTab.Pages}"
+                             Checked="NavTab_Checked" AutomationProperties.Name="Pages"
+                             ToolTip="Page thumbnails"
+                             IsChecked="{Binding NavigationTab, Converter={StaticResource EnumEquals}, ConverterParameter=Pages, Mode=OneWay}">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconPages}" />
+                </RadioButton>
+                <RadioButton Style="{StaticResource NavTab}" Tag="{x:Static vm:NavigationTab.Bookmarks}"
+                             Checked="NavTab_Checked" AutomationProperties.Name="Bookmarks"
+                             ToolTip="Bookmarks / document outline"
+                             IsChecked="{Binding NavigationTab, Converter={StaticResource EnumEquals}, ConverterParameter=Bookmarks, Mode=OneWay}">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconBookmarks}" />
+                </RadioButton>
+                <RadioButton Style="{StaticResource NavTab}" Tag="{x:Static vm:NavigationTab.Annotations}"
+                             Checked="NavTab_Checked" AutomationProperties.Name="Annotations"
+                             ToolTip="Annotations"
+                             Visibility="{Binding HasAnnotations, Converter={StaticResource BoolToVisibility}}"
+                             IsChecked="{Binding NavigationTab, Converter={StaticResource EnumEquals}, ConverterParameter=Annotations, Mode=OneWay}">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconAnnotations}" />
+                </RadioButton>
+            </UniformGrid>
         </Border>
+
+        <Grid Grid.Row="1">
+            <ContentControl Content="{Binding Thumbnails}"
+                            Visibility="{Binding NavigationTab, Converter={StaticResource EnumToVisibility}, ConverterParameter=Pages}">
+                <ContentControl.ContentTemplate>
+                    <DataTemplate>
+                        <views:ThumbnailStripView />
+                    </DataTemplate>
+                </ContentControl.ContentTemplate>
+            </ContentControl>
+
+            <ContentControl Content="{Binding Bookmarks}"
+                            Visibility="{Binding NavigationTab, Converter={StaticResource EnumToVisibility}, ConverterParameter=Bookmarks}">
+                <ContentControl.ContentTemplate>
+                    <DataTemplate>
+                        <views:BookmarksPanelView />
+                    </DataTemplate>
+                </ContentControl.ContentTemplate>
+            </ContentControl>
+        </Grid>
     </Grid>
 </UserControl>

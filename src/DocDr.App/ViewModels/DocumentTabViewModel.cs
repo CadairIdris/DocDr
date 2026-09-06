@@ -78,6 +78,9 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private NavigationTab _navigationTab = NavigationTab.Pages;
 
+    /// <summary>Whether the Annotations navigation tab is offered. Wired up in Stage 3.</summary>
+    public bool HasAnnotations => false;
+
     /// <summary>Raised when the tab's own close affordance is used.</summary>
     public event EventHandler? CloseRequested;
 
