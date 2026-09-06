@@ -1,0 +1,26 @@
+<Application x:Class="DocDr.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:DocDr.App"
+             xmlns:conv="clr-namespace:DocDr.App.Converters">
+    <Application.Resources>
+        <ResourceDictionary>
+            <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+            <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility" />
+            <conv:HighlightFillConverter x:Key="HighlightFill" />
+            <conv:EnumEqualsConverter x:Key="EnumEquals" />
+
+            <!-- Colour tokens -->
+            <SolidColorBrush x:Key="ChromeBrush" Color="#F3F3F3" />
+            <SolidColorBrush x:Key="BorderBrush" Color="#D0D0D0" />
+            <SolidColorBrush x:Key="PageBackgroundBrush" Color="#9E9E9E" />
+            <SolidColorBrush x:Key="HighlightBrush" Color="#66FFD54F" />
+            <SolidColorBrush x:Key="ActiveHighlightBrush" Color="#66FF8A65" />
+            <SolidColorBrush x:Key="ActiveHighlightPen" Color="#FF5722" />
+
+            <Style TargetType="ToolBar">
+                <Setter Property="Background" Value="{StaticResource ChromeBrush}" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

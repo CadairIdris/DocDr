@@ -1,0 +1,48 @@
+using System.Collections.Generic;
+using System.Windows.Media;
+using CommunityToolkit.Mvvm.ComponentModel;
+using DocDr.Pdf;
+
+namespace DocDr.App.ViewModels;
+
+/// <summary>
+/// One page's placeholder in a pane: its on-screen size at the current zoom, its (lazily
+/// rendered) bitmap, and any search highlights that fall on it.
+/// </summary>
+public sealed partial class PageSlotViewModel : ObservableObject
+{
+    public PageSlotViewModel(int pageIndex, PdfSize sizePoints)
+    {
+        PageIndex = pageIndex;
+        SizePoints = sizePoints;
+    }
+
+    /// <summary>Zero-based page index.</summary>
+    public int PageIndex { get; }
+
+    /// <summary>One-based page number for display.</summary>
+    public int PageNumber => PageIndex + 1;
+
+    public PdfSize SizePoints { get; }
+
+    /// <summary>Layout width in DIP at the current zoom.</summary>
+    [ObservableProperty]
+    private double _layoutWidth;
+
+    /// <summary>Layout height in DIP at the current zoom.</summary>
+    [ObservableProperty]
+    private double _layoutHeight;
+
+    /// <summary>The rendered page image, or null until it has been produced.</summary>
+    [ObservableProperty]
+    private ImageSource? _image;
+
+    /// <summary>Pixel width the current <see cref="Image"/> was rendered at (0 if none).</summary>
+    public int RenderedPixelWidth { get; set; }
+
+    [ObservableProperty]
+    private IReadOnlyList<HighlightRect> _highlights = [];
+
+    /// <summary>True while a container for this slot is realised in the visual tree.</summary>
+    public bool IsRealized { get; set; }
+}
