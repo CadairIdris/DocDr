@@ -123,6 +123,27 @@
         "reveal": "always",
         "clear": true
       }
+    },
+    {
+      "label": "publish (framework-dependent, single file)",
+      "detail": "publish.ps1 -Mode framework-dependent -SingleFile  (one .exe, needs the runtime)",
+      "command": "powershell",
+      "type": "process",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/publish.ps1",
+        "-Mode",
+        "framework-dependent",
+        "-SingleFile"
+      ],
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "always",
+        "clear": true
+      }
     }
   ]
 }

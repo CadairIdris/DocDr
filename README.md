@@ -97,16 +97,20 @@ NuGet package.
 `publish.ps1` produces a `win-x64` build under `publish/`:
 
 ```
-pwsh publish.ps1                          # self-contained (bundles the .NET runtime)
-pwsh publish.ps1 -SingleFile              # self-contained, packed into one DocDr.App.exe
-pwsh publish.ps1 -Mode framework-dependent   # needs the .NET 9 Desktop Runtime installed (~6 MB)
+pwsh publish.ps1                                       # self-contained folder (~140 MB)
+pwsh publish.ps1 -SingleFile                           # self-contained, one .exe (~150 MB)
+pwsh publish.ps1 -Mode framework-dependent             # folder, needs the .NET 9 Desktop Runtime (~6 MB)
+pwsh publish.ps1 -Mode framework-dependent -SingleFile # one .exe, needs the runtime (~5 MB)
 ```
 
-Self-contained runs on a machine with no .NET installed (~140 MB folder, or a ~150 MB
-single `.exe`); framework-dependent is much smaller but needs the runtime. The same three
-options are in `.vscode/tasks.json` and as VS / Rider publish profiles
-(`src/DocDr.App/Properties/PublishProfiles`). `ReadyToRun` is on; WPF can't be trimmed so
-trimming stays off.
+Self-contained runs on a machine with no .NET installed; framework-dependent is far
+smaller but needs the .NET 9 Desktop Runtime. `-SingleFile` works with either mode and
+packs everything (pdfium.dll included) into one `DocDr.App.exe` that self-extracts on
+first run. The first three are also in `.vscode/tasks.json`, and `SelfContained.pubxml` /
+`FrameworkDependent.pubxml` under `src/DocDr.App/Properties/PublishProfiles` cover the VS /
+Rider publish UI. `ReadyToRun` is on only for self-contained (on a framework-dependent
+target the runtime patch can differ, and R2R + single file fail-fasts instead of falling
+back to JIT); WPF can't be trimmed so trimming stays off.
 
 ## Threading note
 
