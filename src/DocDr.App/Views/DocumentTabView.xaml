@@ -10,11 +10,13 @@
              d:DesignHeight="600" d:DesignWidth="900">
     <Grid>
         <Grid.ColumnDefinitions>
-            <!-- Auto = size to the panel (or to 0 when it's collapsed). The GridSplitter writes an
-                 explicit pixel width here on drag, which then persists across show/hide. -->
-            <ColumnDefinition Width="Auto" MinWidth="0" MaxWidth="480" />
+            <!-- Nav panel column. Auto = size to the panel; code-behind forces it back to 0 when
+                 the panel is hidden and restores the last width when it reopens, because the
+                 GridSplitter bakes an explicit pixel width here on drag that would otherwise
+                 persist across show/hide (see DocumentTabView.xaml.cs). -->
+            <ColumnDefinition x:Name="NavColumn" Width="Auto" MinWidth="0" MaxWidth="480" />
             <ColumnDefinition Width="Auto" />
-            <ColumnDefinition Width="*" MinWidth="320" />
+            <ColumnDefinition x:Name="MainColumn" Width="*" MinWidth="320" />
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="{Binding IsSplitView, Converter={StaticResource SplitViewWidth}}" MinWidth="0" />
         </Grid.ColumnDefinitions>
