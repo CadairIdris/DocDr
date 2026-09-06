@@ -41,10 +41,31 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   `SaveToBytes` does this when metadata was edited *or* the handle was rebuilt (rebuild loses the
   Info dict). Metadata edits are not on the undo stack.
 
+## Annotations (`PdfDocument`, Stage 3)
+
+- Highlights + text-note comments live in DocDr's model — `_annotations` (a
+  `List<List<PdfAnnotation>>` index-aligned with `_pages`), snapshotted alongside `_pages` in
+  each `HistoryStep`. Quads are in **unrotated** page space (same as `FPDFText_GetRect`).
+- **The live PDFium handle never carries our annotations during a session.** The ctor reads
+  existing subtype-1/9 annotations via `PdfAnnotations.ReadLocked` then `StripManaged`s them off
+  the original handle (== `_sources[0]`), so `Rebuild()` imports a clean base and the WPF overlay
+  is the only thing drawing them. `SaveToBytes` bakes them onto the pages via
+  `PdfAnnotationWriter.Write` around `FPDF_SaveAsCopy`, then strips them again (idempotent).
+- Other annotation subtypes (ink, stamps, widgets…) are left untouched and still render.
+- `AnnotationsChanged` is the light event (overlay rebuild only); `Changed` is the heavy one
+  (full pane/thumbnail reload). Undo/redo raises `Changed` only when pages/rotations actually
+  moved, `AnnotationsChanged` always.
+- `PdfCoordinates.PageToDevice(rect, unrotatedSize, rotation, scale)` / `DeviceToPage(...)` are
+  the rotation-aware maps used by the overlay and mouse hit-testing (also fixes search
+  highlights on rotated pages). `PdfDocument.GetUnrotatedPageSize` swaps W/H for 90/270 —
+  `FPDF_GetPageSizeByIndex` in this build returns the *rotated* size.
+
 ## Testing
 
 `dotnet test`. Fixtures are generated in-process by `TestPdfBuilder` (a minimal PDF writer) —
-no binary files in the repo. Test parallelism is disabled (native interop).
+no binary files in the repo. Test parallelism is disabled (native interop). `PdfAnnotations.Read`
+re-reads from the live handle, which the `PdfDocument` ctor has already stripped — so tests must
+assert with `doc.GetAnnotations(i)` (the model), not `PdfAnnotations.Read` after a `Load`.
 
 Set `DOCDR_BINDING_LOG=<path>` to have the app log WPF data-binding errors to that file
 (`App.OnStartup`). Gotcha: a child view that sets its own `DataContext` (e.g. `PdfPaneView

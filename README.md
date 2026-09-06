@@ -21,6 +21,17 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   to the bytes PDFium produced. This also re-attaches metadata that a structural edit
   (rebuild) would otherwise drop, and stamps `ModDate`.
 
+### Stage 3 — Annotations (done)
+
+- **Highlight text**: drag to select text on a page, then pick one of five colours from
+  the popup. **Comment**: "Comment…" in that popup attaches a note to the highlight, or the
+  **💬 Note** toolbar toggle drops a standalone sticky note where you click.
+- Click a note marker to edit or delete; the nav panel's **Annotations** tab lists every
+  annotation and jumps to it.
+- Annotations are DocDr's own model during a session (so they survive rotate / delete /
+  insert / undo and stay on the right page); on save they are written into the PDF as
+  standard `Highlight` / `Text` annotations, visible in any other reader.
+
 ### Stage 2 — Page editing (done)
 
 - **Rotate / delete / insert pages.** Targets the thumbnail-strip selection when the Pages
@@ -47,14 +58,13 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 - Zoom (25–800%, Fit Width, Fit Page, 100%, **Ctrl+wheel / trackpad pinch**, anchored on the
   cursor) and page navigation.
 
-Not yet (later stages): annotations, folder browser, metadata editing,
-SQLite catalog + duplicate finder, OCR.
+Not yet (later stages): folder browser, SQLite catalog + duplicate finder, OCR.
 
 ## Layout
 
 | Project | Purpose |
 |---|---|
-| `src/DocDr.Pdf` | PDFium wrapper: `PdfiumLibrary`, `PdfDocument` (in-memory load, page edit + undo/redo + save + metadata), `PageRenderer` (+ LRU cache), `PdfSearch`, `PdfTextExtractor`, `PdfMetadata` (+ `PdfMetadataWriter`, `PdfDate`), `PdfBookmarks`. All PDFium calls are serialised process-wide. |
+| `src/DocDr.Pdf` | PDFium wrapper: `PdfiumLibrary`, `PdfDocument` (in-memory load, page edit + undo/redo + save + metadata + annotations), `PageRenderer` (+ LRU cache), `PdfSearch`, `PdfTextExtractor`, `PdfMetadata` (+ `PdfMetadataWriter`, `PdfDate`), `PdfBookmarks`, `PdfAnnotations` (+ `PdfAnnotationWriter`). All PDFium calls are serialised process-wide. |
 | `src/DocDr.App` | WPF app (MVVM via CommunityToolkit.Mvvm): tab shell, panes, background render queue. |
 | `tests/DocDr.Pdf.Tests` | xUnit tests over `DocDr.Pdf`, including concurrency stress tests. Fixtures are generated at test time (`TestPdfBuilder`). |
 
