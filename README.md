@@ -9,9 +9,11 @@ Done:
 
 - Load a PDF via PDFium (`PDFiumCore`, Apache-2.0) and render pages to WPF.
 - Tabbed shell — several documents open at once, the same file openable in more than one tab.
-- Each tab has **two independent panes** on one shared document: independent page position,
-  zoom, view mode, and text search. Searching or navigating in one pane never touches the other.
-- Single-page and continuous (virtualised) view modes.
+- Optional **split view** (off by default): a second, fully independent pane on the same
+  document — independent page position, zoom, view mode, and text search.
+- Three view modes per pane: single-page, continuous (virtualised), and grid (rows of pages,
+  column count auto-fits the width at the current zoom).
+- Collapsible **thumbnail navigation strip** per tab (off by default).
 - Per-pane full-text search: all matches, highlight overlays, match counter, next/previous.
 - Zoom (25–800%, Fit Width, Fit Page, 100%) and page navigation.
 

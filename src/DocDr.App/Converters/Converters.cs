@@ -52,6 +52,19 @@ public sealed class SplitViewWidthConverter : IValueConverter
         Binding.DoNothing;
 }
 
+/// <summary>Page aspect (height/width) → thumbnail box height at the fixed thumbnail width.</summary>
+public sealed class ThumbnailBoxHeightConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        double aspect = value is double d && d > 0 ? d : 1.294;
+        return ViewModels.ThumbnailStripViewModel.ThumbnailWidth * aspect;
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        Binding.DoNothing;
+}
+
 /// <summary>Enum equality test usable as a converter (parameter = enum member name).</summary>
 public sealed class EnumEqualsConverter : IValueConverter
 {

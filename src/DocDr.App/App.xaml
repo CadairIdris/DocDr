@@ -10,6 +10,7 @@
             <conv:HighlightFillConverter x:Key="HighlightFill" />
             <conv:EnumEqualsConverter x:Key="EnumEquals" />
             <conv:SplitViewWidthConverter x:Key="SplitViewWidth" />
+            <conv:ThumbnailBoxHeightConverter x:Key="ThumbnailBoxHeight" />
 
             <!-- Colour tokens -->
             <SolidColorBrush x:Key="ChromeBrush" Color="#F3F3F3" />

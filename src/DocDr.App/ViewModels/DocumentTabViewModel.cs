@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DocDr.App.Services;
@@ -27,6 +28,11 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
         LeftPane = new PdfPaneViewModel("Left", document, pageSizes, queue);
         RightPane = new PdfPaneViewModel("Right", document, pageSizes, queue);
+
+        Thumbnails = new ThumbnailStripViewModel(document, pageSizes, queue);
+        Thumbnails.PageActivated += pageIndex => LeftPane.GoToPage(pageIndex + 1);
+        LeftPane.PropertyChanged += OnLeftPanePropertyChanged;
+        Thumbnails.SetCurrentPage(LeftPane.CurrentPage);
     }
 
     public string Title { get; }
@@ -37,11 +43,25 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isSplitView;
 
+    /// <summary>Whether the thumbnail navigation strip is shown. Off by default.</summary>
+    [ObservableProperty]
+    private bool _isThumbnailStripVisible;
+
     public PdfDocument Document { get; }
 
     public PdfPaneViewModel LeftPane { get; }
 
     public PdfPaneViewModel RightPane { get; }
+
+    public ThumbnailStripViewModel Thumbnails { get; }
+
+    private void OnLeftPanePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(PdfPaneViewModel.CurrentPage))
+        {
+            Thumbnails.SetCurrentPage(LeftPane.CurrentPage);
+        }
+    }
 
     /// <summary>Raised when the tab's own close affordance is used.</summary>
     public event EventHandler? CloseRequested;
@@ -51,6 +71,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        LeftPane.PropertyChanged -= OnLeftPanePropertyChanged;
         LeftPane.Dispose();
         RightPane.Dispose();
         _cache.Purge(Document);
