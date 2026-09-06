@@ -46,7 +46,10 @@
                 <Separator />
                 <TextBlock Text="Theme" VerticalAlignment="Center" Margin="2,0,4,0"
                            Foreground="{DynamicResource SecondaryTextBrush}" />
+                <!-- Explicit type-default style: a ToolBar otherwise forces the classic
+                     (non-Fluent) ComboBox style, whose drop-down stays white in dark mode. -->
                 <ComboBox VerticalAlignment="Center" MinWidth="76"
+                          Style="{StaticResource {x:Type ComboBox}}"
                           ItemsSource="{Binding Themes}"
                           SelectedItem="{Binding SelectedTheme, Mode=TwoWay}"
                           ToolTip="Follow the OS theme, or force light / dark" />
