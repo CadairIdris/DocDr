@@ -11,7 +11,11 @@ public static class PdfAnnotations
 {
     internal const int SubtypeText = 1;
     internal const int SubtypeHighlight = 9;
+    internal const int SubtypeStamp = 13;
     internal const int SubtypeInk = 15;
+
+    /// <summary>Private annotation key carrying a stamp-backed shape's real geometry (JSON).</summary>
+    internal const string ShapeKey = "DocDrShape";
 
     public static IReadOnlyList<PdfAnnotation> Read(PdfDocument document, int pageIndex)
     {
@@ -45,7 +49,8 @@ public static class PdfAnnotations
                 try
                 {
                     int subtype = fpdf_annot.FPDFAnnotGetSubtype(annot);
-                    if (subtype is not (SubtypeHighlight or SubtypeText or SubtypeInk))
+                    bool ourStamp = subtype == SubtypeStamp && fpdf_annot.FPDFAnnotHasKey(annot, ShapeKey) != 0;
+                    if (subtype is not (SubtypeHighlight or SubtypeText or SubtypeInk) && !ourStamp)
                     {
                         continue;
                     }
@@ -55,6 +60,19 @@ public static class PdfAnnotations
                     DateTimeOffset? created = PdfDate.TryParse(ReadString(annot, "CreationDate"), out DateTimeOffset c) ? c : null;
                     DateTimeOffset? modified = PdfDate.TryParse(ReadString(annot, "M"), out DateTimeOffset m) ? m : null;
                     Guid id = Guid.TryParse(ReadString(annot, "NM"), out Guid nm) ? nm : Guid.NewGuid();
+                    IReadOnlyList<PdfReply> replies = PdfReplyCodec.Decode(ReadString(annot, "DocDrThread"));
+
+                    if (ourStamp)
+                    {
+                        PdfAnnotation? shape = PdfShapeCodec.Decode(
+                            ReadString(annot, ShapeKey), id, ReadColor(annot), contents, author, created, modified, replies);
+                        if (shape is not null)
+                        {
+                            result.Add(shape);
+                        }
+
+                        continue;
+                    }
 
                     if (subtype == SubtypeInk)
                     {
@@ -82,7 +100,7 @@ public static class PdfAnnotations
 
                     result.Add(new PdfAnnotation(id, kind, quads, ReadColor(annot), contents, author, created, modified)
                     {
-                        Replies = PdfReplyCodec.Decode(ReadString(annot, "DocDrThread")),
+                        Replies = replies,
                     });
                 }
                 finally

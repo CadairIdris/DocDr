@@ -6,6 +6,16 @@ using DocDr.App.ViewModels;
 
 namespace DocDr.App.Converters;
 
+/// <summary>Non-null → Visible, null → Collapsed.</summary>
+public sealed class NotNullToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is null ? Visibility.Collapsed : Visibility.Visible;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        Binding.DoNothing;
+}
+
 /// <summary>true → Collapsed, false → Visible. For "show this when the flag is off" cases.</summary>
 public sealed class InverseBoolToVisibilityConverter : IValueConverter
 {
@@ -105,4 +115,25 @@ public sealed class EnumEqualsConverter : IValueConverter
         value is true && parameter is not null
             ? Enum.Parse(targetType, parameter.ToString()!)
             : Binding.DoNothing;
+}
+
+/// <summary>
+/// Like <see cref="EnumEqualsConverter"/>, but a toggle turning <b>off</b> sets the enum back to
+/// its default (member 0). For a set of mutually-exclusive <c>ToggleButton</c>s that can all be off.
+/// </summary>
+public sealed class EnumEqualsOrDefaultConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value?.ToString() == parameter?.ToString();
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        Type enumType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        if (value is true && parameter is not null)
+        {
+            return Enum.Parse(enumType, parameter.ToString()!);
+        }
+
+        return Enum.ToObject(enumType, 0);
+    }
 }

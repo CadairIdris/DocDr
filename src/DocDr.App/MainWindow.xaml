@@ -110,6 +110,12 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <ToggleButton Content="Text box" Padding="8,3" Margin="8,0,0,0" Style="{StaticResource ToolToggle}"
+                              IsEnabled="{Binding HasTabs}"
+                              IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
+                                          Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=TextBox}"
+                              AutomationProperties.Name="Text box tool"
+                              ToolTip="Drag on the page to drop a text box" />
                 <Button Padding="8,3" Margin="6,0,0,0"
                         Content="{Binding SelectedTab.MarkupButtonLabel}"
                         Command="{Binding SelectedTab.ToggleAnnotationsCommand}"

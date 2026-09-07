@@ -65,6 +65,10 @@ public sealed partial class PageSlotViewModel : ObservableObject
     [ObservableProperty]
     private double _inkPreviewThickness = 12;
 
+    /// <summary>The shape (text box / cloud) being dragged out on this page right now (DIP space), or null.</summary>
+    [ObservableProperty]
+    private System.Windows.Rect? _shapePreview;
+
     /// <summary>True while a container for this slot is realised in the visual tree.</summary>
     public bool IsRealized { get; set; }
 }

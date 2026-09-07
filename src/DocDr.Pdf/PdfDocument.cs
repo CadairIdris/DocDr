@@ -1012,7 +1012,7 @@ public sealed class PdfDocument : IDisposable
                 PdfAnnotationWriter.StripManaged(page);
                 if (_annotations[i].Count > 0)
                 {
-                    PdfAnnotationWriter.Write(page, _annotations[i]);
+                    PdfAnnotationWriter.Write(Handle, page, _annotations[i]);
                 }
             }
             finally

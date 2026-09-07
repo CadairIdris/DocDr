@@ -197,6 +197,55 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
 
+                                <!-- Revision cloud outline. -->
+                                <Path Data="{Binding CloudGeometry}" Stroke="{Binding ShapeBrush}" StrokeThickness="1.6"
+                                      IsHitTestVisible="False"
+                                      Visibility="{Binding IsCloud, Converter={StaticResource BoolToVisibility}}">
+                                    <Path.Style>
+                                        <Style TargetType="Path">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                    <Setter Property="Effect">
+                                                        <Setter.Value>
+                                                            <DropShadowEffect Color="#8A6FBF" BlurRadius="7" ShadowDepth="0" Opacity="0.95" />
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Path.Style>
+                                </Path>
+
+                                <!-- Callout leader line + arrow. -->
+                                <Polyline Points="{Binding Leader}" Stroke="{Binding ShapeBrush}" StrokeThickness="1.5"
+                                          StrokeLineJoin="Round" IsHitTestVisible="False"
+                                          Visibility="{Binding IsCallout, Converter={StaticResource BoolToVisibility}}" />
+
+                                <!-- Text box / callout box. -->
+                                <Border Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
+                                        Width="{Binding Box.Width}" Height="{Binding Box.Height}"
+                                        BorderBrush="{Binding ShapeBrush}" BorderThickness="1.5"
+                                        Background="Transparent" Cursor="Hand" ClipToBounds="True"
+                                        Visibility="{Binding IsTextBox, Converter={StaticResource BoolToVisibility}}"
+                                        MouseLeftButtonDown="ShapeBox_MouseLeftButtonDown"
+                                        Tag="{Binding Id}">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                    <Setter Property="Effect">
+                                                        <Setter.Value>
+                                                            <DropShadowEffect Color="#8A6FBF" BlurRadius="7" ShadowDepth="0" Opacity="0.95" />
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock Text="{Binding BoxText}" TextWrapping="Wrap" Margin="3,2"
+                                               Foreground="{Binding ShapeBrush}" FontSize="{Binding BoxFontSize}" />
+                                </Border>
+
                                 <Button Canvas.Left="{Binding Marker.X}" Canvas.Top="{Binding Marker.Y}"
                                         Width="{Binding Marker.Width}" Height="{Binding Marker.Height}"
                                         Padding="0" MinWidth="0" MinHeight="0" Cursor="Hand"
@@ -259,6 +308,14 @@
                             <SolidColorBrush Color="{Binding InkPreviewBrush}" Opacity="0.45" />
                         </Polyline.Stroke>
                     </Polyline>
+                </Canvas>
+
+                <!-- Shape being dragged out right now. -->
+                <Canvas IsHitTestVisible="False"
+                        Visibility="{Binding ShapePreview, Converter={StaticResource NotNullToVisibility}}">
+                    <Rectangle Canvas.Left="{Binding ShapePreview.Value.X}" Canvas.Top="{Binding ShapePreview.Value.Y}"
+                               Width="{Binding ShapePreview.Value.Width}" Height="{Binding ShapePreview.Value.Height}"
+                               Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.4" StrokeDashArray="4 3" />
                 </Canvas>
             </Grid>
         </DataTemplate>
@@ -410,6 +467,15 @@
                             <Setter Property="Cursor" Value="Pen" />
                         </DataTrigger>
                         <DataTrigger Binding="{Binding CommentToolActive}" Value="True">
+                            <Setter Property="Cursor" Value="Cross" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding ShapeTool}" Value="TextBox">
+                            <Setter Property="Cursor" Value="Cross" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding ShapeTool}" Value="Callout">
+                            <Setter Property="Cursor" Value="Cross" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding ShapeTool}" Value="Cloud">
                             <Setter Property="Cursor" Value="Cross" />
                         </DataTrigger>
                     </Style.Triggers>

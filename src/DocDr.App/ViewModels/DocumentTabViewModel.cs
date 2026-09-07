@@ -106,6 +106,23 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         if (value)
         {
             HighlighterToolActive = false;
+            ShapeTool = ShapeTool.None;
+            AnnotationsVisible = true;
+        }
+    }
+
+    /// <summary>The armed "drop a shape" tool (text box / callout / cloud). Mirrored to both panes.</summary>
+    [ObservableProperty]
+    private ShapeTool _shapeTool;
+
+    partial void OnShapeToolChanged(ShapeTool value)
+    {
+        LeftPane.ShapeTool = value;
+        RightPane.ShapeTool = value;
+        if (value != ShapeTool.None)
+        {
+            CommentToolActive = false;
+            HighlighterToolActive = false;
             AnnotationsVisible = true;
         }
     }
@@ -137,6 +154,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         if (value)
         {
             CommentToolActive = false;
+            ShapeTool = ShapeTool.None;
             AnnotationsVisible = true;
         }
     }
@@ -504,6 +522,10 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         {
             CommentToolActive = false;
         }
+        else if (e.PropertyName == nameof(PdfPaneViewModel.ShapeTool) && LeftPane.ShapeTool == ShapeTool.None)
+        {
+            ShapeTool = ShapeTool.None;
+        }
     }
 
     private void OnRightPanePropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -511,6 +533,10 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         if (e.PropertyName == nameof(PdfPaneViewModel.CommentToolActive) && !RightPane.CommentToolActive)
         {
             CommentToolActive = false;
+        }
+        else if (e.PropertyName == nameof(PdfPaneViewModel.ShapeTool) && RightPane.ShapeTool == ShapeTool.None)
+        {
+            ShapeTool = ShapeTool.None;
         }
     }
 

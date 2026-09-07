@@ -21,75 +21,103 @@ internal static class PdfAnnotationWriter
             }
 
             int subtype = fpdf_annot.FPDFAnnotGetSubtype(annot);
+            bool ourStamp = subtype == PdfAnnotations.SubtypeStamp
+                && fpdf_annot.FPDFAnnotHasKey(annot, PdfAnnotations.ShapeKey) != 0;
             fpdf_annot.FPDFPageCloseAnnot(annot);
 
-            if (subtype is PdfAnnotations.SubtypeHighlight or PdfAnnotations.SubtypeText or PdfAnnotations.SubtypeInk)
+            if (subtype is PdfAnnotations.SubtypeHighlight or PdfAnnotations.SubtypeText or PdfAnnotations.SubtypeInk
+                || ourStamp)
             {
                 fpdf_annot.FPDFPageRemoveAnnot(page, i);
             }
         }
     }
 
-    public static void Write(FpdfPageT page, IReadOnlyList<PdfAnnotation> annotations)
+    public static void Write(FpdfDocumentT doc, FpdfPageT page, IReadOnlyList<PdfAnnotation> annotations)
     {
-        foreach (PdfAnnotation a in annotations)
+        bool hasStamp = annotations.Any(a =>
+            a.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud);
+        FpdfFontT? font = hasStamp ? fpdf_edit.FPDFTextLoadStandardFont(doc, "Helvetica") : null;
+
+        try
         {
-            FpdfAnnotationT? annot = fpdf_annot.FPDFPageCreateAnnot(page, a.Subtype);
-            if (annot is null || annot.__Instance == IntPtr.Zero)
+            foreach (PdfAnnotation a in annotations)
             {
-                continue;
+                WriteOne(doc, page, font, a);
+            }
+        }
+        finally
+        {
+            if (font is not null && font.__Instance != IntPtr.Zero)
+            {
+                fpdf_edit.FPDFFontClose(font);
+            }
+        }
+    }
+
+    private static void WriteOne(FpdfDocumentT doc, FpdfPageT page, FpdfFontT? font, PdfAnnotation a)
+    {
+        FpdfAnnotationT? annot = fpdf_annot.FPDFPageCreateAnnot(page, a.Subtype);
+        if (annot is null || annot.__Instance == IntPtr.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            SetColor(annot, a.ColorArgb, a.Kind == PdfAnnotationKind.Ink ? (uint)150 : 255);
+            SetRect(annot, a.Bounds);
+
+            if (a.Kind == PdfAnnotationKind.Highlight)
+            {
+                foreach (PdfRect quad in a.Quads)
+                {
+                    AppendQuad(annot, quad);
+                }
             }
 
-            try
+            if (a.Kind == PdfAnnotationKind.Ink)
             {
-                SetColor(annot, a.ColorArgb, a.Kind == PdfAnnotationKind.Ink ? (uint)150 : 255);
-                SetRect(annot, a.Bounds);
-
-                if (a.Kind == PdfAnnotationKind.Highlight)
+                fpdf_annot.FPDFAnnotSetBorder(annot, 0, 0, (float)Math.Max(1, a.StrokeWidth));
+                foreach (IReadOnlyList<PdfPoint> stroke in a.Strokes)
                 {
-                    foreach (PdfRect quad in a.Quads)
-                    {
-                        AppendQuad(annot, quad);
-                    }
-                }
-
-                if (a.Kind == PdfAnnotationKind.Ink)
-                {
-                    fpdf_annot.FPDFAnnotSetBorder(annot, 0, 0, (float)Math.Max(1, a.StrokeWidth));
-                    foreach (IReadOnlyList<PdfPoint> stroke in a.Strokes)
-                    {
-                        PdfInkInterop.AddStroke(annot, stroke);
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(a.Contents))
-                {
-                    SetString(annot, "Contents", a.Contents);
-                }
-
-                if (!string.IsNullOrWhiteSpace(a.Author))
-                {
-                    SetString(annot, "T", a.Author);
-                }
-
-                DateTimeOffset now = DateTimeOffset.Now;
-                SetString(annot, "CreationDate", PdfDate.Format(a.Created ?? a.Modified ?? now));
-                SetString(annot, "M", PdfDate.Format(a.Modified ?? now));
-
-                // A stable id lets other readers thread replies / recognise the annotation.
-                SetString(annot, "NM", a.Id.ToString());
-
-                // The reply thread rides along on the parent as one private-key string —
-                // PDFium can't write a standard /IRT reply-annotation chain (no ref setter).
-                if (a.Replies.Count > 0)
-                {
-                    SetString(annot, "DocDrThread", PdfReplyCodec.Encode(a.Replies));
+                    PdfInkInterop.AddStroke(annot, stroke);
                 }
             }
-            finally
+
+            if (a.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud)
             {
-                fpdf_annot.FPDFPageCloseAnnot(annot);
+                PdfStampAppearance.Build(doc, annot, font, a);
+                SetString(annot, PdfAnnotations.ShapeKey, PdfShapeCodec.Encode(a));
             }
+
+            if (!string.IsNullOrEmpty(a.Contents))
+            {
+                SetString(annot, "Contents", a.Contents);
+            }
+
+            if (!string.IsNullOrWhiteSpace(a.Author))
+            {
+                SetString(annot, "T", a.Author);
+            }
+
+            DateTimeOffset now = DateTimeOffset.Now;
+            SetString(annot, "CreationDate", PdfDate.Format(a.Created ?? a.Modified ?? now));
+            SetString(annot, "M", PdfDate.Format(a.Modified ?? now));
+
+            // A stable id lets other readers thread replies / recognise the annotation.
+            SetString(annot, "NM", a.Id.ToString());
+
+            // The reply thread rides along on the parent as one private-key string —
+            // PDFium can't write a standard /IRT reply-annotation chain (no ref setter).
+            if (a.Replies.Count > 0)
+            {
+                SetString(annot, "DocDrThread", PdfReplyCodec.Encode(a.Replies));
+            }
+        }
+        finally
+        {
+            fpdf_annot.FPDFPageCloseAnnot(annot);
         }
     }
 

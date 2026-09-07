@@ -11,6 +11,15 @@ public enum PdfAnnotationKind
 
     /// <summary>A freehand highlighter drawing — one or more polylines (PDF subtype <c>Ink</c>).</summary>
     Ink,
+
+    /// <summary>A bordered text box placed on the page (authored as a <c>Stamp</c> appearance).</summary>
+    TextBox,
+
+    /// <summary>A text box with a leader line + arrow pointing at a spot (a <c>Stamp</c> appearance).</summary>
+    Callout,
+
+    /// <summary>A scalloped "revision cloud" outlining a changed area (a <c>Stamp</c> appearance).</summary>
+    Cloud,
 }
 
 /// <summary>
@@ -53,6 +62,9 @@ public sealed record PdfAnnotation(
     /// <summary>Ink stroke width in points.</summary>
     public double StrokeWidth { get; init; }
 
+    /// <summary>Text size in points for <see cref="PdfAnnotationKind.TextBox"/> / <see cref="PdfAnnotationKind.Callout"/>.</summary>
+    public double FontSize { get; init; }
+
     /// <summary>Replies to this comment, oldest first. Empty for a thread with no replies yet.</summary>
     public IReadOnlyList<PdfReply> Replies { get; init; } = [];
 
@@ -61,8 +73,16 @@ public sealed record PdfAnnotation(
     {
         PdfAnnotationKind.Highlight => 9,
         PdfAnnotationKind.Ink => 15,
+        PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud => 13, // Stamp — DocDr builds the appearance
         _ => 1,
     };
+
+    /// <summary>The box rectangle for a <see cref="PdfAnnotationKind.TextBox"/> / <see cref="PdfAnnotationKind.Callout"/>
+    /// / <see cref="PdfAnnotationKind.Cloud"/> (the first quad). Default for other kinds.</summary>
+    public PdfRect Box => Quads.Count > 0 ? Quads[0] : default;
+
+    /// <summary>The callout leader points (tip first, box-attach last) for a <see cref="PdfAnnotationKind.Callout"/>.</summary>
+    public IReadOnlyList<PdfPoint> Leader => Kind == PdfAnnotationKind.Callout && Strokes.Count > 0 ? Strokes[0] : [];
 
     /// <summary>Smallest rectangle covering every quad / stroke point.</summary>
     public PdfRect Bounds
@@ -95,7 +115,12 @@ public sealed record PdfAnnotation(
                 return default;
             }
 
-            double pad = Kind == PdfAnnotationKind.Ink ? Math.Max(1, StrokeWidth) : 0;
+            double pad = Kind switch
+            {
+                PdfAnnotationKind.Ink => Math.Max(1, StrokeWidth),
+                PdfAnnotationKind.Cloud => 6,   // the scallops bulge outside the vertex rectangle
+                _ => 0,
+            };
             return new PdfRect(left - pad, top + pad, right + pad, bottom - pad);
         }
     }
@@ -124,6 +149,37 @@ public sealed record PdfAnnotation(
             Strokes = copied,
             StrokeWidth = strokeWidth,
         };
+    }
+
+    /// <summary>The default text size for a new text box / callout, in points.</summary>
+    public const double DefaultFontSize = 11;
+
+    public static PdfAnnotation NewTextBox(
+        PdfRect box, string? text, uint colorArgb, double fontSize = DefaultFontSize, string? author = null)
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+        return new(Guid.NewGuid(), PdfAnnotationKind.TextBox, [box], colorArgb, text, author, now, now)
+        {
+            FontSize = fontSize > 0 ? fontSize : DefaultFontSize,
+        };
+    }
+
+    public static PdfAnnotation NewCallout(
+        PdfRect box, IReadOnlyList<PdfPoint> leader, string? text, uint colorArgb,
+        double fontSize = DefaultFontSize, string? author = null)
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+        return new(Guid.NewGuid(), PdfAnnotationKind.Callout, [box], colorArgb, text, author, now, now)
+        {
+            Strokes = [leader.ToArray()],
+            FontSize = fontSize > 0 ? fontSize : DefaultFontSize,
+        };
+    }
+
+    public static PdfAnnotation NewCloud(PdfRect area, uint colorArgb, string? author = null)
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+        return new(Guid.NewGuid(), PdfAnnotationKind.Cloud, [area], colorArgb, null, author, now, now);
     }
 }
 

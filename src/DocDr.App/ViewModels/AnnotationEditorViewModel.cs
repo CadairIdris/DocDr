@@ -16,7 +16,11 @@ public enum AnnotationEditorOutcome
 }
 
 public sealed record AnnotationEditorResult(
-    AnnotationEditorOutcome Outcome, string Contents, string ColorKey, IReadOnlyList<PdfReply> Replies);
+    AnnotationEditorOutcome Outcome, string Contents, string ColorKey, IReadOnlyList<PdfReply> Replies)
+{
+    /// <summary>Text size in points for a text box / callout (ignored by other kinds).</summary>
+    public double FontSize { get; init; } = PdfAnnotation.DefaultFontSize;
+}
 
 /// <summary>One already-posted reply in the comment thread.</summary>
 public sealed class ThreadMessageViewModel(string? author, DateTimeOffset when, string text)
@@ -42,11 +46,13 @@ public sealed partial class AnnotationEditorViewModel : ObservableObject
     public AnnotationEditorViewModel(
         PdfAnnotationKind kind, string? contents, string? colorKey, bool canDelete,
         string? author = null, DateTimeOffset? created = null, DateTimeOffset? modified = null,
-        IReadOnlyList<PdfReply>? replies = null, string? replyAuthor = null)
+        IReadOnlyList<PdfReply>? replies = null, string? replyAuthor = null,
+        double fontSize = 0)
     {
         Kind = kind;
         _contents = contents ?? string.Empty;
         _selectedColorKey = colorKey ?? AnnotationColors.Default;
+        _fontSize = fontSize > 0 ? fontSize : PdfAnnotation.DefaultFontSize;
         CanDelete = canDelete;
         Author = string.IsNullOrWhiteSpace(author) ? "—" : author;
         Created = Format(created);
@@ -77,11 +83,27 @@ public sealed partial class AnnotationEditorViewModel : ObservableObject
 
     public bool IsHighlight => Kind == PdfAnnotationKind.Highlight;
 
+    public bool IsShape => Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout;
+
+    /// <summary>Show the colour swatches for highlights and the text-shape kinds.</summary>
+    public bool ShowColors => IsHighlight || IsShape;
+
     public bool CanDelete { get; }
 
-    public string Title => Kind == PdfAnnotationKind.Highlight ? "Highlight note" : "Comment";
+    public string Title => Kind switch
+    {
+        PdfAnnotationKind.Highlight => "Highlight note",
+        PdfAnnotationKind.TextBox => "Text box",
+        PdfAnnotationKind.Callout => "Callout",
+        _ => "Comment",
+    };
 
     public IReadOnlyList<string> Colors { get; } = AnnotationColors.Keys;
+
+    public IReadOnlyList<double> FontSizes { get; } = [8, 9, 10, 11, 12, 14, 16, 18, 24];
+
+    [ObservableProperty]
+    private double _fontSize;
 
     /// <summary>The conversation so far: the opening comment then every reply, oldest first.</summary>
     public ObservableCollection<ThreadMessageViewModel> Thread { get; }
@@ -130,7 +152,8 @@ public sealed partial class AnnotationEditorViewModel : ObservableObject
     [RelayCommand]
     private void Save() =>
         Closed?.Invoke(new AnnotationEditorResult(
-            AnnotationEditorOutcome.Save, Contents.Trim(), SelectedColorKey, _replies.ToArray()));
+            AnnotationEditorOutcome.Save, Contents.Trim(), SelectedColorKey, _replies.ToArray())
+            { FontSize = FontSize });
 
     [RelayCommand]
     private void Cancel() =>

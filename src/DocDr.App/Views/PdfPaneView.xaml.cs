@@ -17,6 +17,7 @@ public partial class PdfPaneView : UserControl
 
     private bool _selecting;
     private bool _inking;
+    private bool _shaping;
     private FrameworkElement? _selectionSlot;
     private int _selectionPageIndex = -1;
     private int _wheelAccumulator;
@@ -416,6 +417,18 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        if (_pane.ShapeTool != ShapeTool.None)
+        {
+            _shaping = true;
+            _selectionSlot = target.Element;
+            _selectionPageIndex = target.Slot.PageIndex;
+            _pane.SelectedAnnotationId = null;
+            _pane.BeginShape(target.Slot.PageIndex, pagePoint);
+            PageList.CaptureMouse();
+            e.Handled = true;
+            return;
+        }
+
         // A click on an existing highlight selects it (and its delete button) instead of
         // starting a new text selection.
         if (_pane.TrySelectAnnotationAt(target.Slot.PageIndex, pagePoint))
@@ -449,6 +462,10 @@ public partial class PdfPaneView : UserControl
         {
             _pane.ExtendInk(pagePoint);
         }
+        else if (_shaping)
+        {
+            _pane.ExtendShape(pagePoint);
+        }
         else if (_selecting)
         {
             _pane.ExtendTextSelection(pagePoint);
@@ -467,6 +484,14 @@ public partial class PdfPaneView : UserControl
             _inking = false;
             PageList.ReleaseMouseCapture();
             _pane.EndInk();
+            return;
+        }
+
+        if (_shaping)
+        {
+            _shaping = false;
+            PageList.ReleaseMouseCapture();
+            _pane.EndShape();
             return;
         }
 
@@ -493,6 +518,36 @@ public partial class PdfPaneView : UserControl
             _pane.DeleteAnnotationCommand.Execute(id);
             e.Handled = true;
         }
+        else if (e.Key == Key.Escape && _pane is not null && _pane.ShapeTool != ShapeTool.None)
+        {
+            _pane.CancelShape();
+            _pane.ShapeTool = ShapeTool.None;
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>Click a text box / callout to select it; double-click to edit its text.</summary>
+    private void ShapeBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_pane is null || sender is not FrameworkElement { Tag: System.Guid id })
+        {
+            return;
+        }
+
+        if (e.ClickCount == 2)
+        {
+            if (_pane.EditAnnotationCommand.CanExecute(id))
+            {
+                _pane.EditAnnotationCommand.Execute(id);
+            }
+        }
+        else
+        {
+            _pane.SelectedAnnotationId = _pane.SelectedAnnotationId == id ? null : id;
+            PageList.Focus();
+        }
+
+        e.Handled = true;
     }
 
     private void ColorSwatch_Click(object sender, RoutedEventArgs e)

@@ -85,6 +85,19 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   record, so they snapshot with history and are undoable like any other annotation edit. The
   editor (`AnnotationEditorViewModel`) shows replies as a list with a reply box; the nav-panel
   row shows a reply count.
+- **Stamp-backed shapes** (`PdfAnnotationKind.TextBox` / `Callout` / `Cloud`): PDFium has no
+  setter for `/CL`, `/Vertices` or `/BE`, so these are written as **`Stamp` (subtype 13)**
+  annotations whose appearance `PdfStampAppearance.Build` assembles from real page objects —
+  `FPDFPageObjCreateNewPath` for the box/arrow/cloud scallops, `FPDFPageObjCreateTextObj` +
+  `FPDFTextLoadStandardFont("Helvetica")` for the label — then `FPDFAnnotAppendObject`. PDFium
+  wires up the font resources, so they render in any viewer and in the print path. The real
+  geometry (box rect, callout leader, font size) round-trips through DocDr only, as JSON in the
+  private `/DocDrShape` key (`PdfShapeCodec`); `StripManaged` / the reader key off subtype 13 +
+  that key so *other* apps' stamps are left alone. `PdfAnnotation.Box` / `.Leader` expose the
+  geometry (stored in `Quads[0]` / `Strokes[0]`). The overlay draws its own WPF version
+  (`ShapeGeometry.Cloud` mirrors the PDF scallop maths); the editor reuses `AnnotationEditorWindow`
+  (colour + font size). Text box / callout / cloud creation = a `ShapeTool` armed from the toolbar
+  (`DocumentTabViewModel.ShapeTool`, mirrored to panes), then drag a rectangle on the page.
 - `AnnotationsChanged` is the light event (overlay rebuild only); `Changed` is the heavy one
   (full pane/thumbnail reload). Undo/redo raises `Changed` only when pages/rotations actually
   moved, `AnnotationsChanged` always.

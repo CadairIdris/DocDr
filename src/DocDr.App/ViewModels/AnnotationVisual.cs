@@ -26,13 +26,38 @@ public sealed record AnnotationVisual(
     /// <summary>Ink stroke thickness in DIP.</summary>
     public double StrokeThickness { get; init; }
 
+    /// <summary>The box rectangle in slot DIP space for a text box / callout / cloud.</summary>
+    public Rect Box { get; init; }
+
+    /// <summary>The callout leader polyline (tip first) in slot DIP space; empty otherwise.</summary>
+    public PointCollection Leader { get; init; } = [];
+
+    /// <summary>The scalloped cloud outline in slot DIP space; null unless <see cref="Kind"/> is Cloud.</summary>
+    public Geometry? CloudGeometry { get; init; }
+
+    /// <summary>Text shown inside a text box / callout.</summary>
+    public string BoxText { get; init; } = string.Empty;
+
+    /// <summary>Text size in DIP for a text box / callout.</summary>
+    public double BoxFontSize { get; init; }
+
     public Brush FillBrush => new SolidColorBrush(Color) { Opacity = 0.4 };
 
     /// <summary>Highlighter ink — the colour at marker-pen translucency.</summary>
     public Brush StrokeBrush => new SolidColorBrush(Color) { Opacity = 0.45 };
 
-    public bool ShowMarker => Kind == PdfAnnotationKind.Comment || HasNote;
+    /// <summary>Opaque colour brush — the border/text colour for the shape kinds.</summary>
+    public Brush ShapeBrush => new SolidColorBrush(Color);
 
-    /// <summary>A selected highlight / ink gets an inline trash button (comments use the marker).</summary>
-    public bool ShowDeleteButton => IsSelected && Kind is PdfAnnotationKind.Highlight or PdfAnnotationKind.Ink;
+    public bool IsTextBox => Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout;
+
+    public bool IsCallout => Kind == PdfAnnotationKind.Callout;
+
+    public bool IsCloud => Kind == PdfAnnotationKind.Cloud;
+
+    public bool ShowMarker => Kind == PdfAnnotationKind.Comment || (HasNote && !IsTextBox);
+
+    /// <summary>A selected highlight / ink / shape gets an inline trash button (comments use the marker).</summary>
+    public bool ShowDeleteButton => IsSelected && Kind is PdfAnnotationKind.Highlight
+        or PdfAnnotationKind.Ink or PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud;
 }

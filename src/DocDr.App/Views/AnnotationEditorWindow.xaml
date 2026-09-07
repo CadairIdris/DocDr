@@ -25,21 +25,30 @@
         </StackPanel>
 
         <StackPanel>
-            <ListBox ItemsSource="{Binding Colors}" SelectedItem="{Binding SelectedColorKey, Mode=TwoWay}"
-                     BorderThickness="0" Background="Transparent" Margin="0,0,0,10"
-                     Visibility="{Binding IsHighlight, Converter={StaticResource BoolToVisibility}}">
-                <ListBox.ItemsPanel>
-                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
-                </ListBox.ItemsPanel>
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
-                        <Border Width="26" Height="20" CornerRadius="3" Margin="2"
-                                Background="{Binding Converter={StaticResource HighlightSwatch}}"
-                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                                ToolTip="{Binding}" />
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
+            <DockPanel Margin="0,0,0,10"
+                       Visibility="{Binding ShowColors, Converter={StaticResource BoolToVisibility}}">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center"
+                            Visibility="{Binding IsShape, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="Size" VerticalAlignment="Center" Margin="0,0,5,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}" />
+                    <ComboBox Width="52" ItemsSource="{Binding FontSizes}"
+                              SelectedItem="{Binding FontSize, Mode=TwoWay}" ToolTip="Text size in points" />
+                </StackPanel>
+                <ListBox ItemsSource="{Binding Colors}" SelectedItem="{Binding SelectedColorKey, Mode=TwoWay}"
+                         BorderThickness="0" Background="Transparent">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Width="26" Height="20" CornerRadius="3" Margin="2"
+                                    Background="{Binding Converter={StaticResource HighlightSwatch}}"
+                                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                    ToolTip="{Binding}" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
 
             <TextBox Text="{Binding Contents, UpdateSourceTrigger=PropertyChanged}"
                      AcceptsReturn="True" TextWrapping="Wrap" MinHeight="90" MaxHeight="220"

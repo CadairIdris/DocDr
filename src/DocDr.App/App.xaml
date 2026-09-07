@@ -16,6 +16,8 @@
             <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility" />
             <conv:HighlightFillConverter x:Key="HighlightFill" />
             <conv:EnumEqualsConverter x:Key="EnumEquals" />
+            <conv:EnumEqualsOrDefaultConverter x:Key="EnumEqualsOrDefault" />
+            <conv:NotNullToVisibilityConverter x:Key="NotNullToVisibility" />
             <conv:EnumToVisibilityConverter x:Key="EnumToVisibility" />
             <conv:SplitViewWidthConverter x:Key="SplitViewWidth" />
             <conv:HighlightSwatchConverter x:Key="HighlightSwatch" />

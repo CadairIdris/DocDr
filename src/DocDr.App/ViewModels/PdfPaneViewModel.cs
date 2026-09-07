@@ -788,6 +788,17 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 SelectedAnnotationId = a.Id;
                 return true;
             }
+            else if (a.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud)
+            {
+                PdfRect b = a.Box;
+                double left = Math.Min(b.Left, b.Right), right = Math.Max(b.Left, b.Right);
+                double bottom = Math.Min(b.Top, b.Bottom), top = Math.Max(b.Top, b.Bottom);
+                if (pt.X >= left && pt.X <= right && pt.Y >= bottom && pt.Y <= top)
+                {
+                    SelectedAnnotationId = a.Id;
+                    return true;
+                }
+            }
         }
 
         SelectedAnnotationId = null;
@@ -884,12 +895,37 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 DeviceRect bounds = PdfCoordinates.PageToDevice(annotation.Bounds, unrotated, rotation, scale, crop);
                 var marker = new Rect(Math.Max(0, bounds.X + bounds.Width - 8), Math.Max(0, bounds.Y - 6), 17, 17);
 
+                Rect box = default;
+                var leader = new PointCollection();
+                Geometry? cloud = null;
+                if (annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud)
+                {
+                    DeviceRect d = PdfCoordinates.PageToDevice(annotation.Box, unrotated, rotation, scale, crop);
+                    box = new Rect(d.X, d.Y, d.Width, d.Height);
+
+                    foreach (PdfPoint p in annotation.Leader)
+                    {
+                        (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale, crop);
+                        leader.Add(new Point(x, y));
+                    }
+
+                    if (annotation.Kind == PdfAnnotationKind.Cloud)
+                    {
+                        cloud = ShapeGeometry.Cloud(box, 8 * scale);
+                    }
+                }
+
                 visuals.Add(new AnnotationVisual(annotation.Id, annotation.Kind, rects, marker,
                     AnnotationColors.ToColor(annotation.ColorArgb), annotation.HasNote,
                     annotation.Id == SelectedAnnotationId)
                 {
                     Strokes = strokes,
                     StrokeThickness = Math.Max(1, annotation.StrokeWidth * scale),
+                    Box = box,
+                    Leader = leader,
+                    CloudGeometry = cloud,
+                    BoxText = annotation.Contents ?? string.Empty,
+                    BoxFontSize = Math.Max(4, (annotation.FontSize > 0 ? annotation.FontSize : PdfAnnotation.DefaultFontSize) * scale),
                 });
             }
 
@@ -1146,6 +1182,119 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
     }
 
+    // --- Shape tools: drag a rectangle to drop a text box / cloud ------------------------
+
+    /// <summary>The armed shape tool (mirrored from the tab). Cleared once a shape is placed.</summary>
+    [ObservableProperty]
+    private ShapeTool _shapeTool;
+
+    private int _shapePage = -1;
+    private PdfPoint _shapeAnchor;
+    private PdfPoint _shapeHead;
+
+    public void BeginShape(int pageIndex, PdfPoint pagePoint)
+    {
+        _shapePage = pageIndex;
+        _shapeAnchor = _shapeHead = pagePoint;
+        UpdateShapePreview();
+    }
+
+    public void ExtendShape(PdfPoint pagePoint)
+    {
+        if (_shapePage < 0)
+        {
+            return;
+        }
+
+        _shapeHead = pagePoint;
+        UpdateShapePreview();
+    }
+
+    /// <summary>Finish the drag; drops the shape and (for text kinds) opens the editor for its text.</summary>
+    public void EndShape()
+    {
+        int page = _shapePage;
+        PdfPoint a = _shapeAnchor, b = _shapeHead;
+        ShapeTool tool = ShapeTool;
+        _shapePage = -1;
+        ClearShapePreview();
+
+        if (page < 0)
+        {
+            return;
+        }
+
+        var box = new PdfRect(
+            Math.Min(a.X, b.X), Math.Max(a.Y, b.Y), Math.Max(a.X, b.X), Math.Min(a.Y, b.Y));
+
+        // A stray click with no real drag: give a sensible default box so the tool still works.
+        if (box.Width < 8 || box.Height < 8)
+        {
+            double w = tool == ShapeTool.Cloud ? 160 : 180;
+            double h = tool == ShapeTool.Cloud ? 90 : 60;
+            box = new PdfRect(box.Left, box.Bottom + h, box.Left + w, box.Bottom);
+        }
+
+        ShapeTool = ShapeTool.None; // one-shot
+
+        if (tool == ShapeTool.Cloud)
+        {
+            _document.AddAnnotation(page, PdfAnnotation.NewCloud(box, AnnotationColors.ToArgb(InkColorKey), Author));
+            return;
+        }
+
+        // Text box: place it, then open the editor for the text/colour.
+        uint color = AnnotationColors.ToArgb(InkColorKey);
+        OpenEditor(PdfAnnotationKind.TextBox, string.Empty, AnnotationColors.FromArgb(color), canDelete: false,
+            Author, System.DateTimeOffset.Now, null, result =>
+            {
+                if (result.Outcome == AnnotationEditorOutcome.Save)
+                {
+                    _document.AddAnnotation(page, PdfAnnotation.NewTextBox(
+                        box, string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents,
+                        AnnotationColors.ToArgb(result.ColorKey), result.FontSize, Author)
+                        with { Replies = result.Replies });
+                }
+            });
+    }
+
+    public void CancelShape()
+    {
+        _shapePage = -1;
+        ClearShapePreview();
+    }
+
+    private void UpdateShapePreview()
+    {
+        if (_shapePage < 0)
+        {
+            return;
+        }
+
+        PageSlotViewModel slot = Pages[_shapePage];
+        double scale = SlotScale(slot);
+        PdfSize unrotated = _document.GetUnrotatedPageSize(_shapePage);
+        PdfRotation rotation = _document.GetPageRotation(_shapePage);
+        PdfPoint crop = _document.GetCropOrigin(_shapePage);
+
+        var pageRect = new PdfRect(
+            Math.Min(_shapeAnchor.X, _shapeHead.X), Math.Max(_shapeAnchor.Y, _shapeHead.Y),
+            Math.Max(_shapeAnchor.X, _shapeHead.X), Math.Min(_shapeAnchor.Y, _shapeHead.Y));
+        DeviceRect d = PdfCoordinates.PageToDevice(pageRect, unrotated, rotation, scale, crop);
+        slot.ShapePreview = new Rect(d.X, d.Y, d.Width, d.Height);
+    }
+
+    private void ClearShapePreview()
+    {
+        foreach (PageSlotViewModel slot in Pages)
+        {
+            if (slot.ShapePreview is not null)
+            {
+                slot.ShapePreview = null;
+            }
+        }
+    }
+
     private void UpdateSelectionRects()
     {
         if (_selectionPage < 0)
@@ -1348,9 +1497,9 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             return;
         }
 
-        string? colorKey = annotation.Kind == PdfAnnotationKind.Highlight
-            ? AnnotationColors.FromArgb(annotation.ColorArgb)
-            : null;
+        bool colored = annotation.Kind is PdfAnnotationKind.Highlight
+            or PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout;
+        string? colorKey = colored ? AnnotationColors.FromArgb(annotation.ColorArgb) : null;
 
         OpenEditor(annotation.Kind, annotation.Contents, colorKey, canDelete: true,
             annotation.Author, annotation.Created, annotation.Modified, result =>
@@ -1361,9 +1510,10 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     _document.UpdateAnnotation(page, annotation with
                     {
                         Contents = string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents,
-                        ColorArgb = annotation.Kind == PdfAnnotationKind.Highlight
-                            ? AnnotationColors.ToArgb(result.ColorKey)
-                            : annotation.ColorArgb,
+                        ColorArgb = colored ? AnnotationColors.ToArgb(result.ColorKey) : annotation.ColorArgb,
+                        FontSize = annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout
+                            ? result.FontSize
+                            : annotation.FontSize,
                         Replies = result.Replies,
                         Modified = System.DateTimeOffset.Now,
                     });
@@ -1372,7 +1522,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     _document.RemoveAnnotation(page, id);
                     break;
             }
-        }, annotation.Replies);
+        }, annotation.Replies, annotation.FontSize);
     }
 
     [RelayCommand]
@@ -1409,7 +1559,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     private static void OpenEditor(
         PdfAnnotationKind kind, string? contents, string? colorKey, bool canDelete,
         string? author, System.DateTimeOffset? created, System.DateTimeOffset? modified,
-        Action<AnnotationEditorResult> onClosed, IReadOnlyList<PdfReply>? replies = null)
+        Action<AnnotationEditorResult> onClosed, IReadOnlyList<PdfReply>? replies = null, double fontSize = 0)
     {
         // Defer past the current input event: a modal ShowDialog raised directly from a
         // mouse-down / popup-click handler opens without activating.
@@ -1417,7 +1567,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             () =>
             {
                 var viewModel = new AnnotationEditorViewModel(
-                    kind, contents, colorKey, canDelete, author, created, modified, replies, Author);
+                    kind, contents, colorKey, canDelete, author, created, modified, replies, Author, fontSize);
                 var window = new AnnotationEditorWindow(viewModel) { Owner = Application.Current?.MainWindow };
                 AnnotationEditorResult? result = null;
                 viewModel.Closed = r =>
