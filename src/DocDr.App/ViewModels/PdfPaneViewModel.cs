@@ -760,6 +760,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     /// </summary>
     public bool TrySelectAnnotationAt(int pageIndex, PdfPoint pt)
     {
+        if (!AnnotationsVisible)
+        {
+            return false;
+        }
+
         IReadOnlyList<PdfAnnotation> annotations = _document.GetAnnotations(pageIndex);
         for (int i = annotations.Count - 1; i >= 0; i--)
         {
@@ -815,12 +820,21 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         return ((p.X - cx) * (p.X - cx)) + ((p.Y - cy) * (p.Y - cy));
     }
 
+    /// <summary>When false, the annotation overlay is hidden on every page (a view-only toggle;
+    /// the annotations are untouched and still saved).</summary>
+    [ObservableProperty]
+    private bool _annotationsVisible = true;
+
+    partial void OnAnnotationsVisibleChanged(bool value) => BuildAnnotationOverlays();
+
     /// <summary>Project every page's annotations into its slot's DIP space for the overlay.</summary>
     public void BuildAnnotationOverlays()
     {
         foreach (PageSlotViewModel slot in Pages)
         {
-            IReadOnlyList<PdfAnnotation> annotations = _document.GetAnnotations(slot.PageIndex);
+            IReadOnlyList<PdfAnnotation> annotations = AnnotationsVisible
+                ? _document.GetAnnotations(slot.PageIndex)
+                : [];
             if (annotations.Count == 0)
             {
                 if (slot.Annotations.Count > 0)

@@ -106,8 +106,25 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         if (value)
         {
             HighlighterToolActive = false;
+            AnnotationsVisible = true;
         }
     }
+
+    /// <summary>Global show/hide for the annotation overlay (highlights, notes, ink). View-only.</summary>
+    [ObservableProperty]
+    private bool _annotationsVisible = true;
+
+    partial void OnAnnotationsVisibleChanged(bool value)
+    {
+        LeftPane.AnnotationsVisible = value;
+        RightPane.AnnotationsVisible = value;
+        OnPropertyChanged(nameof(MarkupButtonLabel));
+    }
+
+    public string MarkupButtonLabel => AnnotationsVisible ? "👁 Markup" : "👁 Markup hidden";
+
+    [RelayCommand]
+    private void ToggleAnnotations() => AnnotationsVisible = !AnnotationsVisible;
 
     /// <summary>When on, dragging on a page draws a freehand highlighter stroke. Mirrored to both panes.</summary>
     [ObservableProperty]
@@ -120,6 +137,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         if (value)
         {
             CommentToolActive = false;
+            AnnotationsVisible = true;
         }
     }
 

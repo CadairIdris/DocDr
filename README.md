@@ -31,6 +31,8 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 - Click a highlight or stroke to select it (accent outline + trash button; `Delete` also
   works). Click a note marker to edit or delete. The nav panel's **Annotations** tab lists
   every annotation (with its author and date) and jumps to it.
+- **👁 Markup** toolbar button hides / shows the whole overlay (highlights, notes, ink) —
+  a view toggle; the annotations are untouched and still saved.
 - Each annotation records its author and creation / modification dates in standard PDF
   fields, and DocDr reads that data back from files annotated in other apps.
 - Annotations are DocDr's own model during a session (so they survive rotate / delete /

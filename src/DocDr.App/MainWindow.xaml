@@ -109,6 +109,25 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <Button Padding="8,3" Margin="6,0,0,0"
+                        Content="{Binding SelectedTab.MarkupButtonLabel}"
+                        Command="{Binding SelectedTab.ToggleAnnotationsCommand}"
+                        IsEnabled="{Binding HasTabs}"
+                        AutomationProperties.Name="Toggle markup"
+                        ToolTip="Show or hide all highlights, notes and ink on the page">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding SelectedTab.AnnotationsVisible}" Value="False">
+                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource ChromeBrush}" />
+                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
                 <Button Content="⛶ Read" Padding="8,3" Margin="4,0,0,0"
                         Command="{Binding ToggleReadModeCommand}" IsEnabled="{Binding HasTabs}"
                         AutomationProperties.Name="Read mode"
