@@ -80,6 +80,15 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isSplitView;
 
+    partial void OnIsSplitViewChanged(bool value)
+    {
+        // Open the second pane on whatever page the first one is showing; it stays independent after.
+        if (value)
+        {
+            RightPane.GoToPage(LeftPane.CurrentPage);
+        }
+    }
+
     [ObservableProperty]
     private bool _isNavigationPanelVisible;
 

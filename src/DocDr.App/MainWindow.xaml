@@ -126,7 +126,7 @@
                                       Visibility="{Binding DataContext.IsReadMode, RelativeSource={RelativeSource AncestorType=Window},
                                                    Converter={StaticResource InverseBoolToVisibility}}" />
                             <Border Background="{DynamicResource PageBackgroundBrush}">
-                                <ContentPresenter ContentSource="SelectedContent" />
+                                <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent" />
                             </Border>
                         </DockPanel>
                     </ControlTemplate>
