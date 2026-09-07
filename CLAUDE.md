@@ -145,6 +145,36 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   is fine. Page edits/rotations are already on the handle.
 - `PrintDocument` blocks the UI thread for the whole spool; a range over ~40 pages warns first.
 
+## Design-code navigation (`PdfClauses` / `PdfCrossReferences`, Stage 8)
+
+- **`PdfClauses.Read(doc, ct)`** (`DocDr.Pdf`) detects clause headings from
+  `PdfTextExtractor.GetPageText` (clean reading-order text — *not* per-char reconstruction).
+  Heuristic, tuned for **dotted-decimal** numbering (Eurocode / BS EN / ISO): `[GeneratedRegex]`
+  for `6.4.3`-style, `Annex X` / `A.2.1`, and bare chapters (`7 Structural analysis` — gated by
+  `LooksLikeChapterTitle`). A whole page is skipped as a contents page when ≥ 5 of its lines
+  hit `TocLeader` (dotted leader). `BuildTree` synthesises missing prefix ancestors, fills a
+  title-less node only from a sighting at/near its first subclause's page, orders siblings
+  numerically. **AISC-style letter sections (`D1.2a`) are NOT covered.** ~5 s for a 400-page
+  Eurocode → App runs it on a background thread.
+- App: `NavigationTab.Clauses`, `ClausesViewModel` (background `Task.Run`, continuation on
+  `FromCurrentSynchronizationContext`, `Scanned` event, `CancelLoad` on dispose),
+  `ClausesPanelView` (TreeView, `SelectedItemChanged` → jump, right-click → `CopyCitationCommand`).
+  Reload on `Document.Changed`.
+- **`PdfCrossReferences.Scan(doc, page, clausePageMap)`** finds *cued* clause refs
+  (`see|in accordance with|according to|… 8.3.1`) and `Annex L` refs in the page's char boxes,
+  maps the match's string offsets back to a union `PdfRect`, resolves the number against the map
+  (walking up dotted prefixes). **Figure / Table / Formula refs are deliberately not handled** —
+  `Figure 8.5` ≠ clause 8.5, so they can't be located. `BuildPageMap` flattens the clause tree.
+- Wiring: `DocumentTabViewModel.OnClausesScanned` → `PdfPaneViewModel.SetClausePageMap` on both
+  panes → clears `_crossRefCache`, `BuildLinkOverlays` merges cross-refs into the Stage 1 link
+  overlay as `LinkVisual`s with a `Label` (`IsCrossReference` → faint underline in the template).
+  `FollowLinkCommand` handles them (same `GoToPage` path as real `/Link`s).
+- **Cite this** — `DocDr.App/Services/Citations.cs` (`Format` for a passage, `ForClause` for a
+  clause, `CopyToClipboard`). Clause tree context menu, and a "Cite" button in the text-selection
+  popup (`PdfPaneViewModel.CiteSelectionCommand` uses `_pendingText` + `CurrentClauseNumber(page)`
+  = deepest clause whose page ≤ the selection's). Source name is the filename stem for now
+  (catalog metadata once Stage 5 lands).
+
 ## Read mode (Stage 1)
 
 - `MainViewModel.IsReadMode` — full-screen (`WindowStyle=None` + borderless maximise, done in
