@@ -226,10 +226,24 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     public const double PageSpacing = 16.0;
 
     /// <summary>The view reports which page indices are on-screen (inclusive, 0-based).</summary>
+    // Cap on how many pages can be realised (and queued for render) at once. A continuous view
+    // shows ~3 pages; grid a couple of rows. Without this, a transient bad scroll-offset reading
+    // right after a zoom would mark the whole document visible and queue hundreds of large renders.
+    private const int MaxRealizedPages = 16;
+
     public void UpdateVisibleRange(int firstVisible, int lastVisible)
     {
+        if (firstVisible > lastVisible)
+        {
+            (firstVisible, lastVisible) = (lastVisible, firstVisible);
+        }
+
         int first = Math.Max(0, firstVisible - GridColumns);
         int last = Math.Min(PageCount - 1, lastVisible + GridColumns);
+        if (last - first + 1 > MaxRealizedPages)
+        {
+            last = Math.Min(PageCount - 1, first + MaxRealizedPages - 1);
+        }
 
         for (int i = 0; i < Pages.Count; i++)
         {
@@ -2399,13 +2413,32 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         slot.Image = image;
     }
 
-    // Renders are produced at the slot's exact on-screen size (which already folds in zoom,
-    // grid tiling and DPI), so a stale render from a previous layout is easy to detect.
-    private int ExpectedPixelWidth(PageSlotViewModel slot) =>
-        (int)Math.Round(slot.LayoutWidth * _deviceScale);
+    // A page is never rasterised larger than this on its long edge. Beyond it the extra pixels
+    // are imperceptible on any real display, and the buffer (long*short*4 bytes) gets big enough
+    // to fail its allocation at extreme zoom — which used to kill the render worker. WPF upscales
+    // the capped bitmap into the (larger) layout box; only wildly zoomed-in text goes soft.
+    private const int MaxRenderEdge = 4096;
 
-    private int ExpectedPixelHeight(PageSlotViewModel slot) =>
-        (int)Math.Round(slot.LayoutHeight * _deviceScale);
+    // Renders are produced at the slot's on-screen size (zoom, grid tiling and DPI already folded
+    // in) then capped, so a stale render from a previous layout is easy to detect.
+    private int ExpectedPixelWidth(PageSlotViewModel slot) => CappedRenderSize(slot).Width;
+
+    private int ExpectedPixelHeight(PageSlotViewModel slot) => CappedRenderSize(slot).Height;
+
+    private (int Width, int Height) CappedRenderSize(PageSlotViewModel slot)
+    {
+        double w = slot.LayoutWidth * _deviceScale;
+        double h = slot.LayoutHeight * _deviceScale;
+        double longest = Math.Max(w, h);
+        if (longest > MaxRenderEdge)
+        {
+            double k = MaxRenderEdge / longest;
+            w *= k;
+            h *= k;
+        }
+
+        return ((int)Math.Round(w), (int)Math.Round(h));
+    }
 
     public void Dispose()
     {

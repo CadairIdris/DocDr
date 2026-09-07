@@ -135,6 +135,21 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   Every `PageToDevice*` / `DeviceToPage` call site in `PdfPaneViewModel` passes it.
   `_cropOrigins` is cached alongside `_pageSizes` and cleared with it.
 
+## Page rendering (`BackgroundRenderQueue` / `PdfPaneViewModel`, Stage 1)
+
+- One background worker rasterises pages newest-request-first. **The worker `catch`es every
+  per-request exception and keeps looping** — an uncaught throw there kills the worker and
+  *every* page then renders blank forever (this was a real bug: extreme zoom → a
+  `new byte[stride*height]` of hundreds of MB → `OutOfMemoryException` → dead worker).
+- `PdfPaneViewModel.MaxRenderEdge` (4096) caps a page bitmap's long side; WPF upscales it into
+  the (larger) layout box, so only very high zoom goes soft. `CappedRenderSize` is used for both
+  the enqueue size and the `OnPageRendered` stale check, so they agree.
+- `UpdateVisibleRange` clamps the realised span to `MaxRealizedPages` (16) — a transient bad
+  scroll-offset reading right after a zoom must not mark the whole document visible and queue
+  hundreds of large renders. Visible range still comes from `GetPageAtOffset` (the app's
+  `LayoutHeight`-sum model); it can disagree with WPF's VSP pixel-extent estimate for one layout
+  pass after a zoom, but the clamp bounds the damage and the next `ScrollChanged` reconciles.
+
 ## Printing (`PrintService`, Stage 1)
 
 - `DocumentTabViewModel.PrintCommand` → `PrintService.Print(document, jobName)`: a WPF

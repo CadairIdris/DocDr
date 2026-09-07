@@ -95,17 +95,16 @@ public sealed class BackgroundRenderQueue : IDisposable
                 _ = _dispatcher.BeginInvoke(() =>
                     captured.OnRendered(captured.PageIndex, captured.PixelWidth, image));
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
             {
                 return;
             }
-            catch (ObjectDisposedException)
+            catch (Exception)
             {
-                // Document was closed mid-flight; nothing to do.
-            }
-            catch (PdfException)
-            {
-                // A page failed to render; skip it rather than tear the app down.
+                // One page failed — a closed document (ObjectDisposedException), a corrupt page
+                // (PdfException), or an allocation too big at extreme zoom (OutOfMemoryException /
+                // OverflowException). Skip this request; the worker MUST keep running or every
+                // later page stays blank.
             }
         }
     }
