@@ -48,6 +48,30 @@ public sealed class PdfCrossReferencesTests
     }
 
     [Fact]
+    public void Scan_resolves_figure_and_table_references_against_the_caption_map()
+    {
+        using var ws = new TempWorkspace();
+        using var doc = Doc(ws, Pad("the model in Figure 8.5 and the values in Table 4.3 apply"));
+        var map = new Dictionary<string, int> { ["Figure 8.5"] = 9, ["Table 4.3"] = 4 };
+
+        var refs = PdfCrossReferences.Scan(doc, 0, map);
+
+        Assert.Contains(refs, r => r.TargetPageIndex == 9 && r.Label == "Figure 8.5");
+        Assert.Contains(refs, r => r.TargetPageIndex == 4 && r.Label == "Table 4.3");
+    }
+
+    [Fact]
+    public void Scan_does_not_prefix_walk_a_figure_number()
+    {
+        using var ws = new TempWorkspace();
+        using var doc = Doc(ws, Pad("see Figure 8.53 for the arrangement"));
+        var map = new Dictionary<string, int> { ["8"] = 2, ["8.5"] = 7 };
+
+        // No "Figure 8.53" caption — must NOT fall back to clause 8 or 8.5.
+        Assert.Empty(PdfCrossReferences.Scan(doc, 0, map));
+    }
+
+    [Fact]
     public void Scan_ignores_unresolvable_and_uncued_numbers()
     {
         using var ws = new TempWorkspace();

@@ -343,10 +343,11 @@ building a searchable personal knowledge base of commentary and cross-references
   ISO); letter-section schemes (AISC `D1.2a`) are not covered. *Not done: current-clause
   status-bar indicator while scrolling.*
 - **Clickable textual cross-references (DONE):** `PdfCrossReferences.Scan` turns cued in-body
-  references ("see 6.2.5", "in accordance with 8.3.1") and annex references ("Annex L") into
-  underlined clickable links, resolved against the clause index and merged into the Stage 1
-  link overlay. Figure / table references are *not* linked — their numbers aren't clause
-  numbers, so they can't be located reliably.
+  clause references ("see 6.2.5", "in accordance with 8.3.1"), annex references ("Annex L"),
+  and figure / table references ("Figure 8.5", "Table 4.3") into underlined clickable links,
+  merged into the Stage 1 link overlay. Clause refs resolve against the clause index (walking
+  up the dotted prefix); figure / table refs resolve against a caption map built in the same
+  scan pass (exact match only — no wrong jumps). Formula references are not linked.
 - **Cite this (DONE):** right-click a clause in the index → "Copy citation"
   (`{file}, cl. 6.5 (Concrete cover), p. 88`); or select text on a page → "Cite" in the popup
   copies the quoted passage with source, nearest detected clause, and page. Currently keyed off

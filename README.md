@@ -13,9 +13,9 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   too. The scan runs in the background on open. Clicking a clause jumps the left pane to its
   page. Codes with letter-section numbering (e.g. AISC `D1.2a`) are not covered yet.
 - **Clickable cross-references**: once the clause index is built, textual references in the
-  page — "in accordance with 8.3.1", "see 6.2.5", "Annex L" — get a faint underline and
-  become clickable, jumping to the referenced clause. Figure / table references are not
-  linked (their numbers aren't clause numbers).
+  page — "in accordance with 8.3.1", "see 6.2.5", "Annex L", "Figure 8.5", "Table 4.3" —
+  get a faint underline and become clickable, jumping to the referenced clause or to the
+  figure / table's page (matched by its caption).
 - **Cite this**: right-click a clause in the index for **Copy citation**
   (`{file}, cl. 6.5 (Concrete cover), p. 88`); or select text on a page and click **Cite**
   in the popup to copy the quoted passage with its source, nearest clause, and page.

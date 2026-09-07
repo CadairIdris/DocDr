@@ -64,8 +64,8 @@ public sealed partial class ClausesViewModel : ObservableObject
     /// <summary>Raised when a clause is chosen; carries the 0-based page index.</summary>
     public event Action<int>? ClauseActivated;
 
-    /// <summary>Raised on the UI thread when a scan finishes, with the detected clause tree.</summary>
-    public event Action<IReadOnlyList<PdfClause>>? Scanned;
+    /// <summary>Raised on the UI thread when a scan finishes, with the clause tree + caption map.</summary>
+    public event Action<PdfCodeStructure>? Scanned;
 
     /// <summary>(Re)scan the document for clause headings on a background thread.</summary>
     public void Load(PdfDocument document)
@@ -84,7 +84,7 @@ public sealed partial class ClausesViewModel : ObservableObject
         IsLoading = true;
         RaiseState();
 
-        Task.Run(() => PdfClauses.Read(document, token), token).ContinueWith(
+        Task.Run(() => PdfClauses.ReadStructure(document, token), token).ContinueWith(
             task =>
             {
                 if (token.IsCancellationRequested)
@@ -93,8 +93,8 @@ public sealed partial class ClausesViewModel : ObservableObject
                 }
 
                 Roots.Clear();
-                IReadOnlyList<PdfClause> result = task.Status == TaskStatus.RanToCompletion ? task.Result : [];
-                foreach (PdfClause clause in result)
+                PdfCodeStructure result = task.Status == TaskStatus.RanToCompletion ? task.Result : PdfCodeStructure.Empty;
+                foreach (PdfClause clause in result.Clauses)
                 {
                     Roots.Add(new ClauseNodeViewModel(clause, 0));
                 }

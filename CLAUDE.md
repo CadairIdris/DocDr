@@ -147,24 +147,30 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 
 ## Design-code navigation (`PdfClauses` / `PdfCrossReferences`, Stage 8)
 
-- **`PdfClauses.Read(doc, ct)`** (`DocDr.Pdf`) detects clause headings from
-  `PdfTextExtractor.GetPageText` (clean reading-order text — *not* per-char reconstruction).
-  Heuristic, tuned for **dotted-decimal** numbering (Eurocode / BS EN / ISO): `[GeneratedRegex]`
-  for `6.4.3`-style, `Annex X` / `A.2.1`, and bare chapters (`7 Structural analysis` — gated by
-  `LooksLikeChapterTitle`). A whole page is skipped as a contents page when ≥ 5 of its lines
-  hit `TocLeader` (dotted leader). `BuildTree` synthesises missing prefix ancestors, fills a
-  title-less node only from a sighting at/near its first subclause's page, orders siblings
-  numerically. **AISC-style letter sections (`D1.2a`) are NOT covered.** ~5 s for a 400-page
-  Eurocode → App runs it on a background thread.
+- **`PdfClauses.ReadStructure(doc, ct)`** (`DocDr.Pdf`) → `PdfCodeStructure(Clauses, Captions)`.
+  One pass over `PdfTextExtractor.GetPageText` (clean reading-order text — *not* per-char
+  reconstruction) detects both clause headings and figure/table caption lines. `PdfClauses.Read`
+  is a thin wrapper returning just `.Clauses`. Heuristic, tuned for **dotted-decimal** numbering
+  (Eurocode / BS EN / ISO): `[GeneratedRegex]` for `6.4.3`-style, `Annex X` / `A.2.1`, and bare
+  chapters (`7 Structural analysis` — gated by `LooksLikeChapterTitle`); `CaptionLine` matches
+  `^(Figure|Table) <num> <dash/colon>` → `Captions["Figure 8.5"] = page` (first sighting wins).
+  A whole page is skipped as a contents page when ≥ 5 of its lines hit `TocLeader` (dotted
+  leader). `BuildTree` synthesises missing prefix ancestors, fills a title-less node only from a
+  sighting at/near its first subclause's page, orders siblings numerically. **AISC-style letter
+  sections (`D1.2a`) are NOT covered.** ~5 s for a 400-page Eurocode → App runs it on a
+  background thread.
 - App: `NavigationTab.Clauses`, `ClausesViewModel` (background `Task.Run`, continuation on
   `FromCurrentSynchronizationContext`, `Scanned` event, `CancelLoad` on dispose),
   `ClausesPanelView` (TreeView, `SelectedItemChanged` → jump, right-click → `CopyCitationCommand`).
   Reload on `Document.Changed`.
-- **`PdfCrossReferences.Scan(doc, page, clausePageMap)`** finds *cued* clause refs
-  (`see|in accordance with|according to|… 8.3.1`) and `Annex L` refs in the page's char boxes,
-  maps the match's string offsets back to a union `PdfRect`, resolves the number against the map
-  (walking up dotted prefixes). **Figure / Table / Formula refs are deliberately not handled** —
-  `Figure 8.5` ≠ clause 8.5, so they can't be located. `BuildPageMap` flattens the clause tree.
+- **`PdfCrossReferences.Scan(doc, page, pageMap)`** finds *cued* clause refs
+  (`see|in accordance with|according to|… 8.3.1`), `Annex L` refs, and `Figure 8.5` / `Table 4.3`
+  refs in the page's char boxes, maps the match's string offsets back to a union `PdfRect`, and
+  resolves against `pageMap`. Clause numbers walk up the dotted prefix; figure/table keys
+  (`"Figure 8.5"`) are **exact match only** (no wrong jumps — `Figure 8.5` ≠ clause 8.5).
+  `BuildPageMap(PdfCodeStructure)` merges the flattened clause tree with the caption map.
+  Formula refs are not handled. Same-page targets are skipped (the caption line doesn't link to
+  itself).
 - Wiring: `DocumentTabViewModel.OnClausesScanned` → `PdfPaneViewModel.SetClausePageMap` on both
   panes → clears `_crossRefCache`, `BuildLinkOverlays` merges cross-refs into the Stage 1 link
   overlay as `LinkVisual`s with a `Label` (`IsCrossReference` → faint underline in the template).

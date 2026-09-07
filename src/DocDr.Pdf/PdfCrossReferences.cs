@@ -7,12 +7,12 @@ namespace DocDr.Pdf;
 public sealed record PdfCrossRef(PdfRect Rect, int TargetPageIndex, string Label);
 
 /// <summary>
-/// Finds cued in-text references to other clauses ("see 6.2.5", "in accordance with 8.3.1") and to
-/// annexes ("Annex L") and resolves them to a page using a clause-number → page map (built from
-/// <see cref="PdfClauses.Read"/>). Coordinates are in unrotated page space, matching
+/// Finds cued in-text references to other clauses ("see 6.2.5", "in accordance with 8.3.1"), to
+/// annexes ("Annex L"), and to figures / tables ("Figure 8.5", "Table 4.3"), and resolves them to a
+/// page using the <see cref="PdfCodeStructure"/> map (clause numbers plus <c>"Figure 8.5"</c> /
+/// <c>"Table 4.3"</c> caption keys). Coordinates are in unrotated page space, matching
 /// <see cref="PdfLink"/>. Heuristic and deliberately conservative — a reference is only returned when
-/// its target resolves. Figure / table references are not handled (their numbers are not clause
-/// numbers, so they cannot be located reliably).
+/// its target resolves exactly (figures / tables) or up the dotted prefix (clauses).
 /// </summary>
 public static partial class PdfCrossReferences
 {
@@ -25,6 +25,10 @@ public static partial class PdfCrossReferences
     // "Annex L", "Annex NA" — resolved to the annex's first page.
     [GeneratedRegex(@"Annex\s+(N\.?A\.?|Z?[A-Z])\b", RegexOptions.CultureInvariant)]
     private static partial Regex AnnexRef();
+
+    // "Figure 8.5", "Table A.3", "Figure 8.3a" — resolved against the caption map (exact match only).
+    [GeneratedRegex(@"(Figure|Table)\s+([A-Z]{0,2}\.?\d{1,2}(?:\.\d{1,3})?[a-z]?)", RegexOptions.CultureInvariant)]
+    private static partial Regex CaptionRef();
 
     /// <summary>Flatten a clause tree to a number → first-page map for <see cref="Scan"/>.</summary>
     public static IReadOnlyDictionary<string, int> BuildPageMap(IReadOnlyList<PdfClause> clauses)
@@ -40,6 +44,19 @@ public static partial class PdfCrossReferences
         }
 
         Walk(clauses);
+        return map;
+    }
+
+    /// <summary>The full lookup for <see cref="Scan"/>: clause numbers plus figure / table captions.</summary>
+    public static IReadOnlyDictionary<string, int> BuildPageMap(PdfCodeStructure structure)
+    {
+        ArgumentNullException.ThrowIfNull(structure);
+        var map = new Dictionary<string, int>(BuildPageMap(structure.Clauses), StringComparer.OrdinalIgnoreCase);
+        foreach ((string key, int page) in structure.Captions)
+        {
+            map[key] = page;
+        }
+
         return map;
     }
 
@@ -112,10 +129,16 @@ public static partial class PdfCrossReferences
             Emit(m, clausePages.TryGetValue(letter, out int p) ? p : null, $"Annex {letter}");
         }
 
+        foreach (Match m in CaptionRef().Matches(text))
+        {
+            string key = $"{m.Groups[1].Value} {m.Groups[2].Value}";
+            Emit(m, clausePages.TryGetValue(key, out int p) ? p : null, key);
+        }
+
         return found;
     }
 
-    /// <summary>Exact match, else walk up the dotted prefixes (a table sits under its parent clause).</summary>
+    /// <summary>Exact match, else walk up the dotted prefixes (8.3.1 → 8.3 → 8) for a clause number.</summary>
     private static int? Resolve(string number, IReadOnlyDictionary<string, int> map)
     {
         string n = number;

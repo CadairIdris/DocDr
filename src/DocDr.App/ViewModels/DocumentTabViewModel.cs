@@ -484,9 +484,9 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(HasAnnotations));
     }
 
-    private void OnClausesScanned(IReadOnlyList<PdfClause> clauses)
+    private void OnClausesScanned(PdfCodeStructure structure)
     {
-        IReadOnlyDictionary<string, int> map = PdfCrossReferences.BuildPageMap(clauses);
+        IReadOnlyDictionary<string, int> map = PdfCrossReferences.BuildPageMap(structure);
         LeftPane.SetClausePageMap(map);
         RightPane.SetClausePageMap(map);
     }

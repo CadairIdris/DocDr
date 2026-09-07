@@ -100,6 +100,25 @@ public sealed class PdfClausesTests
     }
 
     [Fact]
+    public void ReadStructure_collects_figure_and_table_captions()
+    {
+        using var ws = new TempWorkspace();
+        using var doc = Load(
+            ws,
+            "5 Materials",
+            "Figure 5.1 - Stress-strain relationship for concrete",
+            "5.2 Reinforcing steel",
+            "Table 5.3 : Properties of reinforcement",
+            "as shown in Figure 5.1 the curve is non-linear");
+
+        var captions = PdfClauses.ReadStructure(doc).Captions;
+
+        Assert.Equal(1, captions["Figure 5.1"]);
+        Assert.Equal(3, captions["Table 5.3"]);
+        Assert.False(captions.ContainsKey("Figure 5.1 the")); // the inline mention is not a caption
+    }
+
+    [Fact]
     public void Read_returns_empty_for_a_document_without_clause_numbering()
     {
         using var ws = new TempWorkspace();

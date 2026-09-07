@@ -33,11 +33,24 @@ public sealed class PdfClause
 }
 
 /// <summary>
+/// The navigable structure of a design code: the clause tree plus a <c>"Figure 8.5"</c> /
+/// <c>"Table 4.3"</c> → page map built from caption lines, for resolving figure / table references.
+/// </summary>
+public sealed record PdfCodeStructure(
+    IReadOnlyList<PdfClause> Clauses,
+    IReadOnlyDictionary<string, int> Captions)
+{
+    public static readonly PdfCodeStructure Empty =
+        new([], new Dictionary<string, int>());
+}
+
+/// <summary>
 /// Best-effort clause-heading detection for standards / design codes, tuned for the dotted-decimal
 /// numbering used by the Eurocodes and BS EN / ISO (e.g. <c>6.4.3</c>, <c>A.2.1</c>). Works off
 /// PDFium's reading-order page text (<see cref="PdfTextExtractor.GetPageText"/>), which is reliable
 /// even on files whose per-character extraction is noisy. Heuristic — see the Stage 8 spec notes;
-/// letter-section schemes (AISC <c>D1.2a</c>) are not covered.
+/// letter-section schemes (AISC <c>D1.2a</c>) are not covered. The same page pass also collects
+/// figure / table caption lines (<see cref="ReadStructure"/>).
 /// </summary>
 public static partial class PdfClauses
 {
@@ -61,11 +74,20 @@ public static partial class PdfClauses
     [GeneratedRegex(@"(?::| according to | in accordance with | as given in | as defined in | as specified in | shall | should | may be | is the | are the | of the )")]
     private static partial Regex SentenceLike();
 
-    public static IReadOnlyList<PdfClause> Read(PdfDocument document, CancellationToken cancellationToken = default)
+    // A figure / table caption: "Figure 8.5 — …", "Table A.3 : …" at the start of a line.
+    [GeneratedRegex(@"^(Figure|Table)\s+([A-Z]{0,2}\.?\d{1,2}(?:\.\d{1,3})?[a-z]?)\s*[-‐‒–—:]", RegexOptions.CultureInvariant)]
+    private static partial Regex CaptionLine();
+
+    public static IReadOnlyList<PdfClause> Read(PdfDocument document, CancellationToken cancellationToken = default) =>
+        ReadStructure(document, cancellationToken).Clauses;
+
+    /// <summary>The clause tree and the figure / table caption map, from one pass over the page text.</summary>
+    public static PdfCodeStructure ReadStructure(PdfDocument document, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
 
         var flat = new List<PdfClause>();
+        var captions = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int page = 0; page < document.PageCount; page++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -98,6 +120,13 @@ public static partial class PdfClauses
                     continue;
                 }
 
+                if (CaptionLine().Match(line) is { Success: true } caption)
+                {
+                    // First sighting wins — the caption comes before any later "see Figure 8.5".
+                    captions.TryAdd($"{Capitalise(caption.Groups[1].Value)} {caption.Groups[2].Value}", page);
+                    continue;
+                }
+
                 if (TryHeading(line, page) is { } clause)
                 {
                     flat.Add(clause);
@@ -105,8 +134,11 @@ public static partial class PdfClauses
             }
         }
 
-        return BuildTree(Deduplicate(flat));
+        return new PdfCodeStructure(BuildTree(Deduplicate(flat)), captions);
     }
+
+    private static string Capitalise(string word) =>
+        word.Length == 0 ? word : char.ToUpperInvariant(word[0]) + word[1..].ToLowerInvariant();
 
     private static PdfClause? TryHeading(string line, int page)
     {
