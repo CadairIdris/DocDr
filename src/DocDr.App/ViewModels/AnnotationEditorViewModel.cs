@@ -160,10 +160,13 @@ public sealed partial class AnnotationEditorViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void Save() =>
+    private void Save()
+    {
+        AddReply(); // commit any text still sitting in the reply box
         Closed?.Invoke(new AnnotationEditorResult(
             AnnotationEditorOutcome.Save, Contents.Trim(), SelectedColorKey, _replies.ToArray())
             { FontSize = FontSize });
+    }
 
     [RelayCommand]
     private void Cancel() =>
