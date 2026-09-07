@@ -183,6 +183,56 @@ internal static class TestPdfBuilder
         return buffer.ToArray();
     }
 
+    /// <summary>A run of text placed at an absolute page position (points, bottom-left origin).</summary>
+    public sealed record Run(string Text, double X, double Y, double Size = 9);
+
+    /// <summary>Write a one-page PDF with each run drawn at its exact position — for table tests.</summary>
+    public static string WriteRuns(string path, IReadOnlyList<Run> runs)
+    {
+        var buffer = new MemoryStream();
+        var offsets = new List<long> { 0 };
+        void Write(string s) => buffer.Write(Encoding.ASCII.GetBytes(s));
+        void BeginObject(int n)
+        {
+            offsets.Add(buffer.Position);
+            Write($"{n} 0 obj\n");
+        }
+
+        Write("%PDF-1.7\n");
+        buffer.Write([0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A]);
+
+        BeginObject(1);
+        Write("<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+        BeginObject(2);
+        Write("<< /Type /Pages /Kids [ 4 0 R ] /Count 1 >>\nendobj\n");
+        BeginObject(3);
+        Write("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n");
+        BeginObject(4);
+        Write($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {F(PageWidth)} {F(PageHeight)}] " +
+              "/Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>\nendobj\n");
+
+        var stream = new StringBuilder();
+        foreach (Run run in runs)
+        {
+            stream.Append(CultureInfo.InvariantCulture,
+                $"BT /F1 {F(run.Size)} Tf {F(run.X)} {F(run.Y)} Td ({Escape(run.Text)}) Tj ET\n");
+        }
+
+        BeginObject(5);
+        Write($"<< /Length {Encoding.ASCII.GetByteCount(stream.ToString())} >>\nstream\n{stream}endstream\nendobj\n");
+
+        long xrefPos = buffer.Position;
+        Write("xref\n0 6\n0000000000 65535 f \n");
+        for (int i = 1; i <= 5; i++)
+        {
+            Write($"{offsets[i]:D10} 00000 n \n");
+        }
+
+        Write($"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xrefPos}\n%%EOF");
+        File.WriteAllBytes(path, buffer.ToArray());
+        return path;
+    }
+
     private static string F(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
 
     private static string Escape(string value) =>
