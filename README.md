@@ -88,9 +88,9 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 - **Read mode** (`⛶ Read` / `F11`): full-screen, chrome-free, one two-page spread at a time
   sized to fill the screen. Arrow keys / space / scroll turn the spread; `Esc` exits and
   restores the previous view.
-- Collapsible, resizable **navigation panel** per tab (off by default): an icon tab strip
-  for page thumbnails / the bookmark outline (and annotations, from Stage 3); click either
-  to jump to that page.
+- Collapsible, resizable **navigation panel** per tab (the **Navigator** toolbar toggle, off
+  by default): an icon tab strip switches its section — page thumbnails, the bookmark outline,
+  or the markup list (comments, highlights, ink) — and clicking a row jumps to it.
 - **Clickable in-document links**: a table-of-contents entry, cross-reference, or URL in the
   page (a PDF `/Link` annotation) is followed on click — internal links jump to the page,
   `http`/`https`/`mailto` links open in the browser.

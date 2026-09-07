@@ -180,19 +180,9 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
     // --- Navigation panel ----------------------------------------------------------------
 
+    /// <summary>Show or hide the side panel (its section is chosen from the panel's own tab strip).</summary>
     [RelayCommand]
-    private void ToggleNavigation(NavigationTab tab)
-    {
-        if (IsNavigationPanelVisible && NavigationTab == tab)
-        {
-            IsNavigationPanelVisible = false;
-        }
-        else
-        {
-            NavigationTab = tab;
-            IsNavigationPanelVisible = true;
-        }
-    }
+    private void ToggleNavigationPanel() => IsNavigationPanelVisible = !IsNavigationPanelVisible;
 
     // --- Page editing ------------------------------------------------------------------
 
@@ -484,11 +474,6 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         RightPane.BuildAnnotationOverlays();
         Annotations.Reload(Document);
         OnPropertyChanged(nameof(HasAnnotations));
-
-        if (!Document.HasAnnotations && NavigationTab == NavigationTab.Annotations)
-        {
-            NavigationTab = NavigationTab.Pages;
-        }
     }
 
     private void OnAnnotationActivated(int pageIndex, Guid id)

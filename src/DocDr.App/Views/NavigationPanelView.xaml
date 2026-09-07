@@ -79,8 +79,7 @@
                 </RadioButton>
                 <RadioButton Style="{StaticResource NavTab}" Tag="{x:Static vm:NavigationTab.Annotations}"
                              Checked="NavTab_Checked" AutomationProperties.Name="Annotations"
-                             ToolTip="Annotations"
-                             Visibility="{Binding HasAnnotations, Converter={StaticResource BoolToVisibility}}"
+                             ToolTip="Comments, highlights and markup"
                              IsChecked="{Binding NavigationTab, Converter={StaticResource EnumEquals}, ConverterParameter=Annotations, Mode=OneWay}">
                     <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconAnnotations}" />
                 </RadioButton>
