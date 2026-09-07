@@ -264,6 +264,13 @@
                                           StrokeLineJoin="Round" />
                                 </Button>
 
+                                <!-- Drag handle at a selected callout's arrow tip. -->
+                                <Ellipse Canvas.Left="{Binding LeaderTipHandle.X}" Canvas.Top="{Binding LeaderTipHandle.Y}"
+                                         Width="{Binding LeaderTipHandle.Width}" Height="{Binding LeaderTipHandle.Height}"
+                                         Fill="{DynamicResource AccentBrush}" Stroke="White" StrokeThickness="1.5"
+                                         IsHitTestVisible="False" ToolTip="Drag to re-point the arrow"
+                                         Visibility="{Binding ShowLeaderTipHandle, Converter={StaticResource BoolToVisibility}}" />
+
                                 <!-- Resize handles for a selected shape box. -->
                                 <ItemsControl ItemsSource="{Binding ResizeHandles}" IsHitTestVisible="False">
                                     <ItemsControl.ItemsPanel>

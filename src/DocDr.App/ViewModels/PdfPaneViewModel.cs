@@ -866,12 +866,12 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             var visuals = new List<AnnotationVisual>(annotations.Count);
             foreach (PdfAnnotation stored in annotations)
             {
-                // Show a shape being dragged / resized at its live offset without committing it.
-                PdfAnnotation annotation = stored.Id == _movingShapeId
-                    ? MoveShape(stored, _moveOffsetPage.Dx, _moveOffsetPage.Dy)
-                    : stored.Id == _resizingShapeId
-                        ? ResizeShape(stored, _resizeHandle, _resizeDeltaPage.Dx, _resizeDeltaPage.Dy)
-                        : stored;
+                // Show a shape being dragged / resized / re-pointed at its live offset without committing it.
+                PdfAnnotation annotation =
+                    stored.Id == _movingShapeId ? MoveShape(stored, _moveOffsetPage.Dx, _moveOffsetPage.Dy)
+                    : stored.Id == _resizingShapeId ? ResizeShape(stored, _resizeHandle, _resizeDeltaPage.Dx, _resizeDeltaPage.Dy)
+                    : stored.Id == _leaderTipId ? MoveLeaderTip(stored, _leaderTipDeltaPage.Dx, _leaderTipDeltaPage.Dy)
+                    : stored;
 
                 var rects = new List<Rect>();
                 if (annotation.Kind == PdfAnnotationKind.Highlight)
@@ -906,6 +906,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 var leader = new PointCollection();
                 var leaderArrow = new PointCollection();
                 var handles = new List<Rect>();
+                Rect leaderTipHandle = Rect.Empty;
                 Geometry? cloud = null;
                 if (annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud)
                 {
@@ -938,6 +939,12 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                         {
                             handles.Add(new Rect(c.X - (hs / 2), c.Y - (hs / 2), hs, hs));
                         }
+
+                        if (annotation.Kind == PdfAnnotationKind.Callout && leader.Count >= 1)
+                        {
+                            const double ts = 11;
+                            leaderTipHandle = new Rect(leader[0].X - (ts / 2), leader[0].Y - (ts / 2), ts, ts);
+                        }
                     }
                 }
 
@@ -951,6 +958,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     Leader = leader,
                     LeaderArrow = leaderArrow,
                     ResizeHandles = handles,
+                    LeaderTipHandle = leaderTipHandle,
                     CloudGeometry = cloud,
                     BoxText = annotation.Contents ?? string.Empty,
                     BoxFontSize = Math.Max(4, (annotation.FontSize > 0 ? annotation.FontSize : PdfAnnotation.DefaultFontSize) * scale),
@@ -1589,6 +1597,87 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
 
         return resized;
+    }
+
+    // --- Moving a callout's arrow tip --------------------------------------------------
+
+    private System.Guid? _leaderTipId;
+    private (double Dx, double Dy) _leaderTipDeltaPage;
+
+    /// <summary>If <paramref name="pt"/> lands on the selected callout's arrow-tip handle, its id.</summary>
+    public System.Guid? TryHitLeaderTip(int pageIndex, PdfPoint pt)
+    {
+        if (!AnnotationsVisible || SelectedAnnotationId is not System.Guid sel)
+        {
+            return null;
+        }
+
+        PdfAnnotation? a = _document.GetAnnotations(pageIndex).FirstOrDefault(x => x.Id == sel);
+        if (a is not { Kind: PdfAnnotationKind.Callout } || a.Leader.Count < 1)
+        {
+            return null;
+        }
+
+        double tol = 12 / Math.Max(0.05, SlotScale(Pages[pageIndex]));
+        PdfPoint tip = a.Leader[0];
+        return Math.Abs(pt.X - tip.X) <= tol && Math.Abs(pt.Y - tip.Y) <= tol ? a.Id : null;
+    }
+
+    public void BeginLeaderTipMove(System.Guid id)
+    {
+        _leaderTipId = id;
+        _leaderTipDeltaPage = (0, 0);
+        SelectedAnnotationId = id;
+    }
+
+    public void PreviewLeaderTipMove(double dxPage, double dyPage)
+    {
+        if (_leaderTipId is null)
+        {
+            return;
+        }
+
+        _leaderTipDeltaPage = (dxPage, dyPage);
+        BuildAnnotationOverlays();
+    }
+
+    public void EndLeaderTipMove(double dxPage, double dyPage)
+    {
+        System.Guid? id = _leaderTipId;
+        _leaderTipId = null;
+        _leaderTipDeltaPage = (0, 0);
+        if (id is null)
+        {
+            return;
+        }
+
+        (int page, PdfAnnotation? found) = FindAnnotation(id.Value);
+        if (found is not { } a || (Math.Abs(dxPage) < 1 && Math.Abs(dyPage) < 1))
+        {
+            BuildAnnotationOverlays();
+            return;
+        }
+
+        _document.UpdateAnnotation(page, MoveLeaderTip(a, dxPage, dyPage) with { Modified = System.DateTimeOffset.Now });
+    }
+
+    public void CancelLeaderTipMove()
+    {
+        _leaderTipId = null;
+        _leaderTipDeltaPage = (0, 0);
+        BuildAnnotationOverlays();
+    }
+
+    /// <summary>Move a callout's arrow tip by (dx, dy) page points; the box stays and the leader re-attaches.</summary>
+    private static PdfAnnotation MoveLeaderTip(PdfAnnotation a, double dx, double dy)
+    {
+        if (a.Kind != PdfAnnotationKind.Callout || a.Leader.Count < 1)
+        {
+            return a;
+        }
+
+        var tip = new PdfPoint(a.Leader[0].X + dx, a.Leader[0].Y + dy);
+        return a with { Strokes = [new[] { tip, BoxAttachPoint(a.Box, tip) }] };
     }
 
     public void CancelShape()

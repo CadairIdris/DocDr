@@ -104,13 +104,14 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   by `PdfStampAppearance` so the overlay, the `/AP` and the box size stay in step — with a small
   slack factor so the system-font overlay doesn't clip) → `PdfPaneViewModel.FitTextBox` on
   create and (if `AutoSize`) edit; `GrowToFitText` only grows a hand-sized box on edit.
-- A selected box is **draggable and resizable** — `PdfPaneView` routes a mousedown through
-  `TryHitResizeHandle` (corner handles, `BoxHandle`) → `Begin/Preview/EndShapeResize`, else
-  `TryHitShapeBox` → `Begin/Preview/EndShapeMove`. The live geometry is applied in
-  `BuildAnnotationOverlays` (`MoveShape` / `ResizeShape`), not committed, until the drop's one
-  `UpdateAnnotation`; a callout keeps its tip and re-attaches the leader. Double-click a box to
-  edit, `Esc` cancels a move/resize. `AnnotationVisual.ResizeHandles` are drawn (non-interactive)
-  for the selected shape.
+- A selected box is **draggable and resizable**, and a callout's **arrow tip is draggable** —
+  `PdfPaneView` routes a mousedown through `TryHitLeaderTip` → `Begin/Preview/EndLeaderTipMove`
+  (`MoveLeaderTip`: box stays, leader re-attaches), else `TryHitResizeHandle` (corner handles,
+  `BoxHandle`) → `Begin/Preview/EndShapeResize`, else `TryHitShapeBox` → `Begin/Preview/EndShapeMove`.
+  The live geometry is applied in `BuildAnnotationOverlays` (`MoveShape` / `ResizeShape` /
+  `MoveLeaderTip`), not committed, until the drop's one `UpdateAnnotation`. Double-click a box to
+  edit, `Esc` cancels. `AnnotationVisual.ResizeHandles` (squares) + `LeaderTipHandle` (a circle)
+  are drawn non-interactive for the selected shape.
 - `AnnotationsChanged` is the light event (overlay rebuild only); `Changed` is the heavy one
   (full pane/thumbnail reload). Undo/redo raises `Changed` only when pages/rotations actually
   moved, `AnnotationsChanged` always.

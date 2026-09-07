@@ -38,6 +38,11 @@ public sealed record AnnotationVisual(
     /// <summary>Resize-handle squares (DIP space) at a selected shape box's corners; empty otherwise.</summary>
     public IReadOnlyList<Rect> ResizeHandles { get; init; } = [];
 
+    /// <summary>Drag handle (DIP space) at a selected callout's arrow tip; <see cref="Rect.Empty"/> otherwise.</summary>
+    public Rect LeaderTipHandle { get; init; } = Rect.Empty;
+
+    public bool ShowLeaderTipHandle => !LeaderTipHandle.IsEmpty;
+
     /// <summary>The scalloped cloud outline in slot DIP space; null unless <see cref="Kind"/> is Cloud.</summary>
     public Geometry? CloudGeometry { get; init; }
 
