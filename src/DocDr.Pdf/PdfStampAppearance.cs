@@ -13,7 +13,6 @@ internal static class PdfStampAppearance
     private const int DrawStroke = 1;
     private const int DrawFillNone = 0;
     private const int LineJoinRound = 1;
-    private const double TextInset = 3.0;
     private const double CloudBumpRadius = 8.0;
 
     public static void Build(FpdfDocumentT doc, FpdfAnnotationT annot, FpdfFontT? font, PdfAnnotation a)
@@ -143,70 +142,29 @@ internal static class PdfStampAppearance
         }
 
         double size = a.FontSize > 0 ? a.FontSize : PdfAnnotation.DefaultFontSize;
-        double lineHeight = size * 1.25;
-        double maxWidth = Math.Max(4, box.Width - (2 * TextInset));
-        double y = box.Top - TextInset - size;
-        double minY = box.Bottom + TextInset;
+        double lineHeight = size * PdfTextWrap.LineHeightFactor;
+        double maxWidth = Math.Max(4, box.Width - (2 * PdfTextWrap.Inset));
+        double y = box.Top - PdfTextWrap.Inset - size;
+        double minY = box.Bottom + PdfTextWrap.Inset - lineHeight;
 
-        foreach (string line in WrapLines(a.Contents, maxWidth, size))
+        foreach (string line in PdfTextWrap.Wrap(a.Contents, maxWidth, size))
         {
             if (y < minY)
             {
                 break;
             }
 
-            FpdfPageobjectT text = fpdf_edit.FPDFPageObjCreateTextObj(doc, font, (float)size);
-            ushort[] wide = PdfTextExtractor.ToWideString(line);
-            fpdf_edit.FPDFTextSetText(text, ref wide[0]);
-            fpdf_edit.FPDFPageObjSetFillColor(text, r, g, b, 255);
-            fpdf_edit.FPDFPageObjTransform(text, 1, 0, 0, 1, box.Left + TextInset, y);
-            fpdf_annot.FPDFAnnotAppendObject(annot, text);
+            if (line.Length > 0)
+            {
+                FpdfPageobjectT text = fpdf_edit.FPDFPageObjCreateTextObj(doc, font, (float)size);
+                ushort[] wide = PdfTextExtractor.ToWideString(line);
+                fpdf_edit.FPDFTextSetText(text, ref wide[0]);
+                fpdf_edit.FPDFPageObjSetFillColor(text, r, g, b, 255);
+                fpdf_edit.FPDFPageObjTransform(text, 1, 0, 0, 1, box.Left + PdfTextWrap.Inset, y);
+                fpdf_annot.FPDFAnnotAppendObject(annot, text);
+            }
+
             y -= lineHeight;
-        }
-    }
-
-    /// <summary>Greedy word wrap using a rough Helvetica advance (~0.5em per character).</summary>
-    private static IEnumerable<string> WrapLines(string text, double maxWidth, double fontSize)
-    {
-        double charWidth = fontSize * 0.5;
-        int maxChars = Math.Max(1, (int)(maxWidth / charWidth));
-
-        foreach (string paragraph in text.ReplaceLineEndings("\n").Split('\n'))
-        {
-            if (paragraph.Length == 0)
-            {
-                yield return string.Empty;
-                continue;
-            }
-
-            var current = new System.Text.StringBuilder();
-            foreach (string word in paragraph.Split(' '))
-            {
-                if (current.Length == 0)
-                {
-                    current.Append(word);
-                }
-                else if (current.Length + 1 + word.Length <= maxChars)
-                {
-                    current.Append(' ').Append(word);
-                }
-                else
-                {
-                    yield return current.ToString();
-                    current.Clear().Append(word);
-                }
-
-                while (current.Length > maxChars)
-                {
-                    yield return current.ToString(0, maxChars);
-                    current.Remove(0, maxChars);
-                }
-            }
-
-            if (current.Length > 0)
-            {
-                yield return current.ToString();
-            }
         }
     }
 

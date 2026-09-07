@@ -864,8 +864,13 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             PdfPoint crop = _document.GetCropOrigin(slot.PageIndex);
 
             var visuals = new List<AnnotationVisual>(annotations.Count);
-            foreach (PdfAnnotation annotation in annotations)
+            foreach (PdfAnnotation stored in annotations)
             {
+                // Show a shape being dragged at its live offset without committing it.
+                PdfAnnotation annotation = stored.Id == _movingShapeId
+                    ? MoveShape(stored, _moveOffsetPage.Dx, _moveOffsetPage.Dy)
+                    : stored;
+
                 var rects = new List<Rect>();
                 if (annotation.Kind == PdfAnnotationKind.Highlight)
                 {
@@ -1248,17 +1253,17 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         if (tool == ShapeTool.Callout)
         {
             // Drag from the thing you're pointing at (a = tip) to where the note goes (b).
-            PdfRect calloutBox = DefaultBoxAt(b, 190, 60);
-            IReadOnlyList<PdfPoint> leader = [a, BoxAttachPoint(calloutBox, a)];
+            PdfPoint tip = a, boxCorner = b;
             uint calloutColor = AnnotationColors.ToArgb(InkColorKey);
             OpenEditor(PdfAnnotationKind.Callout, string.Empty, AnnotationColors.FromArgb(calloutColor),
                 canDelete: false, Author, System.DateTimeOffset.Now, null, result =>
                 {
                     if (result.Outcome == AnnotationEditorOutcome.Save)
                     {
+                        string? text = string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents;
+                        PdfRect cBox = FitTextBox(DefaultBoxAt(boxCorner, 190, 60), text, result.FontSize);
                         _document.AddAnnotation(page, PdfAnnotation.NewCallout(
-                            calloutBox, leader,
-                            string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents,
+                            cBox, [tip, BoxAttachPoint(cBox, tip)], text,
                             AnnotationColors.ToArgb(result.ColorKey), result.FontSize, Author)
                             with { Replies = result.Replies });
                     }
@@ -1282,18 +1287,36 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
 
         // Text box: place it, then open the editor for the text/colour.
+        PdfRect draggedBox = box;
         uint color = AnnotationColors.ToArgb(InkColorKey);
         OpenEditor(PdfAnnotationKind.TextBox, string.Empty, AnnotationColors.FromArgb(color), canDelete: false,
             Author, System.DateTimeOffset.Now, null, result =>
             {
                 if (result.Outcome == AnnotationEditorOutcome.Save)
                 {
+                    string? text = string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents;
                     _document.AddAnnotation(page, PdfAnnotation.NewTextBox(
-                        box, string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents,
+                        FitTextBox(draggedBox, text, result.FontSize), text,
                         AnnotationColors.ToArgb(result.ColorKey), result.FontSize, Author)
                         with { Replies = result.Replies });
                 }
             });
+    }
+
+    /// <summary>Shrink-wrap <paramref name="box"/> to just fit <paramref name="text"/> at
+    /// <paramref name="fontSize"/> — never wider than the box, keeping its top-left anchored.</summary>
+    private static PdfRect FitTextBox(PdfRect box, string? text, double fontSize)
+    {
+        if (fontSize <= 0)
+        {
+            fontSize = PdfAnnotation.DefaultFontSize;
+        }
+
+        double maxW = box.Width >= 40 ? box.Width : 220;
+        (double w, double h) = PdfTextWrap.FittedSize(text, maxW, fontSize);
+        double width = Math.Max(40, w);
+        double height = Math.Max(fontSize * 1.7, h);
+        return new PdfRect(box.Left, box.Top, box.Left + width, box.Top - height);
     }
 
     /// <summary>A box of the given point size with its top-left at <paramref name="topLeft"/>.</summary>
@@ -1311,6 +1334,99 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         if (target.X < l) return new PdfPoint(l, cy);
         if (target.X > r) return new PdfPoint(r, cy);
         return target.Y > cy ? new PdfPoint(cx, tp) : new PdfPoint(cx, bt);
+    }
+
+    // --- Moving a placed shape box -------------------------------------------------------
+
+    private System.Guid? _movingShapeId;
+    private (double Dx, double Dy) _moveOffsetPage;
+
+    /// <summary>The topmost text box / callout / cloud whose box contains <paramref name="pt"/>, or null.</summary>
+    public System.Guid? TryHitShapeBox(int pageIndex, PdfPoint pt)
+    {
+        if (!AnnotationsVisible)
+        {
+            return null;
+        }
+
+        IReadOnlyList<PdfAnnotation> annotations = _document.GetAnnotations(pageIndex);
+        for (int i = annotations.Count - 1; i >= 0; i--)
+        {
+            PdfAnnotation a = annotations[i];
+            if (a.Kind is not (PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud))
+            {
+                continue;
+            }
+
+            PdfRect b = a.Box;
+            double l = Math.Min(b.Left, b.Right), r = Math.Max(b.Left, b.Right);
+            double bt = Math.Min(b.Top, b.Bottom), tp = Math.Max(b.Top, b.Bottom);
+            if (pt.X >= l && pt.X <= r && pt.Y >= bt && pt.Y <= tp)
+            {
+                return a.Id;
+            }
+        }
+
+        return null;
+    }
+
+    public void BeginShapeMove(System.Guid id)
+    {
+        _movingShapeId = id;
+        _moveOffsetPage = (0, 0);
+        SelectedAnnotationId = id;
+    }
+
+    public void PreviewShapeMove(double dxPage, double dyPage)
+    {
+        if (_movingShapeId is null)
+        {
+            return;
+        }
+
+        _moveOffsetPage = (dxPage, dyPage);
+        BuildAnnotationOverlays();
+    }
+
+    /// <summary>Commit a move; a delta under ~1pt is treated as a click (no edit).</summary>
+    public void EndShapeMove(double dxPage, double dyPage)
+    {
+        System.Guid? id = _movingShapeId;
+        _movingShapeId = null;
+        _moveOffsetPage = (0, 0);
+        if (id is null)
+        {
+            return;
+        }
+
+        (int page, PdfAnnotation? found) = FindAnnotation(id.Value);
+        if (found is not { } a || (Math.Abs(dxPage) < 1 && Math.Abs(dyPage) < 1))
+        {
+            BuildAnnotationOverlays();
+            return;
+        }
+
+        _document.UpdateAnnotation(page, MoveShape(a, dxPage, dyPage) with { Modified = System.DateTimeOffset.Now });
+    }
+
+    public void CancelShapeMove()
+    {
+        _movingShapeId = null;
+        _moveOffsetPage = (0, 0);
+        BuildAnnotationOverlays();
+    }
+
+    /// <summary>Offset a shape's box by (dx, dy) page points; a callout keeps its tip and re-attaches the leader.</summary>
+    private static PdfAnnotation MoveShape(PdfAnnotation a, double dx, double dy)
+    {
+        var box = new PdfRect(a.Box.Left + dx, a.Box.Top + dy, a.Box.Right + dx, a.Box.Bottom + dy);
+        if (a.Kind == PdfAnnotationKind.Callout && a.Leader.Count >= 1)
+        {
+            PdfPoint tip = a.Leader[0];
+            return a with { Quads = [box], Strokes = [new[] { tip, BoxAttachPoint(box, tip) }] };
+        }
+
+        return a with { Quads = [box] };
     }
 
     public void CancelShape()
@@ -1564,16 +1680,29 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             switch (result.Outcome)
             {
                 case AnnotationEditorOutcome.Save:
-                    _document.UpdateAnnotation(page, annotation with
+                    string? text = string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents;
+                    bool isTextShape = annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout;
+                    PdfAnnotation updated = annotation with
                     {
-                        Contents = string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents,
+                        Contents = text,
                         ColorArgb = colored ? AnnotationColors.ToArgb(result.ColorKey) : annotation.ColorArgb,
-                        FontSize = annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout
-                            ? result.FontSize
-                            : annotation.FontSize,
+                        FontSize = isTextShape ? result.FontSize : annotation.FontSize,
                         Replies = result.Replies,
                         Modified = System.DateTimeOffset.Now,
-                    });
+                    };
+
+                    if (isTextShape)
+                    {
+                        PdfRect box = FitTextBox(annotation.Box, text, result.FontSize);
+                        updated = updated with { Quads = [box] };
+                        if (annotation.Kind == PdfAnnotationKind.Callout && annotation.Leader.Count >= 1)
+                        {
+                            PdfPoint tip = annotation.Leader[0];
+                            updated = updated with { Strokes = [new[] { tip, BoxAttachPoint(box, tip) }] };
+                        }
+                    }
+
+                    _document.UpdateAnnotation(page, updated);
                     break;
                 case AnnotationEditorOutcome.Delete:
                     _document.RemoveAnnotation(page, id);

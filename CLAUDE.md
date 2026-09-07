@@ -96,8 +96,16 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   that key so *other* apps' stamps are left alone. `PdfAnnotation.Box` / `.Leader` expose the
   geometry (stored in `Quads[0]` / `Strokes[0]`). The overlay draws its own WPF version
   (`ShapeGeometry.Cloud` mirrors the PDF scallop maths); the editor reuses `AnnotationEditorWindow`
-  (colour + font size). Text box / callout / cloud creation = a `ShapeTool` armed from the toolbar
-  (`DocumentTabViewModel.ShapeTool`, mirrored to panes), then drag a rectangle on the page.
+  (colour + font size). Text box / cloud creation = a `ShapeTool` armed from the toolbar
+  (`DocumentTabViewModel.ShapeTool`, mirrored to panes) then drag a rectangle; a callout drags
+  tip→box and `BoxAttachPoint` picks the leader's box-edge attach point.
+- Text box / callout boxes **shrink-wrap to their text**: `PdfTextWrap` (Helvetica AFM width
+  table, shared by `PdfStampAppearance` so the overlay, the `/AP` and the box size all agree)
+  → `PdfPaneViewModel.FitTextBox` on create and edit.
+- A placed box is **draggable** — `PdfPaneView` routes a mousedown on `TryHitShapeBox` through
+  `BeginShapeMove` / `PreviewShapeMove` (live offset applied in `BuildAnnotationOverlays`, not
+  committed) / `EndShapeMove` (one `UpdateAnnotation`); a callout keeps its tip and re-attaches
+  the leader (`MoveShape`). Double-click a box to edit, `Esc` cancels a move.
 - `AnnotationsChanged` is the light event (overlay rebuild only); `Changed` is the heavy one
   (full pane/thumbnail reload). Undo/redo raises `Changed` only when pages/rotations actually
   moved, `AnnotationsChanged` always.

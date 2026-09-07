@@ -18,6 +18,8 @@ public partial class PdfPaneView : UserControl
     private bool _selecting;
     private bool _inking;
     private bool _shaping;
+    private bool _movingShape;
+    private PdfPoint _moveAnchor;
     private FrameworkElement? _selectionSlot;
     private int _selectionPageIndex = -1;
     private int _wheelAccumulator;
@@ -429,6 +431,32 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        // A shape box: click to select, drag to move, double-click to edit its text.
+        if (_pane.TryHitShapeBox(target.Slot.PageIndex, pagePoint) is System.Guid shapeId)
+        {
+            SelectionPopup.IsOpen = false;
+            if (e.ClickCount == 2)
+            {
+                if (_pane.EditAnnotationCommand.CanExecute(shapeId))
+                {
+                    _pane.EditAnnotationCommand.Execute(shapeId);
+                }
+            }
+            else
+            {
+                _movingShape = true;
+                _selectionSlot = target.Element;
+                _selectionPageIndex = target.Slot.PageIndex;
+                _moveAnchor = pagePoint;
+                _pane.BeginShapeMove(shapeId);
+                PageList.CaptureMouse();
+            }
+
+            PageList.Focus();
+            e.Handled = true;
+            return;
+        }
+
         // A click on an existing highlight selects it (and its delete button) instead of
         // starting a new text selection.
         if (_pane.TrySelectAnnotationAt(target.Slot.PageIndex, pagePoint))
@@ -466,6 +494,10 @@ public partial class PdfPaneView : UserControl
         {
             _pane.ExtendShape(pagePoint);
         }
+        else if (_movingShape)
+        {
+            _pane.PreviewShapeMove(pagePoint.X - _moveAnchor.X, pagePoint.Y - _moveAnchor.Y);
+        }
         else if (_selecting)
         {
             _pane.ExtendTextSelection(pagePoint);
@@ -495,6 +527,16 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        if (_movingShape)
+        {
+            _movingShape = false;
+            PageList.ReleaseMouseCapture();
+            Point up = e.GetPosition(_selectionSlot);
+            PdfPoint p = _pane.DevicePointToPage(_selectionPageIndex, up.X, up.Y);
+            _pane.EndShapeMove(p.X - _moveAnchor.X, p.Y - _moveAnchor.Y);
+            return;
+        }
+
         if (!_selecting)
         {
             return;
@@ -518,36 +560,22 @@ public partial class PdfPaneView : UserControl
             _pane.DeleteAnnotationCommand.Execute(id);
             e.Handled = true;
         }
-        else if (e.Key == Key.Escape && _pane is not null && _pane.ShapeTool != ShapeTool.None)
+        else if (e.Key == Key.Escape && _pane is not null)
         {
-            _pane.CancelShape();
-            _pane.ShapeTool = ShapeTool.None;
-            e.Handled = true;
-        }
-    }
-
-    /// <summary>Click a text box / callout to select it; double-click to edit its text.</summary>
-    private void ShapeBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (_pane is null || sender is not FrameworkElement { Tag: System.Guid id })
-        {
-            return;
-        }
-
-        if (e.ClickCount == 2)
-        {
-            if (_pane.EditAnnotationCommand.CanExecute(id))
+            if (_movingShape)
             {
-                _pane.EditAnnotationCommand.Execute(id);
+                _movingShape = false;
+                PageList.ReleaseMouseCapture();
+                _pane.CancelShapeMove();
+                e.Handled = true;
+            }
+            else if (_pane.ShapeTool != ShapeTool.None)
+            {
+                _pane.CancelShape();
+                _pane.ShapeTool = ShapeTool.None;
+                e.Handled = true;
             }
         }
-        else
-        {
-            _pane.SelectedAnnotationId = _pane.SelectedAnnotationId == id ? null : id;
-            PageList.Focus();
-        }
-
-        e.Handled = true;
     }
 
     private void ColorSwatch_Click(object sender, RoutedEventArgs e)

@@ -229,10 +229,9 @@
                                 <Border Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
                                         Width="{Binding Box.Width}" Height="{Binding Box.Height}"
                                         BorderBrush="{Binding ShapeBrush}" BorderThickness="1.5"
-                                        Background="Transparent" Cursor="Hand" ClipToBounds="True" Padding="3,2"
-                                        Visibility="{Binding IsTextBox, Converter={StaticResource BoolToVisibility}}"
-                                        MouseLeftButtonDown="ShapeBox_MouseLeftButtonDown"
-                                        Tag="{Binding Id}">
+                                        Background="Transparent" Cursor="SizeAll" ClipToBounds="True" Padding="3,2"
+                                        IsHitTestVisible="False"
+                                        Visibility="{Binding IsTextBox, Converter={StaticResource BoolToVisibility}}">
                                     <Border.Style>
                                         <Style TargetType="Border">
                                             <Style.Triggers>
