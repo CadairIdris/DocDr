@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -292,6 +293,48 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             MessageBox.Show($"Could not print: {ex.Message}", "DocDr",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    [RelayCommand]
+    private async Task ExportRagChunks()
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export RAG chunks",
+            Filter = "JSON Lines (*.jsonl)|*.jsonl",
+            FileName = (Document.FilePath is { } p ? Path.GetFileNameWithoutExtension(p) : _baseTitle) + ".chunks.jsonl",
+            AddExtension = true,
+            DefaultExt = ".jsonl",
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        string path = dialog.FileName;
+        try
+        {
+            RagChunkResult result = await Task.Run(() =>
+            {
+                RagChunkResult r = PdfRagChunker.Chunk(Document);
+                PdfRagChunker.WriteJsonl(r.Chunks, path);
+                return r;
+            });
+
+            string summary = $"{result.Chunks.Count} chunks from {result.SectionCount} section(s) written to\n{Path.GetFileName(path)}.";
+            if (result.PagesWithoutText.Count > 0)
+            {
+                summary += $"\n\n{result.PagesWithoutText.Count} page(s) had no extractable text and were skipped — OCR is not available yet.";
+            }
+
+            MessageBox.Show(summary, "DocDr", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex) when (ex is PdfException or IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show($"Could not export chunks: {ex.Message}", "DocDr",
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }

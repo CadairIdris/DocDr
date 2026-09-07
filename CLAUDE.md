@@ -185,6 +185,28 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   = deepest clause whose page ≤ the selection's). Source name is the filename stem for now
   (catalog metadata once Stage 5 lands).
 
+## RAG chunk export (`PdfRagChunker`, Stage 5)
+
+- **`PdfRagChunker.Chunk(doc, options, ct)`** → `RagChunkResult(Chunks, PagesWithoutText, SectionCount)`.
+  One pass caches every page's `GetPageText`; sections come from `PdfClauses.Read` (if ≥ 3
+  nodes) → `PdfBookmarks.Read` (if ≥ 3) → a single "Front matter" section, filled forward so
+  every page has one `section_title`.
+- Cleaning per page: skip a whole page if ≥ 5 lines hit `TocLeader` (contents page); drop
+  lines that are boilerplate (normalised line recurring on ≥ 50% of pages — **no length cap**,
+  a long legal footer PDFium extracts as one run still counts), bare page numbers, or dotted
+  leaders; de-hyphenate `word-\nword`; join wrapped lines into sentence-ish paragraphs
+  (`BlockStart` / sentence-enders / `LooksLikeHeading` start a new one).
+- Windowing: `MaxChars = clamp(TargetTokens, 48, 4000) * 4` (default 600 tok), `budget =
+  MaxChars − OverlapChars`. Paragraphs are flattened to units ≤ budget (sentence-split then
+  hard-sliced), then packed: emit before a unit would push the buffer past `MaxChars`, then
+  seed the next buffer with a word-snapped char tail of `OverlapChars`. **Every chunk ends up
+  ≤ MaxChars** — the earlier paragraph-level carry could stack to ~2×, this can't.
+- `RagChunk` serialises snake_case (`source_path`, `page_start`, …) via
+  `JsonNamingPolicy.SnakeCaseLower` + `UnsafeRelaxedJsonEscaping`. `WriteJsonl(chunks, path)`
+  is UTF-8 no-BOM, one object per line.
+- App: `DocumentTabViewModel.ExportRagChunksCommand` (async — `Task.Run(Chunk + WriteJsonl)`),
+  toolbar "Export chunks…". Batch/folder mode and catalog persistence are not built yet.
+
 ## Read mode (Stage 1)
 
 - `MainViewModel.IsReadMode` — full-screen (`WindowStyle=None` + borderless maximise, done in

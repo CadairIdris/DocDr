@@ -165,6 +165,10 @@
                 <Button Content="Print…" Padding="8,3" Margin="4,0,0,0" Command="{Binding SelectedTab.PrintCommand}"
                         IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Print"
                         ToolTip="Print the document with edits and annotations (Ctrl+P)" />
+                <Button Content="Export chunks…" Padding="8,3" Margin="4,0,0,0"
+                        Command="{Binding SelectedTab.ExportRagChunksCommand}"
+                        IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Export RAG chunks"
+                        ToolTip="Split the text into overlapping, section-tagged JSONL chunks for RAG" />
                 <Separator />
                 <Button Content="Save" Padding="8,3" Command="{Binding SelectedTab.SaveCommand}"
                         IsEnabled="{Binding HasTabs}" ToolTip="Save (Ctrl+S)" />

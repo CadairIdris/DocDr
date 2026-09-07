@@ -20,6 +20,18 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   (`{file}, cl. 6.5 (Concrete cover), p. 88`); or select text on a page and click **Cite**
   in the popup to copy the quoted passage with its source, nearest clause, and page.
 
+### RAG chunk export (Stage 5 — partial)
+
+- **Export chunks…** (toolbar) splits the document's text into overlapping, retrieval-sized
+  passages and writes them as **JSONL** (one JSON object per line) for building a RAG index.
+- Sections come from the detected clause tree, or the bookmark outline, or the whole document;
+  each chunk carries `text`, `source_path`, `doc_title`, `page_start`, `page_end`,
+  `section_title` and `chunk_index`. Default ~600 tokens per chunk (chars ÷ 4) with ~15%
+  overlap.
+- Running headers / footers (lines that repeat across most pages), bare page numbers and
+  contents-page leaders are stripped; wrapped lines are joined and words de-hyphenated across
+  line breaks. Pages with no text layer are reported and skipped (OCR is a later stage).
+
 ### Dark mode
 
 - **System / Light / Dark** picker in the toolbar, persisted to `%APPDATA%\DocDr\settings.json`.

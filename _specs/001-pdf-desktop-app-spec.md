@@ -200,7 +200,13 @@ since PDFium exposes the underlying annotation API but no ready-made editing UI.
   fields), returning results the user can open directly in the viewer.
 - Incremental re-scan: detect new/changed/removed files on subsequent catalog runs without
   re-processing the entire library each time.
-- **RAG chunk export:** an "Export → RAG chunks (JSONL)" action (single document or a
+- **RAG chunk export — single-document path DONE** (`master`, `PdfRagChunker`): an
+  "Export chunks…" toolbar action that splits the document's text into retrieval-sized chunks
+  and writes JSONL. Sections from the clause tree → bookmark outline → whole document; ~600
+  tokens (chars ÷ 4) with ~15% overlap; running headers/footers, page numbers and contents
+  leaders stripped; wrapped lines joined and de-hyphenated; no-text pages reported. Verified
+  on BS EN 1992-1-1:2023 (417 chunks). *Still open: catalog-table persistence and batch mode.*
+- **RAG chunk export (design):** an "Export → RAG chunks (JSONL)" action (single document or a
   catalog selection) that splits extracted body text into retrieval-sized chunks.
   - Split section-by-section using the bookmark outline (`PdfBookmarks`) for boundaries and
     section titles; within a section, sub-split into ~500–800 token windows (token count
