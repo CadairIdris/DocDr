@@ -14,7 +14,8 @@ than one large build.
   can also be opened in more than one tab (independent view of the same file)
 - Two independent views into the same document, each at a different page, each with its own search
 - Rotate, insert, and delete pages
-- Highlight text and add comments
+- Highlight text and add comments, with threaded replies on comments
+- Print the current document (with edits and annotations applied)
 - Browse a folder tree of PDFs
 - View and edit PDF metadata
 - Find duplicate/near-duplicate PDFs across a large collection
@@ -86,9 +87,16 @@ before investing in anything else.
   two-pane view and its own per-pane state. Opening a file adds a tab; the same file may be
   opened in multiple tabs. Tabs can be closed independently, releasing that document unless
   another tab still holds it.
+- Print the active document: a standard `PrintDialog` (printer, page range, copies), pages
+  rendered to the printer at print resolution via the existing PDFium bitmap pipeline and
+  fitted to the sheet. Prints the current in-memory state — i.e. from `SaveToBytes()`, so
+  page edits (Stage 2) and annotations (Stage 3) are included. Raster output is acceptable;
+  the paginator renders pages on demand so large documents do not blow memory.
 
 **Acceptance criteria:**
 - Opening a multi-hundred-page PDF remains responsive while scrolling in continuous mode.
+- Printing a selected page range produces output matching the on-screen pages, including any
+  annotations, at a sensible resolution.
 - Two views on the same document can be at different pages simultaneously with correct,
   independent rendering and no crashes or corruption from concurrent PDFium calls.
 - Search in one view never affects the other view's state.
@@ -126,6 +134,11 @@ since PDFium exposes the underlying annotation API but no ready-made editing UI.
   selected text's bounding boxes, and a choice of highlight color.
 - Create comment annotations (text/popup annotations) attachable to a location or a
   highlighted selection.
+- Threaded replies on comments: a comment can carry a chain of reply messages, each with its
+  own author and timestamp. Written to the PDF as standard reply annotations (`/IRT`
+  referencing the parent, `/RT /R`) so the thread round-trips through other readers. The
+  comment editor presents the thread as a message list with a reply box; the navigation
+  panel shows the reply count.
 - View, edit, and delete existing annotations of both types.
 - Persist annotations into the saved PDF in standard annotation format (so they remain
   visible in other PDF readers).
@@ -135,6 +148,8 @@ since PDFium exposes the underlying annotation API but no ready-made editing UI.
   is opened in another standard PDF reader.
 - Annotations survive a page rotate/delete/insert operation on unrelated pages without
   shifting to the wrong page.
+- A comment with replies, saved and reopened (in this app and another reader), keeps the
+  full thread in order with authors and timestamps intact.
 
 ---
 
@@ -176,6 +191,22 @@ since PDFium exposes the underlying annotation API but no ready-made editing UI.
   fields), returning results the user can open directly in the viewer.
 - Incremental re-scan: detect new/changed/removed files on subsequent catalog runs without
   re-processing the entire library each time.
+- **RAG chunk export:** an "Export → RAG chunks (JSONL)" action (single document or a
+  catalog selection) that splits extracted body text into retrieval-sized chunks.
+  - Split section-by-section using the bookmark outline (`PdfBookmarks`) for boundaries and
+    section titles; within a section, sub-split into ~500–800 token windows (token count
+    approximated as characters / 4) with ~15% overlap between adjacent chunks.
+  - Strip running headers/footers before chunking: short lines at a consistent vertical
+    position that recur on most pages (detected from character rectangles), plus bare page
+    numbers. Join wrapped lines into paragraphs and de-hyphenate across line breaks.
+  - Watermark stripping (Stage 4) runs first so repeated watermark text is not embedded.
+  - Each JSONL record: `text`, `source_path`, `doc_title`, `page_start`, `page_end`,
+    `section_title`, `chunk_index`. Persist chunks in a catalog table keyed by document ID
+    alongside the export.
+  - Documents (or pages) with no extractable text layer are reported and skipped — full
+    coverage waits on Stage 6 OCR.
+  - Out of scope: generating embeddings, multi-column reading-order recovery, table
+    structure extraction.
 
 **Acceptance criteria:**
 - Catalog build completes over a large existing library (thousands of files) in a reasonable
@@ -184,6 +215,9 @@ since PDFium exposes the underlying annotation API but no ready-made editing UI.
 - Search returns correct results ranked sensibly against a realistic mixed-content library.
 - Duplicate groups correctly separate exact-byte duplicates from near-duplicates and avoid
   false-positive grouping of unrelated documents.
+- RAG chunk export on a text-layer PDF (e.g. a Eurocode) produces JSONL whose chunks carry
+  the correct section titles and page ranges, contain no repeated header/footer lines, and
+  stay within the target token window.
 
 ---
 
@@ -216,3 +250,6 @@ existing text layer.
   implementing at scale.
 - OCR language support scope (Stage 6) — confirm which languages matter for the target library
   before choosing Tesseract language data packs.
+- RAG chunk export (Stage 5) — confirm target token window, overlap fraction, and whether an
+  exact BPE tokenizer is needed over the characters/4 approximation; decide whether export is
+  a one-off action or a standing part of catalog ingest.
