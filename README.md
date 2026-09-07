@@ -127,3 +127,7 @@ PDFium (the `pdfium-binaries` build) is not safe for concurrent use, even across
 documents. Every call goes through one process-wide lock in `PdfiumLibrary.SyncRoot`;
 rendering happens on a single background worker behind that lock. Do not add lock-free or
 per-document concurrent rendering.
+
+## Licence
+
+[MIT](LICENSE). PDFium ships via the `PDFiumCore` NuGet package (Apache-2.0).
