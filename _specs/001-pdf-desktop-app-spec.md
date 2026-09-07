@@ -23,6 +23,7 @@ than one large build.
 
 **Explicitly future / out of scope for initial build:**
 - OCR of scanned/image-only PDFs (Stage 6, deferred)
+- Drawing tools — dimension lines with snapping, PDF overlay, side-by-side diff (Stage 7, deferred)
 - Format conversion, e-signing, forms, AI features — not planned
 
 ## 2. Architecture
@@ -207,6 +208,12 @@ since PDFium exposes the underlying annotation API but no ready-made editing UI.
     alongside the export.
   - Documents (or pages) with no extractable text layer are reported and skipped — full
     coverage waits on Stage 6 OCR.
+  - **Batch mode:** point the export at a folder tree (or a catalog selection) and chunk
+    every PDF under it — a queued background job with progress, a per-file error list, and
+    resume on re-run (skip files already chunked and unchanged). Output is one JSONL per
+    source file, or one combined file, at the user's choice. This is a thin wrapper over the
+    single-document path above; it is only worth building once that path is solid, and a real
+    run over a mixed folder will surface many no-text-layer files (so it pairs with Stage 6).
   - Out of scope: generating embeddings, multi-column reading-order recovery, table
     structure extraction.
 
@@ -241,6 +248,64 @@ existing text layer.
 - Scanned PDFs become searchable via the same search UI as native-text PDFs.
 - OCR ingest runs without blocking the UI or the rest of the catalog pipeline.
 
+---
+
+### Stage 7 — Drawing & Comparison Tools (Future)
+
+**Goal:** Markup and comparison features aimed at construction / engineering drawings, where
+the page is vector linework at a known scale rather than flowing text.
+
+**Shared foundations (build once, all three features below reuse them):**
+- **Page vector model:** walk every path object on a page via PDFium (`FPDFPageGetObject` /
+  `FPDFPageObjGetType` == path / `FPDFPath*` segment accessors), transform each segment to
+  page space through the object + page matrices, and index the resulting line segments in a
+  spatial grid. Vector-only — a page with no path geometry (a scan) falls back to free
+  placement / whole-page compare, and the UI says so. Confirm the `FPDFPathGetPathSegment` /
+  `FPDFPathSegmentGetPoint` bindings exist in the chosen wrapper before relying on this.
+- **2-point registration:** a small modal where the user clicks the same feature on two pages
+  (this document's page, or an overlay document's page); DocDr solves the translation + uniform
+  scale that maps one onto the other. Used by overlay and visual diff so mis-exported or
+  scanned pairs still line up.
+- **Scale calibration:** the user draws along a dimension of known real length and enters it
+  (e.g. "5000 mm"); DocDr stores points-per-unit for that page (or document) and a display
+  unit. Re-viewable and re-settable. Used by the dimension tool and any later measurement.
+
+**Requirements:**
+- **Dimension line annotation:** click two points (drag with a live preview, same overlay
+  machinery as the Stage 3 shape tools); DocDr draws extension lines, a dimension line with
+  arrowheads/ticks, and the measured length as text, computed from the page's calibration.
+  Snap the endpoints to the page vector model — nearest segment endpoint, on-segment point,
+  or segment intersection within a tolerance — with a snap indicator; no snap on a page with
+  no vector geometry. Authored as a stamp-backed annotation like the other shapes, so it
+  prints and round-trips.
+- **Overlay two PDFs:** a pane view mode that renders the current page and the matching page
+  of a chosen second document, tints one green and one red, and composites them. Works
+  directly for revisions exported from the same source; 2-point registration handles pairs
+  that do not already align. Blend mode (multiply / difference) selectable.
+- **Side-by-side diff:** extend split view so the second pane can hold a different document
+  with an optional scroll/zoom lock. On top of that:
+  - **Text diff** (specs / contracts): extract text from both sides, run a line/word diff,
+    map the changed runs back to on-page rectangles (via the character boxes) and highlight
+    added / removed / changed text in each pane.
+  - **Visual diff** (drawings): the overlay above in difference-blend mode, plus bounding
+    boxes drawn around each connected region of change.
+  - **Page-level diff:** flag inserted / deleted / reordered pages by comparing per-page text
+    (or render) hashes.
+
+**Out of scope:** angular / radius / area measurement (dimension line is linear only for v1),
+CAD-style object snapping beyond endpoint/on-line/intersection, editing the other document
+from the diff view, three-way / merge.
+
+**Acceptance criteria:**
+- On a vector drawing (e.g. an RC details sheet), a dimension line snapped between two
+  gridlines reports a length matching the drawing's stated dimension within rounding, and the
+  annotation survives save / reload and prints.
+- Overlaying two revisions of the same drawing shows unchanged linework in a neutral blend and
+  the differences clearly in each colour; a deliberately mis-scaled pair aligns after 2-point
+  registration.
+- A text diff of two revisions of a specification highlights exactly the changed clauses in
+  both panes.
+
 ## 4. Open Decisions for the Agent to Flag Before/During Build
 
 - Final choice between PDFiumCore vs Morph.PDFium (or another wrapper) — confirm annotation
@@ -255,3 +320,13 @@ existing text layer.
 - RAG chunk export (Stage 5) — confirm target token window, overlap fraction, and whether an
   exact BPE tokenizer is needed over the characters/4 approximation; decide whether export is
   a one-off action or a standing part of catalog ingest.
+- Page vector model (Stage 7) — verify the chosen wrapper binds the PDFium path-segment
+  accessors (`FPDFPathGetPathSegment`, `FPDFPathSegmentGetPoint`, `FPDFPathSegmentGetType`)
+  before committing to snapping / vector diff; if not, that whole stage needs a different
+  approach.
+- Dimension calibration (Stage 7) — per-page vs per-document scale; whether to auto-detect a
+  scale from a drawing's scale bar / title-block text, or always ask.
+- Overlay / diff registration (Stage 7) — is translation + uniform scale enough, or is
+  rotation / non-uniform scale needed for real drawing pairs.
+- Recommended build order for Stage 7: dimension line + calibration (no snap) → assume-aligned
+  overlay → side-by-side + text diff → snapping and 2-point registration as follow-ups.
