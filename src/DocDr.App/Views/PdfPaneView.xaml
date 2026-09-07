@@ -227,6 +227,14 @@
             <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource PageSlotTemplate}" />
         </DataTemplate>
 
+        <!-- Panels the page list swaps between per view mode. -->
+        <ItemsPanelTemplate x:Key="VerticalPagesPanel">
+            <VirtualizingStackPanel Orientation="Vertical" />
+        </ItemsPanelTemplate>
+        <ItemsPanelTemplate x:Key="SpreadPanel">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </ItemsPanelTemplate>
+
         <!-- Grid: the list item is a row of pages. -->
         <DataTemplate x:Key="PageRowTemplate" DataType="{x:Type vm:PageRowViewModel}">
             <ItemsControl ItemsSource="{Binding Slots}" HorizontalAlignment="Center"
@@ -246,9 +254,11 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Pane toolbar -->
+        <!-- Pane toolbar (hidden in read mode) -->
         <Border Grid.Row="0" Background="{DynamicResource ChromeBrush}"
-                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
+                Visibility="{Binding DataContext.IsReadMode, RelativeSource={RelativeSource AncestorType=Window},
+                             Converter={StaticResource InverseBoolToVisibility}, FallbackValue=Visible}">
             <WrapPanel Margin="4" Orientation="Horizontal">
                 <StackPanel Orientation="Horizontal" Margin="2,0" VerticalAlignment="Center">
                     <Button Content="◄" Style="{StaticResource GlyphButton}" Command="{Binding PreviousPageCommand}" ToolTip="Previous page" />

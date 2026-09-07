@@ -22,10 +22,13 @@
         <KeyBinding Modifiers="Control" Key="Z" Command="{Binding SelectedTab.UndoCommand}" />
         <KeyBinding Modifiers="Control" Key="Y" Command="{Binding SelectedTab.RedoCommand}" />
         <KeyBinding Modifiers="Control" Key="O" Command="{Binding OpenCommand}" />
+        <KeyBinding Key="F11" Command="{Binding ToggleReadModeCommand}" />
+        <KeyBinding Key="Escape" Command="{Binding ExitReadModeCommand}" />
     </Window.InputBindings>
     <Grid>
     <DockPanel>
-        <ToolBarTray DockPanel.Dock="Top">
+        <ToolBarTray DockPanel.Dock="Top"
+                     Visibility="{Binding IsReadMode, Converter={StaticResource InverseBoolToVisibility}}">
             <ToolBar>
                 <Button Command="{Binding OpenCommand}" Content="Open PDF…" Padding="10,3" />
                 <Separator />
@@ -54,6 +57,10 @@
                               IsChecked="{Binding SelectedTab.CommentToolActive, Mode=TwoWay}"
                               AutomationProperties.Name="Comment tool"
                               ToolTip="Click a page to drop a comment. Or select text and use the highlight popup." />
+                <Button Content="⛶ Read" Padding="8,3" Margin="4,0,0,0"
+                        Command="{Binding ToggleReadModeCommand}" IsEnabled="{Binding HasTabs}"
+                        AutomationProperties.Name="Read mode"
+                        ToolTip="Full-screen two-page reading view (F11 · Esc to exit)" />
                 <Separator />
                 <TextBlock Text="Theme" VerticalAlignment="Center" Margin="2,0,4,0"
                            Foreground="{DynamicResource SecondaryTextBrush}" />
@@ -103,7 +110,8 @@
         </ToolBarTray>
 
         <Border DockPanel.Dock="Bottom" Background="{DynamicResource ChromeBrush}"
-                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
+                Visibility="{Binding IsReadMode, Converter={StaticResource InverseBoolToVisibility}}">
             <TextBlock Margin="8,3" Text="{Binding StatusText}" />
         </Border>
 
@@ -111,6 +119,18 @@
             <TabControl ItemsSource="{Binding Tabs}"
                         SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
                         Visibility="{Binding HasTabs, Converter={StaticResource BoolToVisibility}}">
+                <TabControl.Template>
+                    <ControlTemplate TargetType="TabControl">
+                        <DockPanel>
+                            <TabPanel DockPanel.Dock="Top" IsItemsHost="True" Margin="2,2,2,0" Panel.ZIndex="1"
+                                      Visibility="{Binding DataContext.IsReadMode, RelativeSource={RelativeSource AncestorType=Window},
+                                                   Converter={StaticResource InverseBoolToVisibility}}" />
+                            <Border Background="{DynamicResource PageBackgroundBrush}">
+                                <ContentPresenter ContentSource="SelectedContent" />
+                            </Border>
+                        </DockPanel>
+                    </ControlTemplate>
+                </TabControl.Template>
                 <TabControl.ItemContainerStyle>
                     <Style TargetType="TabItem" BasedOn="{StaticResource {x:Type TabItem}}">
                         <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
@@ -239,6 +259,20 @@
             </ScrollViewer>
         </Grid>
     </DockPanel>
+
+        <!-- Read-mode hint / exit -->
+        <Border VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,10,14,0"
+                Background="{DynamicResource OverlayCardBrush}" CornerRadius="6"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="10,5"
+                Visibility="{Binding IsReadMode, Converter={StaticResource BoolToVisibility}}">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Read mode — ← → or scroll to turn · Esc to exit"
+                           VerticalAlignment="Center" Foreground="{DynamicResource SecondaryTextBrush}" />
+                <Button Content="✕" Margin="10,0,0,0" Padding="6,1" FontSize="11"
+                        Background="Transparent" BorderThickness="0"
+                        Command="{Binding ExitReadModeCommand}" ToolTip="Exit read mode" />
+            </StackPanel>
+        </Border>
 
         <!-- Drag-and-drop overlay -->
         <Border x:Name="DropOverlay" Visibility="Collapsed" IsHitTestVisible="False"

@@ -79,6 +79,64 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public string WindowTitle => SelectedTab is null ? "DocDr" : $"{SelectedTab.Title} — DocDr";
 
+    // --- Read mode -------------------------------------------------------------------------
+
+    /// <summary>Full-screen, chrome-free, two-page reading view. The window watches this.</summary>
+    [ObservableProperty]
+    private bool _isReadMode;
+
+    private ViewMode _modeBeforeReading = ViewMode.Continuous;
+    private bool _splitBeforeReading;
+    private DocumentTabViewModel? _readingTab;
+
+    partial void OnIsReadModeChanged(bool value)
+    {
+        if (value && SelectedTab is null)
+        {
+            return;
+        }
+
+        if (value)
+        {
+            _readingTab = SelectedTab;
+            _modeBeforeReading = _readingTab!.LeftPane.Mode;
+            _splitBeforeReading = _readingTab.IsSplitView;
+            _readingTab.IsSplitView = false;
+            _readingTab.IsNavigationPanelVisible = false;
+            _readingTab.LeftPane.Mode = ViewMode.TwoPage;
+        }
+        else if (_readingTab is not null)
+        {
+            _readingTab.LeftPane.Mode = _modeBeforeReading;
+            _readingTab.IsSplitView = _splitBeforeReading;
+            _readingTab = null;
+        }
+    }
+
+    partial void OnSelectedTabChanged(DocumentTabViewModel? value)
+    {
+        // Switching documents leaves read mode — the reading view is tied to one tab.
+        if (IsReadMode && !ReferenceEquals(value, _readingTab))
+        {
+            IsReadMode = false;
+        }
+    }
+
+    [RelayCommand]
+    private void ToggleReadMode()
+    {
+        if (HasTabs || IsReadMode)
+        {
+            IsReadMode = !IsReadMode;
+        }
+    }
+
+    [RelayCommand]
+    private void ExitReadMode() => IsReadMode = false;
+
+    /// <summary>Turn one spread in read mode (<paramref name="direction"/> +1 forward, -1 back).</summary>
+    public void TurnReadingPage(int direction) => SelectedTab?.LeftPane.Advance(direction);
+
     [RelayCommand]
     private async Task OpenAsync()
     {

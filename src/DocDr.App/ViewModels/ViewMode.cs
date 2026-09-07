@@ -11,4 +11,7 @@ public enum ViewMode
 
     /// <summary>Pages wrapped into rows; the column count auto-fits the pane width.</summary>
     Grid,
+
+    /// <summary>One two-page spread at a time, sized to fill the viewport. Used by read mode.</summary>
+    TwoPage,
 }

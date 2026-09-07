@@ -57,8 +57,20 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         Rows = [];
 
         PagesView = CollectionViewSource.GetDefaultView(Pages);
-        PagesView.Filter = o => Mode != ViewMode.SinglePage
-                                || (o is PageSlotViewModel slot && slot.PageIndex == CurrentPage - 1);
+        PagesView.Filter = o =>
+        {
+            if (o is not PageSlotViewModel slot)
+            {
+                return true;
+            }
+
+            return Mode switch
+            {
+                ViewMode.SinglePage => slot.PageIndex == CurrentPage - 1,
+                ViewMode.TwoPage => slot.PageIndex == SpreadLeftIndex || slot.PageIndex == SpreadLeftIndex + 1,
+                _ => true,
+            };
+        };
 
         _currentPage = PageCount > 0 ? 1 : 0;
         _zoom = 1.0;
@@ -202,6 +214,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         {
             RebuildGrid();
         }
+        else if (Mode == ViewMode.TwoPage)
+        {
+            ApplyTwoPageLayout();
+            RerenderRealized(clearQueue: false);
+        }
     }
 
     /// <summary>Vertical gap (DIP) between stacked pages in continuous mode. The view must match this.</summary>
@@ -296,7 +313,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     /// <summary>The view scrolled; <paramref name="topPageIndex"/> is the top-most visible page (0-based).</summary>
     public void ReportScrolledToPage(int topPageIndex)
     {
-        if (_suppressScrollSync || Mode == ViewMode.SinglePage)
+        if (_suppressScrollSync || IsPaged)
         {
             return;
         }
@@ -312,19 +329,45 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     // --- Navigation -------------------------------------------------------------------------
 
-    [RelayCommand(CanExecute = nameof(CanGoNextPage))]
-    private void NextPage() => GoToPage(CurrentPage + 1);
+    /// <summary>One screenful at a time (no vertical scroll to sync): single page, or a spread.</summary>
+    public bool IsPaged => Mode is ViewMode.SinglePage or ViewMode.TwoPage;
 
-    private bool CanGoNextPage() => CurrentPage < PageCount;
+    /// <summary>0-based index of the left page of the spread that holds <see cref="CurrentPage"/>.</summary>
+    public int SpreadLeftIndex => ((CurrentPage - 1) / 2) * 2;
+
+    [RelayCommand(CanExecute = nameof(CanGoNextPage))]
+    private void NextPage() => GoToPage(CurrentPage + (Mode == ViewMode.TwoPage ? 2 : 1));
+
+    private bool CanGoNextPage() =>
+        Mode == ViewMode.TwoPage ? SpreadLeftIndex + 2 < PageCount : CurrentPage < PageCount;
 
     [RelayCommand(CanExecute = nameof(CanGoPreviousPage))]
-    private void PreviousPage() => GoToPage(CurrentPage - 1);
+    private void PreviousPage() => GoToPage(CurrentPage - (Mode == ViewMode.TwoPage ? 2 : 1));
 
-    private bool CanGoPreviousPage() => CurrentPage > 1;
+    private bool CanGoPreviousPage() =>
+        Mode == ViewMode.TwoPage ? SpreadLeftIndex > 0 : CurrentPage > 1;
+
+    /// <summary>Turn one spread (or page) — <paramref name="direction"/> is +1 forward, -1 back.</summary>
+    public void Advance(int direction)
+    {
+        if (direction > 0 && NextPageCommand.CanExecute(null))
+        {
+            NextPage();
+        }
+        else if (direction < 0 && PreviousPageCommand.CanExecute(null))
+        {
+            PreviousPage();
+        }
+    }
 
     public void GoToPage(int oneBasedPage)
     {
         int clamped = Math.Clamp(oneBasedPage, 1, Math.Max(1, PageCount));
+        if (Mode == ViewMode.TwoPage)
+        {
+            clamped = Math.Min(PageCount, (((clamped - 1) / 2) * 2) + 1); // snap to the spread's left page
+        }
+
         if (clamped == CurrentPage)
         {
             ScrollToPageRequested?.Invoke(clamped - 1);
@@ -336,7 +379,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     partial void OnCurrentPageChanged(int value)
     {
-        if (Mode == ViewMode.SinglePage)
+        if (IsPaged)
         {
             PagesView.Refresh();
             RequestRenderForCurrentPage();
@@ -356,13 +399,22 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
         else
         {
+            if (value == ViewMode.TwoPage)
+            {
+                _suppressScrollSync = true;
+                CurrentPage = Math.Min(PageCount, SpreadLeftIndex + 1);
+                _suppressScrollSync = false;
+            }
+
             ApplyLayout();
         }
 
         PagesView.Refresh();
         RerenderRealized(clearQueue: true);
+        NextPageCommand.NotifyCanExecuteChanged();
+        PreviousPageCommand.NotifyCanExecuteChanged();
 
-        if (value == ViewMode.SinglePage)
+        if (IsPaged)
         {
             RequestRenderForCurrentPage();
         }
@@ -595,10 +647,12 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         ApplyHighlights();
 
         _suppressScrollSync = true;
-        CurrentPage = hit.PageIndex + 1;
+        CurrentPage = Mode == ViewMode.TwoPage
+            ? Math.Min(PageCount, ((hit.PageIndex / 2) * 2) + 1)
+            : hit.PageIndex + 1;
         _suppressScrollSync = false;
 
-        if (Mode == ViewMode.SinglePage)
+        if (IsPaged)
         {
             PagesView.Refresh();
             RequestRenderForCurrentPage();
@@ -1218,6 +1272,10 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         {
             ApplyGridLayout();
         }
+        else if (Mode == ViewMode.TwoPage)
+        {
+            ApplyTwoPageLayout();
+        }
         else
         {
             double dipScale = PdfCoordinates.PointToDip * Zoom;
@@ -1235,6 +1293,38 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
         BuildAnnotationOverlays();
         BuildLinkOverlays();
+    }
+
+    /// <summary>Read mode: size the two pages of the current spread to fill the viewport.</summary>
+    private void ApplyTwoPageLayout()
+    {
+        if (PageCount == 0)
+        {
+            return;
+        }
+
+        int leftIndex = SpreadLeftIndex;
+        int rightIndex = Math.Min(PageCount - 1, leftIndex + 1);
+
+        // Fit the widest page of the pair; both pages then share that scale so the spread
+        // is centred and the shorter page isn't stretched.
+        double pairWidthPoints = _pageSizes[leftIndex].Width + _pageSizes[rightIndex].Width;
+        double maxHeightPoints = Math.Max(_pageSizes[leftIndex].Height, _pageSizes[rightIndex].Height);
+        if (pairWidthPoints <= 0 || maxHeightPoints <= 0)
+        {
+            return;
+        }
+
+        double availableWidth = (_viewportWidth > 0 ? _viewportWidth : 1200) - FitMargin - PageSpacing;
+        double availableHeight = (_viewportHeight > 0 ? _viewportHeight : 900) - FitMargin;
+        double scale = Math.Min(availableWidth / pairWidthPoints, availableHeight / maxHeightPoints);
+        scale = Math.Clamp(scale, MinZoom * PdfCoordinates.PointToDip, MaxZoom * PdfCoordinates.PointToDip);
+
+        foreach (PageSlotViewModel slot in Pages)
+        {
+            slot.LayoutWidth = slot.SizePoints.Width * scale;
+            slot.LayoutHeight = slot.SizePoints.Height * scale;
+        }
     }
 
     private void ApplyGridLayout()
@@ -1325,6 +1415,17 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     private void RequestRenderForCurrentPage()
     {
+        if (Mode == ViewMode.TwoPage)
+        {
+            for (int i = SpreadLeftIndex; i <= SpreadLeftIndex + 1 && i < Pages.Count; i++)
+            {
+                Pages[i].IsRealized = true;
+                RequestRender(Pages[i]);
+            }
+
+            return;
+        }
+
         if (CurrentPage >= 1 && CurrentPage <= Pages.Count)
         {
             RequestRender(Pages[CurrentPage - 1]);

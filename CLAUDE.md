@@ -78,6 +78,19 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   highlights on rotated pages). `PdfDocument.GetUnrotatedPageSize` swaps W/H for 90/270 —
   `FPDF_GetPageSizeByIndex` in this build returns the *rotated* size.
 
+## Read mode (Stage 1)
+
+- `MainViewModel.IsReadMode` — full-screen (`WindowStyle=None` + borderless maximise, done in
+  `MainWindow.xaml.cs`), all chrome hidden (toolbars / status bar / tab strip / pane toolbar
+  bound to it; nav panel + split view forced off and restored). Bound to one tab
+  (`_readingTab`); switching tabs or `Esc`/`F11` exits and restores the prior `ViewMode`.
+- `ViewMode.TwoPage` — one spread at a time (pages `2s`, `2s+1`), `CurrentPage` snapped to the
+  spread's left page. `IsPaged` (`SinglePage or TwoPage`) gates the "one screenful, no scroll
+  sync" paths. `ApplyTwoPageLayout` fits the pair to the viewport (no `Zoom`). The page list
+  swaps to a horizontal `SpreadPanel` **and `ScrollViewer.CanContentScroll=false`** — an
+  item-scrolling `ScrollViewer` over a non-`IScrollInfo` panel reports its viewport in "items"
+  and the fit maths collapse. Wheel / arrows / space call `PdfPaneViewModel.Advance(±1)`.
+
 ## In-document links (`PdfLinks`, Stage 1)
 
 - `PdfLinks.Read` walks a page's subtype-2 (`/Link`) annotations: `FPDFAnnotGetRect` for the

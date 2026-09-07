@@ -18,6 +18,7 @@ public partial class PdfPaneView : UserControl
     private bool _selecting;
     private FrameworkElement? _selectionSlot;
     private int _selectionPageIndex = -1;
+    private int _wheelAccumulator;
 
     public PdfPaneView()
     {
@@ -99,13 +100,20 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        // The two-page spread panel isn't an IScrollInfo, so item-based scrolling would make the
+        // ScrollViewer report its viewport in "items" and the fit-to-screen maths collapse.
+        ScrollViewer.SetCanContentScroll(PageList, _pane.Mode != ViewMode.TwoPage);
+
         if (_pane.Mode == ViewMode.Grid)
         {
+            PageList.ItemsPanel = (ItemsPanelTemplate)Resources["VerticalPagesPanel"];
             PageList.ItemTemplate = (DataTemplate)Resources["PageRowTemplate"];
             PageList.ItemsSource = _pane.Rows;
         }
         else
         {
+            PageList.ItemsPanel = (ItemsPanelTemplate)Resources[
+                _pane.Mode == ViewMode.TwoPage ? "SpreadPanel" : "VerticalPagesPanel"];
             PageList.ItemTemplate = (DataTemplate)Resources["PageListItemTemplate"];
             PageList.ItemsSource = _pane.PagesView;
         }
@@ -125,7 +133,7 @@ public partial class PdfPaneView : UserControl
                 PushViewportMetrics();
                 RefreshVisibleRange();
 
-                if (_pane.CurrentPage > 1 && _pane.Mode != ViewMode.SinglePage)
+                if (_pane.CurrentPage > 1 && !_pane.IsPaged)
                 {
                     OnScrollToPageRequested(_pane.CurrentPage - 1);
                 }
@@ -168,7 +176,7 @@ public partial class PdfPaneView : UserControl
 
         RefreshVisibleRange();
 
-        if (!_programmaticScroll && _pane.Mode != ViewMode.SinglePage)
+        if (!_programmaticScroll && !_pane.IsPaged)
         {
             _pane.ReportScrolledToPage(TopVisiblePageIndex());
         }
@@ -195,6 +203,12 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        if (_pane.Mode == ViewMode.TwoPage)
+        {
+            _pane.UpdateVisibleRange(_pane.SpreadLeftIndex, _pane.SpreadLeftIndex + 1);
+            return;
+        }
+
         double top = _scrollViewer.VerticalOffset;
         double bottom = top + Math.Max(1, _scrollViewer.ViewportHeight);
 
@@ -210,7 +224,7 @@ public partial class PdfPaneView : UserControl
 
     private void OnScrollToPageRequested(int pageIndex)
     {
-        if (_scrollViewer is null || _pane is null || _pane.Mode == ViewMode.SinglePage)
+        if (_scrollViewer is null || _pane is null || _pane.IsPaged)
         {
             return;
         }
@@ -290,7 +304,26 @@ public partial class PdfPaneView : UserControl
 
     private void PageList_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (_pane is null || (Keyboard.Modifiers & ModifierKeys.Control) == 0)
+        if (_pane is null)
+        {
+            return;
+        }
+
+        // Read mode: a spread fills the screen, so the wheel turns pages instead of scrolling.
+        if (_pane.Mode == ViewMode.TwoPage && (Keyboard.Modifiers & ModifierKeys.Control) == 0)
+        {
+            e.Handled = true;
+            _wheelAccumulator += e.Delta;
+            if (Math.Abs(_wheelAccumulator) >= 120)
+            {
+                _pane.Advance(_wheelAccumulator < 0 ? 1 : -1);
+                _wheelAccumulator = 0;
+            }
+
+            return;
+        }
+
+        if ((Keyboard.Modifiers & ModifierKeys.Control) == 0)
         {
             return; // plain wheel keeps the ScrollViewer's default scrolling
         }

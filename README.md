@@ -63,6 +63,9 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   document — independent page position, zoom, view mode, and text search.
 - Three view modes per pane: single-page, continuous (virtualised), and grid (rows of pages,
   column count auto-fits the width at the current zoom).
+- **Read mode** (`⛶ Read` / `F11`): full-screen, chrome-free, one two-page spread at a time
+  sized to fill the screen. Arrow keys / space / scroll turn the spread; `Esc` exits and
+  restores the previous view.
 - Collapsible, resizable **navigation panel** per tab (off by default): an icon tab strip
   for page thumbnails / the bookmark outline (and annotations, from Stage 3); click either
   to jump to that page.
