@@ -57,10 +57,14 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 
 ## Annotations (`PdfDocument`, Stage 3)
 
-- Highlights, text-note comments and freehand ink (highlighter) live in DocDr's model —
-  `_annotations` (a `List<List<PdfAnnotation>>` index-aligned with `_pages`), snapshotted
-  alongside `_pages` in each `HistoryStep`. Quads / ink stroke points are in **unrotated**
-  page space (same as `FPDFText_GetRect`).
+- Highlights, notes (`PdfAnnotationKind.Comment`, PDF `/Text` subtype — "Note" in the UI) and
+  freehand ink (highlighter) live in DocDr's model — `_annotations` (a `List<List<PdfAnnotation>>`
+  index-aligned with `_pages`), snapshotted alongside `_pages` in each `HistoryStep`. Quads /
+  ink stroke points are in **unrotated** page space (same as `FPDFText_GetRect`).
+- The **note pin** is drawn as a fixed ~26px coloured badge at the marker spot; it's draggable
+  (`TryHitShapeBox` also matches `Comment`, `MoveShape` offsets `Quads[0]`), click-to-select
+  (accent glow), double-click to edit. The small edit-glyph `ShowMarker` button is now only for
+  a *noted highlight*.
 - Ink = PDF subtype 15. `PdfInkInterop` marshals the `FS_POINTF[]` for
   `FPDFAnnotAddInkStroke` / `FPDFAnnotGetInkListPath` by hand — PDFiumCore only exposes a
   single-`FS_POINTF_` wrapper and its pointer factory (`__CreateInstance`) is `internal`, so

@@ -66,8 +66,8 @@
                 <ToggleButton Content="💬 Note" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.CommentToolActive, Mode=TwoWay}"
-                              AutomationProperties.Name="Comment tool"
-                              ToolTip="Click a page to drop a comment. Or select text and use the highlight popup." />
+                              AutomationProperties.Name="Note tool"
+                              ToolTip="Click a page to drop a note. Or select text and use the highlight popup." />
                 <ToggleButton Content="✏️ Draw" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.HighlighterToolActive, Mode=TwoWay}"

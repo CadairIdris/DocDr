@@ -908,7 +908,16 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 var handles = new List<Rect>();
                 Rect leaderTipHandle = default;
                 Geometry? cloud = null;
-                if (annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud)
+
+                if (annotation.Kind == PdfAnnotationKind.Comment)
+                {
+                    // A fixed-size note pin anchored at the marker spot (constant on screen at any zoom).
+                    DeviceRect d = PdfCoordinates.PageToDevice(annotation.Box, unrotated, rotation, scale, crop);
+                    const double pin = 26;
+                    box = new Rect(d.X, Math.Max(0, d.Y + d.Height - pin), pin, pin);
+                    marker = new Rect(box.Right - 4, Math.Max(0, box.Top - 22), 18, 18); // trash, above the pin
+                }
+                else if (annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud)
                 {
                     DeviceRect d = PdfCoordinates.PageToDevice(annotation.Box, unrotated, rotation, scale, crop);
                     box = new Rect(d.X, d.Y, d.Width, d.Height);
@@ -1380,7 +1389,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     private System.Guid? _movingShapeId;
     private (double Dx, double Dy) _moveOffsetPage;
 
-    /// <summary>The topmost text box / callout / cloud whose box contains <paramref name="pt"/>, or null.</summary>
+    /// <summary>The topmost text box / callout / cloud / note marker under <paramref name="pt"/>, or null.</summary>
     public System.Guid? TryHitShapeBox(int pageIndex, PdfPoint pt)
     {
         if (!AnnotationsVisible)
@@ -1388,11 +1397,13 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             return null;
         }
 
+        double scale = SlotScale(Pages[pageIndex]);
         IReadOnlyList<PdfAnnotation> annotations = _document.GetAnnotations(pageIndex);
         for (int i = annotations.Count - 1; i >= 0; i--)
         {
             PdfAnnotation a = annotations[i];
-            if (a.Kind is not (PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud))
+            if (a.Kind is not (PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout
+                or PdfAnnotationKind.Cloud or PdfAnnotationKind.Comment))
             {
                 continue;
             }
@@ -1400,6 +1411,15 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             PdfRect b = a.Box;
             double l = Math.Min(b.Left, b.Right), r = Math.Max(b.Left, b.Right);
             double bt = Math.Min(b.Top, b.Bottom), tp = Math.Max(b.Top, b.Bottom);
+
+            if (a.Kind == PdfAnnotationKind.Comment)
+            {
+                // The note pin is a fixed ~26px badge anchored at the marker's bottom-left.
+                double sz = 28 / Math.Max(0.05, scale);
+                r = l + sz;
+                tp = bt + sz;
+            }
+
             if (pt.X >= l && pt.X <= r && pt.Y >= bt && pt.Y <= tp)
             {
                 return a.Id;

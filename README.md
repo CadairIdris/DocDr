@@ -24,17 +24,18 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 ### Stage 3 — Annotations (done)
 
 - **Highlight text**: drag to select text on a page, then pick one of five colours from
-  the popup. **Comment**: "Comment…" in that popup attaches a note to the highlight, or the
-  **💬 Note** toolbar toggle drops a standalone sticky note where you click.
+  the popup. **Note**: "Note…" in that popup attaches a note to the highlight, or the
+  **💬 Note** toolbar toggle drops a standalone note pin where you click — drag the pin to
+  move it, double-click to edit.
 - **Freehand highlighter** (**✏️ Draw**): drag anywhere on the page to draw a marker-pen
   stroke in the chosen colour; written out as a standard PDF `Ink` annotation.
-- Click a highlight or stroke to select it (accent outline + trash button; `Delete` also
-  works). Click a note marker to edit or delete. The nav panel's **Annotations** tab lists
-  every annotation (with its author and date) and jumps to it.
-- **Reply threads**: a comment (or noted highlight) can carry a conversation — the editor
+- Click any annotation to select it (accent outline / glow + trash button; `Delete` also
+  works). The nav panel's **Annotations** tab lists every one — labelled by kind — and
+  clicking a row jumps to it and highlights it on the page.
+- **Reply threads**: a note (or noted highlight) can carry a conversation — the editor
   shows the replies, each with its author and time, and a box to add another. The whole
   thread is stored on the annotation and round-trips through save/reload; other PDF readers
-  still show the opening comment. The Annotations tab flags rows that have replies.
+  still show the opening note. The Annotations tab flags rows that have replies.
 - **Text box / callout / cloud** (toolbar toggles): a **text box** (drag a rectangle) is a
   bordered box of text in a chosen colour and size; a **callout** (drag from what you're
   pointing at to where the note goes) adds a leader line with an arrowhead; a **revision

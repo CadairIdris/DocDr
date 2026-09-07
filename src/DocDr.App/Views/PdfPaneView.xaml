@@ -250,12 +250,47 @@
                                                Foreground="{Binding ShapeBrush}" FontSize="{Binding BoxFontSize}" />
                                 </Border>
 
+                                <!-- Sticky-note pin (drag to move, click to select, double-click to edit). -->
+                                <Border Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
+                                        Width="{Binding Box.Width}" Height="{Binding Box.Height}"
+                                        CornerRadius="4,4,4,1" Background="{Binding ShapeBrush}"
+                                        IsHitTestVisible="False"
+                                        ToolTip="Note — drag to move, double-click to edit"
+                                        Visibility="{Binding IsNote, Converter={StaticResource BoolToVisibility}}">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="BorderBrush" Value="White" />
+                                            <Setter Property="BorderThickness" Value="1.5" />
+                                            <Setter Property="Effect">
+                                                <Setter.Value>
+                                                    <DropShadowEffect BlurRadius="5" ShadowDepth="1.5" Opacity="0.4" />
+                                                </Setter.Value>
+                                            </Setter>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                    <Setter Property="BorderThickness" Value="2.5" />
+                                                    <Setter Property="Effect">
+                                                        <Setter.Value>
+                                                            <DropShadowEffect Color="#8A6FBF" BlurRadius="12" ShadowDepth="0" Opacity="1" />
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <Path Data="M0,0 H9 M0,3 H9 M0,6 H5.5" Stretch="Uniform" Margin="6,7"
+                                          Stroke="White" StrokeThickness="1.4"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                                </Border>
+
+                                <!-- Edit-note glyph button (noted highlights only). -->
                                 <Button Canvas.Left="{Binding Marker.X}" Canvas.Top="{Binding Marker.Y}"
                                         Width="{Binding Marker.Width}" Height="{Binding Marker.Height}"
                                         Padding="0" MinWidth="0" MinHeight="0" Cursor="Hand"
                                         Background="{DynamicResource OverlayCardBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                                        ToolTip="Edit annotation"
+                                        ToolTip="Edit note"
                                         Visibility="{Binding ShowMarker, Converter={StaticResource BoolToVisibility}}"
                                         Command="{Binding DataContext.EditAnnotationCommand, RelativeSource={RelativeSource AncestorType={x:Type views:PdfPaneView}}}"
                                         CommandParameter="{Binding Id}">
@@ -556,7 +591,7 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                     <Border Width="1" Margin="6,2" Background="{DynamicResource BorderBrush}" />
-                    <Button Content="Comment…" Padding="8,3" Cursor="Hand"
+                    <Button Content="Note…" Padding="8,3" Cursor="Hand"
                             Command="{Binding CommentOnSelectionCommand}"
                             Click="PopupAction_Click" />
                 </StackPanel>

@@ -21,7 +21,7 @@ public sealed class AnnotationRowViewModel(int pageIndex, PdfAnnotation annotati
     public string Kind => annotation.Kind switch
     {
         PdfAnnotationKind.Highlight => "Highlight",
-        PdfAnnotationKind.Comment => "Comment",
+        PdfAnnotationKind.Comment => "Note",
         PdfAnnotationKind.Ink => "Freehand drawing",
         PdfAnnotationKind.Cloud => "Revision cloud",
         PdfAnnotationKind.TextBox => "Text box",

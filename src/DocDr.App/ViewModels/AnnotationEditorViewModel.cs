@@ -99,7 +99,7 @@ public sealed partial class AnnotationEditorViewModel : ObservableObject
         PdfAnnotationKind.Highlight => "Highlight note",
         PdfAnnotationKind.TextBox => "Text box",
         PdfAnnotationKind.Callout => "Callout",
-        _ => "Comment",
+        _ => "Note",
     };
 
     public IReadOnlyList<string> Colors { get; } = AnnotationColors.Keys;

@@ -60,7 +60,7 @@ public sealed record AnnotationVisual(
     /// <summary>Highlighter ink — the colour at marker-pen translucency.</summary>
     public Brush StrokeBrush => new SolidColorBrush(Color) { Opacity = 0.45 };
 
-    /// <summary>Opaque colour brush — the border/text colour for the shape kinds.</summary>
+    /// <summary>Opaque colour brush — the border/text colour for the shape kinds and the note pin.</summary>
     public Brush ShapeBrush => new SolidColorBrush(Color);
 
     public bool IsTextBox => Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout;
@@ -69,9 +69,13 @@ public sealed record AnnotationVisual(
 
     public bool IsCloud => Kind == PdfAnnotationKind.Cloud;
 
-    public bool ShowMarker => Kind == PdfAnnotationKind.Comment || (HasNote && !IsTextBox);
+    /// <summary>A standalone sticky note — drawn as a coloured pin the user can drag.</summary>
+    public bool IsNote => Kind == PdfAnnotationKind.Comment;
 
-    /// <summary>A selected highlight / ink / shape gets an inline trash button (comments use the marker).</summary>
-    public bool ShowDeleteButton => IsSelected && Kind is PdfAnnotationKind.Highlight
-        or PdfAnnotationKind.Ink or PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud;
+    /// <summary>The small "edit" glyph button — only for a noted highlight (notes have their own pin).</summary>
+    public bool ShowMarker => Kind == PdfAnnotationKind.Highlight && HasNote;
+
+    /// <summary>A selected annotation gets an inline trash button.</summary>
+    public bool ShowDeleteButton => IsSelected && Kind is PdfAnnotationKind.Highlight or PdfAnnotationKind.Ink
+        or PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud or PdfAnnotationKind.Comment;
 }
