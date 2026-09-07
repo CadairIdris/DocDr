@@ -314,9 +314,14 @@
                     </Polyline>
                 </Canvas>
 
-                <!-- Shape being dragged out right now. -->
+                <!-- Shape being dragged out right now (box, plus a callout's leader + arrow). -->
                 <Canvas IsHitTestVisible="False"
                         Visibility="{Binding ShapePreview, Converter={StaticResource NotNullToVisibility}}">
+                    <Polyline Points="{Binding ShapePreviewLeader}" Stroke="{DynamicResource AccentBrush}"
+                              StrokeThickness="1.4" StrokeDashArray="4 3" StrokeLineJoin="Round" />
+                    <Polyline Points="{Binding ShapePreviewArrow}" Stroke="{DynamicResource AccentBrush}"
+                              StrokeThickness="1.4" StrokeLineJoin="Round"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
                     <Rectangle Canvas.Left="{Binding ShapePreview.X}" Canvas.Top="{Binding ShapePreview.Y}"
                                Width="{Binding ShapePreview.Width}" Height="{Binding ShapePreview.Height}"
                                Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.4" StrokeDashArray="4 3" />

@@ -917,19 +917,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
                     if (leader.Count >= 2)
                     {
-                        Point tip = leader[0], next = leader[1];
-                        var dir = next - tip;
-                        double len = dir.Length;
-                        if (len > 0.01)
-                        {
-                            dir /= len;
-                            var perp = new Vector(-dir.Y, dir.X);
-                            const double ah = 12, aw = 4.5;
-                            Point basePt = tip + (dir * ah);
-                            leaderArrow.Add(basePt + (perp * aw));
-                            leaderArrow.Add(tip);
-                            leaderArrow.Add(basePt - (perp * aw));
-                        }
+                        leaderArrow = LeaderArrowHead(leader[0], leader[1]);
                     }
 
                     if (annotation.Kind == PdfAnnotationKind.Cloud)
@@ -1448,6 +1436,12 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         PdfRotation rotation = _document.GetPageRotation(_shapePage);
         PdfPoint crop = _document.GetCropOrigin(_shapePage);
 
+        Point ToDip(PdfPoint p)
+        {
+            (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale, crop);
+            return new Point(x, y);
+        }
+
         PdfRect pageRect = ShapeTool == ShapeTool.Callout
             ? DefaultBoxAt(_shapeHead, 190, 60)
             : new PdfRect(
@@ -1455,6 +1449,19 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 Math.Max(_shapeAnchor.X, _shapeHead.X), Math.Min(_shapeAnchor.Y, _shapeHead.Y));
         DeviceRect d = PdfCoordinates.PageToDevice(pageRect, unrotated, rotation, scale, crop);
         slot.ShapePreview = new Rect(d.X, d.Y, d.Width, d.Height);
+
+        if (ShapeTool == ShapeTool.Callout)
+        {
+            Point tip = ToDip(_shapeAnchor);
+            Point attach = ToDip(BoxAttachPoint(pageRect, _shapeAnchor));
+            slot.ShapePreviewLeader = [tip, attach];
+            slot.ShapePreviewArrow = LeaderArrowHead(tip, attach);
+        }
+        else
+        {
+            slot.ShapePreviewLeader = null;
+            slot.ShapePreviewArrow = null;
+        }
     }
 
     private void ClearShapePreview()
@@ -1465,7 +1472,31 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             {
                 slot.ShapePreview = null;
             }
+
+            if (slot.ShapePreviewLeader is not null)
+            {
+                slot.ShapePreviewLeader = null;
+                slot.ShapePreviewArrow = null;
+            }
         }
+    }
+
+    /// <summary>An open arrowhead (base, tip, base) at <paramref name="tip"/>, aimed away from
+    /// <paramref name="towards"/>, in DIP space.</summary>
+    private static PointCollection LeaderArrowHead(Point tip, Point towards)
+    {
+        var dir = towards - tip;
+        double len = dir.Length;
+        if (len < 0.01)
+        {
+            return [];
+        }
+
+        dir /= len;
+        var perp = new Vector(-dir.Y, dir.X);
+        const double ah = 12, aw = 4.5;
+        Point basePt = tip + (dir * ah);
+        return [basePt + (perp * aw), tip, basePt - (perp * aw)];
     }
 
     private void UpdateSelectionRects()

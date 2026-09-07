@@ -69,6 +69,14 @@ public sealed partial class PageSlotViewModel : ObservableObject
     [ObservableProperty]
     private System.Windows.Rect? _shapePreview;
 
+    /// <summary>The callout leader line during a drag (tip → box), in DIP space; null otherwise.</summary>
+    [ObservableProperty]
+    private System.Windows.Media.PointCollection? _shapePreviewLeader;
+
+    /// <summary>The callout arrowhead during a drag, in DIP space; null otherwise.</summary>
+    [ObservableProperty]
+    private System.Windows.Media.PointCollection? _shapePreviewArrow;
+
     /// <summary>True while a container for this slot is realised in the visual tree.</summary>
     public bool IsRealized { get; set; }
 }
