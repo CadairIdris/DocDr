@@ -140,8 +140,12 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 - **Panning a zoomed page:** `CanContentScroll="True"` (needed to virtualise 408 pages) makes the
   vertical `VirtualizingStackPanel` the `IScrollInfo`, and it gives no usable horizontal
   scrollbar even when `ScrollableWidth > 0`. So a page wider than the pane is panned by
-  **middle-mouse drag** (`PageList_PreviewMouseDown`/`Up`, `_panning`, cursor `ScrollAll`) or
-  **Shift+wheel** (`PageList_PreviewMouseWheel`) — both drive `_scrollViewer.ScrollTo*Offset`.
+  **middle-mouse drag** (`PageList_PreviewMouseDown`/`Up`, `_panning`, cursor `ScrollAll`),
+  **Shift+wheel** (`PageList_PreviewMouseWheel`), or a **trackpad two-finger sideways swipe** —
+  WPF has no routed event for the horizontal wheel, so `HorizontalWheelHook` traps the Win32
+  `WM_MOUSEHWHEEL` on the `HwndSource` (added in `OnLoaded`, removed in `OnUnloaded`) and acts
+  only when `PageList.IsMouseOver`. `HorizontalWheelScale` (1.0) carries the sign — flip it if a
+  pad scrolls the wrong way. All three drive `_scrollViewer.ScrollTo*Offset`.
 
 - One background worker rasterises pages newest-request-first. **The worker `catch`es every
   per-request exception and keeps looping** — an uncaught throw there kills the worker and

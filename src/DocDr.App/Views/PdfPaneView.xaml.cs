@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using DocDr.App.ViewModels;
 using DocDr.Pdf;
@@ -31,12 +32,22 @@ public partial class PdfPaneView : UserControl
     private int _selectionPageIndex = -1;
     private int _wheelAccumulator;
 
+    private const int WmMouseHWheel = 0x020E;
+    private HwndSource? _hwndSource;
+
     public PdfPaneView()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
         Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
         IsVisibleChanged += OnIsVisibleChanged;
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        _hwndSource?.RemoveHook(HorizontalWheelHook);
+        _hwndSource = null;
     }
 
     private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -85,6 +96,14 @@ public partial class PdfPaneView : UserControl
         _scrollViewer = FindScrollViewer(PageList);
         ApplyViewMode();
         ScheduleReinitialize();
+
+        // WPF has no routed event for the horizontal wheel — a precision-touchpad two-finger
+        // sideways swipe arrives only as the Win32 WM_MOUSEHWHEEL. Hook it at the window.
+        if (_hwndSource is null && PresentationSource.FromVisual(this) is HwndSource source)
+        {
+            _hwndSource = source;
+            _hwndSource.AddHook(HorizontalWheelHook);
+        }
     }
 
     private void OnPanePropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -589,6 +608,30 @@ public partial class PdfPaneView : UserControl
         Point now = e.GetPosition(this);
         return Math.Abs(now.X - _pointerDown.X) >= SystemParameters.MinimumHorizontalDragDistance
             || Math.Abs(now.Y - _pointerDown.Y) >= SystemParameters.MinimumVerticalDragDistance;
+    }
+
+    /// <summary>Per-notch (120-unit) horizontal-wheel distance in DIP. Flip the sign here if a
+    /// touchpad swipe scrolls the wrong way.</summary>
+    private const double HorizontalWheelScale = 1.0;
+
+    private IntPtr HorizontalWheelHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (handled || msg != WmMouseHWheel || !PageList.IsMouseOver)
+        {
+            return IntPtr.Zero;
+        }
+
+        _scrollViewer ??= FindScrollViewer(PageList);
+        if (_scrollViewer is not { ScrollableWidth: > 0 })
+        {
+            return IntPtr.Zero;
+        }
+
+        int delta = (short)((wParam.ToInt64() >> 16) & 0xFFFF);
+        _scrollViewer.ScrollToHorizontalOffset(
+            _scrollViewer.HorizontalOffset + (delta * HorizontalWheelScale));
+        handled = true;
+        return IntPtr.Zero;
     }
 
     // --- Pan (middle-mouse drag; Shift+wheel handled in PageList_PreviewMouseWheel) --------
