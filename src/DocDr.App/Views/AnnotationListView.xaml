@@ -36,6 +36,9 @@
                             <TextBlock Text="{Binding Attribution}" FontSize="10" Margin="0,1,0,0"
                                        Foreground="{DynamicResource HintTextBrush}"
                                        Visibility="{Binding HasAttribution, Converter={StaticResource BoolToVisibility}}" />
+                            <TextBlock Text="{Binding ReplyBadge}" FontSize="10" Margin="0,1,0,0"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Visibility="{Binding HasReplies, Converter={StaticResource BoolToVisibility}}" />
                         </StackPanel>
                         <TextBlock Grid.Column="2" Text="{Binding PageLabel}" VerticalAlignment="Top"
                                    Foreground="{DynamicResource SecondaryTextBrush}" FontSize="10" Margin="6,1,2,0" />

@@ -31,6 +31,10 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 - Click a highlight or stroke to select it (accent outline + trash button; `Delete` also
   works). Click a note marker to edit or delete. The nav panel's **Annotations** tab lists
   every annotation (with its author and date) and jumps to it.
+- **Reply threads**: a comment (or noted highlight) can carry a conversation — the editor
+  shows the replies, each with its author and time, and a box to add another. The whole
+  thread is stored on the annotation and round-trips through save/reload; other PDF readers
+  still show the opening comment. The Annotations tab flags rows that have replies.
 - **👁 Markup** toolbar button hides / shows the whole overlay (highlights, notes, ink) —
   a view toggle; the annotations are untouched and still saved.
 - Each annotation records its author and creation / modification dates in standard PDF

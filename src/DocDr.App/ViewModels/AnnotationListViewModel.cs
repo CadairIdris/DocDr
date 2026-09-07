@@ -47,6 +47,12 @@ public sealed class AnnotationRowViewModel(int pageIndex, PdfAnnotation annotati
     }
 
     public bool HasAttribution => Attribution.Length > 0;
+
+    public int ReplyCount { get; } = annotation.Replies.Count;
+
+    public bool HasReplies => ReplyCount > 0;
+
+    public string ReplyBadge => ReplyCount == 1 ? "1 reply" : $"{ReplyCount} replies";
 }
 
 /// <summary>Flat list of every annotation in the document, for the nav panel Annotations tab.</summary>

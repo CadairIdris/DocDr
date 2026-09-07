@@ -135,10 +135,12 @@ since PDFium exposes the underlying annotation API but no ready-made editing UI.
 - Create comment annotations (text/popup annotations) attachable to a location or a
   highlighted selection.
 - Threaded replies on comments: a comment can carry a chain of reply messages, each with its
-  own author and timestamp. Written to the PDF as standard reply annotations (`/IRT`
-  referencing the parent, `/RT /R`) so the thread round-trips through other readers. The
-  comment editor presents the thread as a message list with a reply box; the navigation
-  panel shows the reply count.
+  own author and timestamp. PDFium has no setter for an indirect-reference dictionary entry,
+  so DocDr cannot emit a standard `/IRT` reply-annotation chain; instead the whole thread is
+  stored on the parent annotation as one private-key string, which round-trips losslessly
+  through PDFium (and through any reader that preserves unknown annotation keys) while other
+  readers still show the opening comment. The comment editor presents the thread as a message
+  list with a reply box; the navigation panel shows the reply count.
 - View, edit, and delete existing annotations of both types.
 - Persist annotations into the saved PDF in standard annotation format (so they remain
   visible in other PDF readers).
@@ -148,8 +150,8 @@ since PDFium exposes the underlying annotation API but no ready-made editing UI.
   is opened in another standard PDF reader.
 - Annotations survive a page rotate/delete/insert operation on unrelated pages without
   shifting to the wrong page.
-- A comment with replies, saved and reopened (in this app and another reader), keeps the
-  full thread in order with authors and timestamps intact.
+- A comment with replies, saved and reopened in DocDr, keeps the full thread in order with
+  authors and timestamps intact; in another reader the opening comment still shows.
 
 ---
 

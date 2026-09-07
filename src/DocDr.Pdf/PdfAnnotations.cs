@@ -80,7 +80,10 @@ public static class PdfAnnotations
                         ? ReadQuads(annot)
                         : [ReadRect(annot)];
 
-                    result.Add(new PdfAnnotation(id, kind, quads, ReadColor(annot), contents, author, created, modified));
+                    result.Add(new PdfAnnotation(id, kind, quads, ReadColor(annot), contents, author, created, modified)
+                    {
+                        Replies = PdfReplyCodec.Decode(ReadString(annot, "DocDrThread")),
+                    });
                 }
                 finally
                 {

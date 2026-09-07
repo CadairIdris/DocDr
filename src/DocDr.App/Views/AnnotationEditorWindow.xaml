@@ -54,6 +54,36 @@
                     <Run Text="edited " /><Run Text="{Binding Modified, Mode=OneWay}" />
                 </TextBlock>
             </StackPanel>
+
+            <!-- Reply thread -->
+            <Border Margin="0,12,0,0" Padding="0,10,0,0" BorderThickness="0,1,0,0"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    Visibility="{Binding HasThread, Converter={StaticResource BoolToVisibility}}">
+                <ItemsControl ItemsSource="{Binding Thread}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,0,0,8">
+                                <TextBlock Text="{Binding Attribution}" FontSize="11"
+                                           Foreground="{DynamicResource SecondaryTextBrush}" />
+                                <TextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="0,1,0,0" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
+
+            <Grid Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0" Text="{Binding NewReply, UpdateSourceTrigger=PropertyChanged}"
+                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="40" MaxHeight="120"
+                         VerticalScrollBarVisibility="Auto"
+                         d:Text="" Tag="Write a reply…" />
+                <Button Grid.Column="1" Content="Reply" MinWidth="60" Padding="8,4" Margin="8,0,0,0"
+                        VerticalAlignment="Bottom" Command="{Binding AddReplyCommand}" />
+            </Grid>
         </StackPanel>
     </DockPanel>
 </Window>

@@ -76,6 +76,15 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   `/CreationDate`, `/M`, and a GUID-shaped `/NM` (kept as the id so identity round-trips);
   writer emits all four. New annotations stamp `Environment.UserName` + now; an edit keeps
   `/CreationDate` and only bumps `/M`.
+- **Reply threads:** `PdfAnnotation.Replies` (a `List<PdfReply>`; each has its own id / text /
+  author / dates). PDFium has no setter for an indirect-ref dict entry, so there's no standard
+  `/IRT` chain — `PdfAnnotationWriter` serialises the whole thread to JSON via `PdfReplyCodec`
+  and stashes it in the parent annotation's private `/DocDrThread` string key; the reader
+  decodes it back. Round-trips through PDFium and any reader that keeps unknown keys; other
+  readers still see the opening comment. Replies are part of the immutable `PdfAnnotation`
+  record, so they snapshot with history and are undoable like any other annotation edit. The
+  editor (`AnnotationEditorViewModel`) shows replies as a list with a reply box; the nav-panel
+  row shows a reply count.
 - `AnnotationsChanged` is the light event (overlay rebuild only); `Changed` is the heavy one
   (full pane/thumbnail reload). Undo/redo raises `Changed` only when pages/rotations actually
   moved, `AnnotationsChanged` always.

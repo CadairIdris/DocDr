@@ -1315,7 +1315,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             {
                 _document.AddAnnotation(page, PdfAnnotation.NewHighlight(
                     quads, AnnotationColors.ToArgb(result.ColorKey),
-                    string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents, Author));
+                    string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents, Author)
+                    with { Replies = result.Replies });
             }
         });
     }
@@ -1332,7 +1333,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             if (result.Outcome == AnnotationEditorOutcome.Save)
             {
                 _document.AddAnnotation(pageIndex, PdfAnnotation.NewComment(
-                    iconRect, string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents, Author));
+                    iconRect, string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents, Author)
+                    with { Replies = result.Replies });
             }
         });
     }
@@ -1362,6 +1364,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                         ColorArgb = annotation.Kind == PdfAnnotationKind.Highlight
                             ? AnnotationColors.ToArgb(result.ColorKey)
                             : annotation.ColorArgb,
+                        Replies = result.Replies,
                         Modified = System.DateTimeOffset.Now,
                     });
                     break;
@@ -1369,7 +1372,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     _document.RemoveAnnotation(page, id);
                     break;
             }
-        });
+        }, annotation.Replies);
     }
 
     [RelayCommand]
@@ -1406,14 +1409,15 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     private static void OpenEditor(
         PdfAnnotationKind kind, string? contents, string? colorKey, bool canDelete,
         string? author, System.DateTimeOffset? created, System.DateTimeOffset? modified,
-        Action<AnnotationEditorResult> onClosed)
+        Action<AnnotationEditorResult> onClosed, IReadOnlyList<PdfReply>? replies = null)
     {
         // Defer past the current input event: a modal ShowDialog raised directly from a
         // mouse-down / popup-click handler opens without activating.
         Application.Current?.Dispatcher.BeginInvoke(
             () =>
             {
-                var viewModel = new AnnotationEditorViewModel(kind, contents, colorKey, canDelete, author, created, modified);
+                var viewModel = new AnnotationEditorViewModel(
+                    kind, contents, colorKey, canDelete, author, created, modified, replies, Author);
                 var window = new AnnotationEditorWindow(viewModel) { Owner = Application.Current?.MainWindow };
                 AnnotationEditorResult? result = null;
                 viewModel.Closed = r =>

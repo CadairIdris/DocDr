@@ -14,6 +14,25 @@ public enum PdfAnnotationKind
 }
 
 /// <summary>
+/// One message in a comment thread: the reply text plus who wrote it and when. The thread's
+/// opening message is the <see cref="PdfAnnotation"/> itself (its <c>Contents</c> / author /
+/// dates); <see cref="PdfAnnotation.Replies"/> holds the rest in order.
+/// </summary>
+public sealed record PdfReply(
+    Guid Id,
+    string Text,
+    string? Author,
+    DateTimeOffset Created,
+    DateTimeOffset Modified)
+{
+    public static PdfReply New(string text, string? author)
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+        return new PdfReply(Guid.NewGuid(), text, author, now, now);
+    }
+}
+
+/// <summary>
 /// One DocDr-managed annotation on a logical page. Immutable; edits produce a new record with the
 /// same <see cref="Id"/>. Geometry is in <b>unrotated</b> PDFium page space (points, bottom-left
 /// origin) — the same space <c>FPDFText_GetRect</c> and annotation quad points use.
@@ -33,6 +52,9 @@ public sealed record PdfAnnotation(
 
     /// <summary>Ink stroke width in points.</summary>
     public double StrokeWidth { get; init; }
+
+    /// <summary>Replies to this comment, oldest first. Empty for a thread with no replies yet.</summary>
+    public IReadOnlyList<PdfReply> Replies { get; init; } = [];
 
     /// <summary>PDF annotation subtype number for <see cref="Kind"/> (matches the PDF spec / PDFium).</summary>
     public int Subtype => Kind switch

@@ -78,6 +78,13 @@ internal static class PdfAnnotationWriter
 
                 // A stable id lets other readers thread replies / recognise the annotation.
                 SetString(annot, "NM", a.Id.ToString());
+
+                // The reply thread rides along on the parent as one private-key string —
+                // PDFium can't write a standard /IRT reply-annotation chain (no ref setter).
+                if (a.Replies.Count > 0)
+                {
+                    SetString(annot, "DocDrThread", PdfReplyCodec.Encode(a.Replies));
+                }
             }
             finally
             {
