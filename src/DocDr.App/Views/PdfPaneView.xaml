@@ -547,6 +547,9 @@
                         <DataTrigger Binding="{Binding CommentToolActive}" Value="True">
                             <Setter Property="Cursor" Value="Cross" />
                         </DataTrigger>
+                        <DataTrigger Binding="{Binding TableSelectActive}" Value="True">
+                            <Setter Property="Cursor" Value="Cross" />
+                        </DataTrigger>
                         <DataTrigger Binding="{Binding ShapeTool}" Value="TextBox">
                             <Setter Property="Cursor" Value="Cross" />
                         </DataTrigger>

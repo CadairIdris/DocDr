@@ -54,6 +54,9 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Annotations.Reload(document);
         Annotations.AnnotationActivated += OnAnnotationActivated;
 
+        LeftPane.TableRegionSelected += OnTableRegionSelected;
+        RightPane.TableRegionSelected += OnTableRegionSelected;
+
         LeftPane.PropertyChanged += OnLeftPanePropertyChanged;
         RightPane.PropertyChanged += OnRightPanePropertyChanged;
         Document.Changed += OnDocumentChanged;
@@ -119,6 +122,25 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>When on, drag a rectangle over a table to extract it. Mirrored to both panes.</summary>
+    [ObservableProperty]
+    private bool _tableSelectActive;
+
+    partial void OnTableSelectActiveChanged(bool value)
+    {
+        LeftPane.TableSelectActive = value;
+        RightPane.TableSelectActive = value;
+        if (value)
+        {
+            CommentToolActive = false;
+            HighlighterToolActive = false;
+            ShapeTool = ShapeTool.None;
+        }
+    }
+
+    [RelayCommand]
+    private void ToggleTableSelect() => TableSelectActive = !TableSelectActive;
+
     /// <summary>The armed "drop a shape" tool (text box / callout / cloud). Mirrored to both panes.</summary>
     [ObservableProperty]
     private ShapeTool _shapeTool;
@@ -131,6 +153,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         {
             CommentToolActive = false;
             HighlighterToolActive = false;
+            TableSelectActive = false;
             AnnotationsVisible = true;
         }
     }
@@ -529,6 +552,37 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(HasAnnotations));
     }
 
+    private async void OnTableRegionSelected(int pageIndex, PdfRect region)
+    {
+        TableGrid grid;
+        try
+        {
+            grid = await Task.Run(() => PdfTableExtractor.Extract(Document, pageIndex, region));
+        }
+        catch (Exception ex) when (ex is PdfException)
+        {
+            MessageBox.Show($"Could not read that region: {ex.Message}", "DocDr",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        if (grid.RowCount == 0)
+        {
+            MessageBox.Show("No table text was found in that region.", "DocDr",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        Application.Current?.Dispatcher.BeginInvoke(() =>
+        {
+            var window = new TableExtractWindow(new TableExtractViewModel(grid, _baseTitle, pageIndex + 1))
+            {
+                Owner = Application.Current?.MainWindow,
+            };
+            window.ShowDialog();
+        }, System.Windows.Threading.DispatcherPriority.Input);
+    }
+
     private void OnClausesScanned(PdfCodeStructure structure)
     {
         IReadOnlyDictionary<string, int> map = PdfCrossReferences.BuildPageMap(structure);
@@ -598,6 +652,8 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Thumbnails.EditRequested -= OnThumbnailEditRequested;
         Annotations.AnnotationActivated -= OnAnnotationActivated;
         Clauses.Scanned -= OnClausesScanned;
+        LeftPane.TableRegionSelected -= OnTableRegionSelected;
+        RightPane.TableRegionSelected -= OnTableRegionSelected;
         Clauses.CancelLoad();
         LeftPane.Dispose();
         RightPane.Dispose();

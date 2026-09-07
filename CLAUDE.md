@@ -209,6 +209,17 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   panes → clears `_crossRefCache`, `BuildLinkOverlays` merges cross-refs into the Stage 1 link
   overlay as `LinkVisual`s with a `Label` (`IsCrossReference` → faint underline in the template).
   `FollowLinkCommand` handles them (same `GoToPage` path as real `/Link`s).
+- **Table extraction** — `DocDr.Pdf/PdfTableExtractor.Extract(doc, page, region)` → `TableGrid`
+  (`.ToCsv()` RFC 4180 / `.ToTsv()`). `region` is unrotated MediaBox page space (like
+  `PdfCharBox.Box`). Rows: thin ruled lines (walk `FPDFPath*` segments, apply the object matrix)
+  else y-cluster the char boxes. Columns: vertical rules else the whitespace channels — a data
+  row "votes" for a gap at x only when no run straddles x *and* it has a cell further right
+  (ignores the ragged right edge; caption / note / spanning-header rows with one very wide run
+  are dropped). `TrimEmptyEdges` cleans margin rows/cols. App: `DocumentTabViewModel.TableSelectActive`
+  (mirrored to panes, mutually exclusive with the other tools), toolbar "Extract table" toggle;
+  `PdfPaneView` drags a marquee (`BeginTableSelect`/`ExtendTableSelect`/`EndTableSelect`, reuses
+  `PageSlotViewModel.ShapePreview`), `TableRegionSelected` → `TableExtractWindow` (a `DataView`
+  over a `DataTable` in a `DataGrid`, Copy TSV / Save CSV). Nested headers are best-effort.
 - **Cite this** — `DocDr.App/Services/Citations.cs` (`Format` for a passage, `ForClause` for a
   clause, `CopyToClipboard`). Clause tree context menu, and a "Cite" button in the text-selection
   popup (`PdfPaneViewModel.CiteSelectionCommand` uses `_pendingText` + `CurrentClauseNumber(page)`

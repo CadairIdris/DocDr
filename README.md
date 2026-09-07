@@ -16,6 +16,11 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   page — "in accordance with 8.3.1", "see 6.2.5", "Annex L", "Figure 8.5", "Table 4.3" —
   get a faint underline and become clickable, jumping to the referenced clause or to the
   figure / table's page (matched by its caption).
+- **Extract table**: arm the toolbar toggle, drag a rectangle over a table, and DocDr
+  reconstructs its rows and columns — into a review grid you can **Copy (TSV)** into a
+  spreadsheet or **Save as CSV**. Rows and columns come from the table's ruled lines or, when
+  it has none, from the whitespace channels between cells. Draw the box tight around the table
+  body; nested multi-row headers may need a little tidying, but the data rows come out clean.
 - **Cite this**: right-click a clause in the index for **Copy citation**
   (`{file}, cl. 6.5 (Concrete cover), p. 88`); or select text on a page and click **Cite**
   in the popup to copy the quoted passage with its source, nearest clause, and page.

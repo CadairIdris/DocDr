@@ -385,10 +385,13 @@ a table) and copy it to the clipboard as an image together with an auto-generate
 naming the source — document title, page, and clause/figure/table number when detectable.
 One-keystroke capture for reports and emails.
 
-**Table extraction:** draw a box over a table; reconstruct rows and columns from the character
-boxes plus any ruling lines and copy to the clipboard / export as CSV. Linear code tables
-(material properties, partial factors, section data) are the target — merged cells and nested
-headers are best-effort. Equation → LaTeX/MathML is explicitly out of scope for this stage.
+**Table extraction — DONE** (`master`, `PdfTableExtractor`): "Extract table" toolbar toggle,
+drag a rectangle over a table → `Extract(doc, page, region)` reconstructs the grid (rows from
+thin ruled lines or character-box clustering; columns from vertical rules or the whitespace
+channels between cells, voted by the data rows) → review window with Copy (TSV) / Save CSV.
+Verified on BS EN 1992-1-1:2023 — Table 6.4 (13 columns of cover data) and Table 4.3 come out
+clean; nested multi-row headers are best-effort as noted. Equation → LaTeX/MathML stays out of
+scope. *Still open: cell-level editing in the review grid; whole-table auto-detect (no drag).*
 
 **Cross-document / clause links (knowledge base):** typed links stored in the catalog between
 annotations, documents, and clauses — e.g. a note in a calc "relates to" a clause in EN

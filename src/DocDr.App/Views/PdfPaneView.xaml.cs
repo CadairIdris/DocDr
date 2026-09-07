@@ -19,6 +19,7 @@ public partial class PdfPaneView : UserControl
     private bool _selecting;
     private bool _inking;
     private bool _shaping;
+    private bool _tableSelecting;
     private bool _movingShape;
     private bool _resizing;
     private bool _leaderTipMoving;
@@ -531,6 +532,18 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        if (_pane.TableSelectActive)
+        {
+            _tableSelecting = true;
+            _selectionSlot = target.Element;
+            _selectionPageIndex = target.Slot.PageIndex;
+            _pane.SelectedAnnotationId = null;
+            _pane.BeginTableSelect(target.Slot.PageIndex, pagePoint);
+            PageList.CaptureMouse();
+            e.Handled = true;
+            return;
+        }
+
         // The selected callout's arrow-tip handle: drag to re-point it.
         if (_pane.TryHitLeaderTip(target.Slot.PageIndex, pagePoint) is System.Guid leaderId)
         {
@@ -695,6 +708,10 @@ public partial class PdfPaneView : UserControl
         {
             _pane.ExtendShape(pagePoint);
         }
+        else if (_tableSelecting)
+        {
+            _pane.ExtendTableSelect(pagePoint);
+        }
         else if (_movingShape)
         {
             _pane.PreviewShapeMove(pagePoint.X - _moveAnchor.X, pagePoint.Y - _moveAnchor.Y);
@@ -733,6 +750,14 @@ public partial class PdfPaneView : UserControl
             _shaping = false;
             PageList.ReleaseMouseCapture();
             _pane.EndShape();
+            return;
+        }
+
+        if (_tableSelecting)
+        {
+            _tableSelecting = false;
+            PageList.ReleaseMouseCapture();
+            _pane.EndTableSelect();
             return;
         }
 
@@ -825,6 +850,13 @@ public partial class PdfPaneView : UserControl
             {
                 _pane.CancelShape();
                 _pane.ShapeTool = ShapeTool.None;
+                e.Handled = true;
+            }
+            else if (_tableSelecting || _pane.TableSelectActive)
+            {
+                _tableSelecting = false;
+                PageList.ReleaseMouseCapture();
+                _pane.EndTableSelect(); // small/empty region → no dialog; also clears the tool
                 e.Handled = true;
             }
         }

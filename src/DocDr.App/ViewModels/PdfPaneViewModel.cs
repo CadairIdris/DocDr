@@ -1307,6 +1307,73 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
     }
 
+    // --- Table extraction: drag a rectangle over a table -------------------------------
+
+    /// <summary>When on, dragging a rectangle over a page marks a region to reconstruct as a table.</summary>
+    [ObservableProperty]
+    private bool _tableSelectActive;
+
+    /// <summary>Raised on drop with the 0-based page and the region in MediaBox page space.</summary>
+    public event Action<int, PdfRect>? TableRegionSelected;
+
+    private int _tablePage = -1;
+    private PdfPoint _tableAnchor;
+    private PdfPoint _tableHead;
+
+    public void BeginTableSelect(int pageIndex, PdfPoint pagePoint)
+    {
+        _tablePage = pageIndex;
+        _tableAnchor = _tableHead = pagePoint;
+        UpdateTablePreview();
+    }
+
+    public void ExtendTableSelect(PdfPoint pagePoint)
+    {
+        if (_tablePage < 0)
+        {
+            return;
+        }
+
+        _tableHead = pagePoint;
+        UpdateTablePreview();
+    }
+
+    public void EndTableSelect()
+    {
+        int page = _tablePage;
+        PdfPoint a = _tableAnchor, b = _tableHead;
+        _tablePage = -1;
+        ClearShapePreview();
+        TableSelectActive = false;
+
+        var region = new PdfRect(
+            Math.Min(a.X, b.X), Math.Max(a.Y, b.Y), Math.Max(a.X, b.X), Math.Min(a.Y, b.Y));
+        if (page >= 0 && region.Width > 6 && region.Height > 6)
+        {
+            TableRegionSelected?.Invoke(page, region);
+        }
+    }
+
+    private void UpdateTablePreview()
+    {
+        if (_tablePage < 0)
+        {
+            return;
+        }
+
+        PageSlotViewModel slot = Pages[_tablePage];
+        double scale = SlotScale(slot);
+        var pageRect = new PdfRect(
+            Math.Min(_tableAnchor.X, _tableHead.X), Math.Max(_tableAnchor.Y, _tableHead.Y),
+            Math.Max(_tableAnchor.X, _tableHead.X), Math.Min(_tableAnchor.Y, _tableHead.Y));
+        DeviceRect d = PdfCoordinates.PageToDevice(
+            pageRect, _document.GetUnrotatedPageSize(_tablePage), _document.GetPageRotation(_tablePage),
+            scale, _document.GetCropOrigin(_tablePage));
+        slot.ShapePreview = new Rect(d.X, d.Y, d.Width, d.Height);
+        slot.ShapePreviewLeader = null;
+        slot.ShapePreviewArrow = null;
+    }
+
     // --- Shape tools: drag a rectangle to drop a text box / cloud ------------------------
 
     /// <summary>The armed shape tool (mirrored from the tab). Cleared once a shape is placed.</summary>
