@@ -866,10 +866,12 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             var visuals = new List<AnnotationVisual>(annotations.Count);
             foreach (PdfAnnotation stored in annotations)
             {
-                // Show a shape being dragged at its live offset without committing it.
+                // Show a shape being dragged / resized at its live offset without committing it.
                 PdfAnnotation annotation = stored.Id == _movingShapeId
                     ? MoveShape(stored, _moveOffsetPage.Dx, _moveOffsetPage.Dy)
-                    : stored;
+                    : stored.Id == _resizingShapeId
+                        ? ResizeShape(stored, _resizeHandle, _resizeDeltaPage.Dx, _resizeDeltaPage.Dy)
+                        : stored;
 
                 var rects = new List<Rect>();
                 if (annotation.Kind == PdfAnnotationKind.Highlight)
@@ -903,6 +905,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 Rect box = default;
                 var leader = new PointCollection();
                 var leaderArrow = new PointCollection();
+                var handles = new List<Rect>();
                 Geometry? cloud = null;
                 if (annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud)
                 {
@@ -924,6 +927,18 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     {
                         cloud = ShapeGeometry.Cloud(box, 8 * scale);
                     }
+
+                    if (annotation.Id == SelectedAnnotationId)
+                    {
+                        const double hs = 9;
+                        foreach (Point c in new[]
+                        {
+                            box.TopLeft, box.TopRight, box.BottomLeft, box.BottomRight,
+                        })
+                        {
+                            handles.Add(new Rect(c.X - (hs / 2), c.Y - (hs / 2), hs, hs));
+                        }
+                    }
                 }
 
                 visuals.Add(new AnnotationVisual(annotation.Id, annotation.Kind, rects, marker,
@@ -935,6 +950,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     Box = box,
                     Leader = leader,
                     LeaderArrow = leaderArrow,
+                    ResizeHandles = handles,
                     CloudGeometry = cloud,
                     BoxText = annotation.Contents ?? string.Empty,
                     BoxFontSize = Math.Max(4, (annotation.FontSize > 0 ? annotation.FontSize : PdfAnnotation.DefaultFontSize) * scale),
@@ -1307,6 +1323,21 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         return new PdfRect(box.Left, box.Top, box.Left + width, box.Top - height);
     }
 
+    /// <summary>Keep a user-sized box's width but grow its height if the text no longer fits (never shrink).</summary>
+    private static PdfRect GrowToFitText(PdfRect box, string? text, double fontSize)
+    {
+        if (fontSize <= 0)
+        {
+            fontSize = PdfAnnotation.DefaultFontSize;
+        }
+
+        double top = Math.Max(box.Top, box.Bottom), bottom = Math.Min(box.Top, box.Bottom);
+        double left = Math.Min(box.Left, box.Right), right = Math.Max(box.Left, box.Right);
+        (_, double needed) = PdfTextWrap.FittedSize(text, right - left, fontSize);
+        double height = Math.Max(top - bottom, needed);
+        return new PdfRect(left, top, right, top - height);
+    }
+
     /// <summary>A box of the given point size with its top-left at <paramref name="topLeft"/>.</summary>
     private static PdfRect DefaultBoxAt(PdfPoint topLeft, double width, double height) =>
         new(topLeft.X, topLeft.Y, topLeft.X + width, topLeft.Y - height);
@@ -1415,6 +1446,149 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
 
         return a with { Quads = [box] };
+    }
+
+    // --- Resizing a placed shape box ----------------------------------------------------
+
+    private const double MinBoxWidth = 24;
+    private const double MinBoxHeight = 14;
+
+    private System.Guid? _resizingShapeId;
+    private BoxHandle _resizeHandle;
+    private (double Dx, double Dy) _resizeDeltaPage;
+
+    /// <summary>If <paramref name="pt"/> lands on a corner handle of the currently-selected shape, which one.</summary>
+    public (System.Guid Id, BoxHandle Handle)? TryHitResizeHandle(int pageIndex, PdfPoint pt)
+    {
+        if (!AnnotationsVisible || SelectedAnnotationId is not System.Guid sel)
+        {
+            return null;
+        }
+
+        PdfAnnotation? a = _document.GetAnnotations(pageIndex).FirstOrDefault(x => x.Id == sel);
+        if (a is null || a.Kind is not (PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud))
+        {
+            return null;
+        }
+
+        double tol = 11 / Math.Max(0.05, SlotScale(Pages[pageIndex]));
+        PdfRect b = a.Box;
+        double l = Math.Min(b.Left, b.Right), r = Math.Max(b.Left, b.Right);
+        double bt = Math.Min(b.Top, b.Bottom), tp = Math.Max(b.Top, b.Bottom);
+
+        (double X, double Y, BoxHandle H)[] corners =
+        [
+            (l, tp, BoxHandle.TopLeft), (r, tp, BoxHandle.TopRight),
+            (l, bt, BoxHandle.BottomLeft), (r, bt, BoxHandle.BottomRight),
+        ];
+
+        foreach ((double cx, double cy, BoxHandle h) in corners)
+        {
+            if (Math.Abs(pt.X - cx) <= tol && Math.Abs(pt.Y - cy) <= tol)
+            {
+                return (a.Id, h);
+            }
+        }
+
+        return null;
+    }
+
+    public void BeginShapeResize(System.Guid id, BoxHandle handle)
+    {
+        _resizingShapeId = id;
+        _resizeHandle = handle;
+        _resizeDeltaPage = (0, 0);
+        SelectedAnnotationId = id;
+    }
+
+    public void PreviewShapeResize(double dxPage, double dyPage)
+    {
+        if (_resizingShapeId is null)
+        {
+            return;
+        }
+
+        _resizeDeltaPage = (dxPage, dyPage);
+        BuildAnnotationOverlays();
+    }
+
+    public void EndShapeResize(double dxPage, double dyPage)
+    {
+        System.Guid? id = _resizingShapeId;
+        BoxHandle handle = _resizeHandle;
+        _resizingShapeId = null;
+        _resizeDeltaPage = (0, 0);
+        if (id is null)
+        {
+            return;
+        }
+
+        (int page, PdfAnnotation? found) = FindAnnotation(id.Value);
+        if (found is not { } a || (Math.Abs(dxPage) < 1 && Math.Abs(dyPage) < 1))
+        {
+            BuildAnnotationOverlays();
+            return;
+        }
+
+        _document.UpdateAnnotation(page, ResizeShape(a, handle, dxPage, dyPage) with { Modified = System.DateTimeOffset.Now });
+    }
+
+    public void CancelShapeResize()
+    {
+        _resizingShapeId = null;
+        _resizeDeltaPage = (0, 0);
+        BuildAnnotationOverlays();
+    }
+
+    /// <summary>Move one corner of the shape's box by (dx, dy) page points, keeping a minimum size and
+    /// (for a callout) re-attaching the leader. Sets <see cref="PdfAnnotation.AutoSize"/> off.</summary>
+    private static PdfAnnotation ResizeShape(PdfAnnotation a, BoxHandle handle, double dx, double dy)
+    {
+        PdfRect b = a.Box;
+        double l = Math.Min(b.Left, b.Right), r = Math.Max(b.Left, b.Right);
+        double bt = Math.Min(b.Top, b.Bottom), tp = Math.Max(b.Top, b.Bottom);
+
+        switch (handle)
+        {
+            case BoxHandle.TopLeft: l += dx; tp += dy; break;
+            case BoxHandle.TopRight: r += dx; tp += dy; break;
+            case BoxHandle.BottomLeft: l += dx; bt += dy; break;
+            case BoxHandle.BottomRight: r += dx; bt += dy; break;
+        }
+
+        if (r - l < MinBoxWidth)
+        {
+            if (handle is BoxHandle.TopLeft or BoxHandle.BottomLeft)
+            {
+                l = r - MinBoxWidth;
+            }
+            else
+            {
+                r = l + MinBoxWidth;
+            }
+        }
+
+        if (tp - bt < MinBoxHeight)
+        {
+            if (handle is BoxHandle.TopLeft or BoxHandle.TopRight)
+            {
+                tp = bt + MinBoxHeight;
+            }
+            else
+            {
+                bt = tp - MinBoxHeight;
+            }
+        }
+
+        var box = new PdfRect(l, tp, r, bt);
+        PdfAnnotation resized = a with { Quads = [box], AutoSize = false };
+        if (a.Kind == PdfAnnotationKind.Callout && a.Leader.Count >= 1)
+        {
+            PdfPoint tip = a.Leader[0];
+            resized = resized with { Strokes = [new[] { tip, BoxAttachPoint(box, tip) }] };
+        }
+
+        return resized;
     }
 
     public void CancelShape()
@@ -1724,7 +1898,9 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
                     if (isTextShape)
                     {
-                        PdfRect box = FitTextBox(annotation.Box, text, result.FontSize);
+                        PdfRect box = annotation.AutoSize
+                            ? FitTextBox(annotation.Box, text, result.FontSize)
+                            : GrowToFitText(annotation.Box, text, result.FontSize);
                         updated = updated with { Quads = [box] };
                         if (annotation.Kind == PdfAnnotationKind.Callout && annotation.Leader.Count >= 1)
                         {

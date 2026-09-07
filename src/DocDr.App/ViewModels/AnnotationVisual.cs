@@ -35,6 +35,9 @@ public sealed record AnnotationVisual(
     /// <summary>The open arrowhead at the callout leader's tip (base, tip, base) in slot DIP space.</summary>
     public PointCollection LeaderArrow { get; init; } = [];
 
+    /// <summary>Resize-handle squares (DIP space) at a selected shape box's corners; empty otherwise.</summary>
+    public IReadOnlyList<Rect> ResizeHandles { get; init; } = [];
+
     /// <summary>The scalloped cloud outline in slot DIP space; null unless <see cref="Kind"/> is Cloud.</summary>
     public Geometry? CloudGeometry { get; init; }
 

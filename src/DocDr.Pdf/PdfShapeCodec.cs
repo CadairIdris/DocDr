@@ -19,7 +19,7 @@ internal static class PdfShapeCodec
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    private sealed record Shape(string Kind, double[] Box, double[][]? Leader, double FontSize);
+    private sealed record Shape(string Kind, double[] Box, double[][]? Leader, double FontSize, bool? AutoSize);
 
     public static string Encode(PdfAnnotation a)
     {
@@ -31,7 +31,8 @@ internal static class PdfShapeCodec
             a.Kind.ToString(),
             [a.Box.Left, a.Box.Top, a.Box.Right, a.Box.Bottom],
             leader,
-            a.FontSize);
+            a.FontSize,
+            a.AutoSize ? null : false);
 
         return JsonSerializer.Serialize(shape, Options);
     }
@@ -73,6 +74,7 @@ internal static class PdfShapeCodec
         {
             Strokes = strokes,
             FontSize = shape.FontSize > 0 ? shape.FontSize : PdfAnnotation.DefaultFontSize,
+            AutoSize = shape.AutoSize ?? true,
             Replies = replies,
         };
     }

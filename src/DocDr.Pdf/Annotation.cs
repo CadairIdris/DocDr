@@ -65,6 +65,9 @@ public sealed record PdfAnnotation(
     /// <summary>Text size in points for <see cref="PdfAnnotationKind.TextBox"/> / <see cref="PdfAnnotationKind.Callout"/>.</summary>
     public double FontSize { get; init; }
 
+    /// <summary>Whether a text box / callout box still auto-fits its text (cleared once the user resizes it).</summary>
+    public bool AutoSize { get; init; } = true;
+
     /// <summary>Replies to this comment, oldest first. Empty for a thread with no replies yet.</summary>
     public IReadOnlyList<PdfReply> Replies { get; init; } = [];
 

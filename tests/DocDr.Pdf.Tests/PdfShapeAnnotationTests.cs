@@ -35,6 +35,24 @@ public sealed class PdfShapeAnnotationTests
         Assert.Equal(100, a.Box.Left, 1);
         Assert.Equal(300, a.Box.Right, 1);
         Assert.Equal(500, a.Box.Top, 1);
+        Assert.True(a.AutoSize); // a fresh box auto-fits its text
+    }
+
+    [Fact]
+    public void Manual_resize_flag_round_trips()
+    {
+        using var ws = new TempWorkspace();
+        byte[] saved;
+
+        using (PdfDocument doc = Make(ws, "one"))
+        {
+            PdfAnnotation box = PdfAnnotation.NewTextBox(new PdfRect(80, 500, 300, 440), "sized by hand", Blue);
+            doc.AddAnnotation(0, box with { AutoSize = false });
+            saved = doc.SaveToBytes();
+        }
+
+        using PdfDocument reloaded = PdfDocument.Load(saved);
+        Assert.False(reloaded.GetAnnotations(0)[0].AutoSize);
     }
 
     [Fact]

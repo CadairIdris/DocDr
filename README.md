@@ -39,8 +39,9 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   bordered box of text in a chosen colour and size; a **callout** (drag from what you're
   pointing at to where the note goes) adds a leader line with an arrowhead; a **revision
   cloud** (drag a rectangle) outlines a changed area with a scalloped border. Text boxes and
-  callouts shrink to fit their text. Drag a box to move it — a callout's arrow re-extends from
-  the point it marks. Double-click a box to edit; `Delete` to remove. All three are saved as
+  callouts shrink to fit their text until you resize them. Select a box to move it (its arrow
+  re-extends from the point it marks) or drag a corner handle to resize it. Double-click a box
+  to edit; `Delete` to remove. All three are saved as
   PDF stamps with a real appearance built from paths and text, so they print and show
   correctly in any reader.
 - **👁 Markup** toolbar button hides / shows the whole overlay (highlights, notes, ink) —

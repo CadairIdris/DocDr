@@ -264,6 +264,26 @@
                                           StrokeLineJoin="Round" />
                                 </Button>
 
+                                <!-- Resize handles for a selected shape box. -->
+                                <ItemsControl ItemsSource="{Binding ResizeHandles}" IsHitTestVisible="False">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemContainerStyle>
+                                        <Style TargetType="ContentPresenter">
+                                            <Setter Property="Canvas.Left" Value="{Binding X}" />
+                                            <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                                        </Style>
+                                    </ItemsControl.ItemContainerStyle>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                                       Fill="{DynamicResource AccentBrush}"
+                                                       Stroke="White" StrokeThickness="1" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
                                 <!-- Delete affordance for a selected highlight. -->
                                 <Button Canvas.Left="{Binding Marker.X}" Canvas.Top="{Binding Marker.Y}"
                                         Width="{Binding Marker.Width}" Height="{Binding Marker.Height}"

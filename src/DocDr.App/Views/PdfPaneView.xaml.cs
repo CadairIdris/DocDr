@@ -19,6 +19,7 @@ public partial class PdfPaneView : UserControl
     private bool _inking;
     private bool _shaping;
     private bool _movingShape;
+    private bool _resizing;
     private PdfPoint _moveAnchor;
     private FrameworkElement? _selectionSlot;
     private int _selectionPageIndex = -1;
@@ -431,6 +432,19 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        // A corner handle of the selected shape: drag to resize.
+        if (_pane.TryHitResizeHandle(target.Slot.PageIndex, pagePoint) is { } resize)
+        {
+            _resizing = true;
+            _selectionSlot = target.Element;
+            _selectionPageIndex = target.Slot.PageIndex;
+            _moveAnchor = pagePoint;
+            _pane.BeginShapeResize(resize.Id, resize.Handle);
+            PageList.CaptureMouse();
+            e.Handled = true;
+            return;
+        }
+
         // A shape box: click to select, drag to move, double-click to edit its text.
         if (_pane.TryHitShapeBox(target.Slot.PageIndex, pagePoint) is System.Guid shapeId)
         {
@@ -498,6 +512,10 @@ public partial class PdfPaneView : UserControl
         {
             _pane.PreviewShapeMove(pagePoint.X - _moveAnchor.X, pagePoint.Y - _moveAnchor.Y);
         }
+        else if (_resizing)
+        {
+            _pane.PreviewShapeResize(pagePoint.X - _moveAnchor.X, pagePoint.Y - _moveAnchor.Y);
+        }
         else if (_selecting)
         {
             _pane.ExtendTextSelection(pagePoint);
@@ -537,6 +555,16 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        if (_resizing)
+        {
+            _resizing = false;
+            PageList.ReleaseMouseCapture();
+            Point up = e.GetPosition(_selectionSlot);
+            PdfPoint p = _pane.DevicePointToPage(_selectionPageIndex, up.X, up.Y);
+            _pane.EndShapeResize(p.X - _moveAnchor.X, p.Y - _moveAnchor.Y);
+            return;
+        }
+
         if (!_selecting)
         {
             return;
@@ -567,6 +595,13 @@ public partial class PdfPaneView : UserControl
                 _movingShape = false;
                 PageList.ReleaseMouseCapture();
                 _pane.CancelShapeMove();
+                e.Handled = true;
+            }
+            else if (_resizing)
+            {
+                _resizing = false;
+                PageList.ReleaseMouseCapture();
+                _pane.CancelShapeResize();
                 e.Handled = true;
             }
             else if (_pane.ShapeTool != ShapeTool.None)

@@ -106,6 +106,11 @@ public static class PdfTextWrap
             fontSize = PdfAnnotation.DefaultFontSize;
         }
 
+        // The on-screen overlay renders with the system UI font, not the AFM Helvetica this
+        // table models, so leave a little slack on both axes to avoid clipping the last word / line.
+        const double widthSlack = 1.06;
+        const double heightSlack = 0.4; // extra fraction of a line
+
         IReadOnlyList<string> lines = Wrap(text ?? string.Empty, maxWidth - (2 * Inset), fontSize);
         double widest = 0;
         foreach (string line in lines)
@@ -113,8 +118,8 @@ public static class PdfTextWrap
             widest = Math.Max(widest, LineWidth(line, fontSize));
         }
 
-        double width = Math.Min(maxWidth, widest + (2 * Inset));
-        double height = (lines.Count * fontSize * LineHeightFactor) + (2 * Inset);
+        double width = Math.Min(maxWidth, (widest * widthSlack) + (2 * Inset));
+        double height = ((lines.Count + heightSlack) * fontSize * LineHeightFactor) + (2 * Inset);
         return (width, height);
     }
 }

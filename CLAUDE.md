@@ -99,13 +99,18 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   (colour + font size). Text box / cloud creation = a `ShapeTool` armed from the toolbar
   (`DocumentTabViewModel.ShapeTool`, mirrored to panes) then drag a rectangle; a callout drags
   tip→box and `BoxAttachPoint` picks the leader's box-edge attach point.
-- Text box / callout boxes **shrink-wrap to their text**: `PdfTextWrap` (Helvetica AFM width
-  table, shared by `PdfStampAppearance` so the overlay, the `/AP` and the box size all agree)
-  → `PdfPaneViewModel.FitTextBox` on create and edit.
-- A placed box is **draggable** — `PdfPaneView` routes a mousedown on `TryHitShapeBox` through
-  `BeginShapeMove` / `PreviewShapeMove` (live offset applied in `BuildAnnotationOverlays`, not
-  committed) / `EndShapeMove` (one `UpdateAnnotation`); a callout keeps its tip and re-attaches
-  the leader (`MoveShape`). Double-click a box to edit, `Esc` cancels a move.
+- Text box / callout boxes **shrink-wrap to their text** while `PdfAnnotation.AutoSize` is set
+  (the default; cleared once the user resizes): `PdfTextWrap` (Helvetica AFM width table, shared
+  by `PdfStampAppearance` so the overlay, the `/AP` and the box size stay in step — with a small
+  slack factor so the system-font overlay doesn't clip) → `PdfPaneViewModel.FitTextBox` on
+  create and (if `AutoSize`) edit; `GrowToFitText` only grows a hand-sized box on edit.
+- A selected box is **draggable and resizable** — `PdfPaneView` routes a mousedown through
+  `TryHitResizeHandle` (corner handles, `BoxHandle`) → `Begin/Preview/EndShapeResize`, else
+  `TryHitShapeBox` → `Begin/Preview/EndShapeMove`. The live geometry is applied in
+  `BuildAnnotationOverlays` (`MoveShape` / `ResizeShape`), not committed, until the drop's one
+  `UpdateAnnotation`; a callout keeps its tip and re-attaches the leader. Double-click a box to
+  edit, `Esc` cancels a move/resize. `AnnotationVisual.ResizeHandles` are drawn (non-interactive)
+  for the selected shape.
 - `AnnotationsChanged` is the light event (overlay rebuild only); `Changed` is the heavy one
   (full pane/thumbnail reload). Undo/redo raises `Changed` only when pages/rotations actually
   moved, `AnnotationsChanged` always.

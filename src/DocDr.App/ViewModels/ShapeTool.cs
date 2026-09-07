@@ -8,3 +8,12 @@ public enum ShapeTool
     Callout,
     Cloud,
 }
+
+/// <summary>Which corner handle of a selected shape box is being dragged to resize it.</summary>
+public enum BoxHandle
+{
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
