@@ -177,6 +177,10 @@
                         Command="{Binding SelectedTab.InsertPdfCommand}" IsEnabled="{Binding HasTabs}"
                         AutomationProperties.Name="Insert PDF"
                         ToolTip="Insert every page of another PDF" />
+                <Button Content="Blank page" Padding="8,3" Margin="4,0,0,0"
+                        Command="{Binding SelectedTab.InsertBlankPageCommand}" IsEnabled="{Binding HasTabs}"
+                        AutomationProperties.Name="Insert blank page"
+                        ToolTip="Insert a blank page after the current one, matching its size" />
             </ToolBar>
         </ToolBarTray>
 

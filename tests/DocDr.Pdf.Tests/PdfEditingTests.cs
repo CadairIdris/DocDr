@@ -69,6 +69,55 @@ public sealed class PdfEditingTests
     }
 
     [Fact]
+    public void Insert_blank_page_matches_the_previous_page_size_and_round_trips()
+    {
+        using var ws = new TempWorkspace();
+        byte[] saved;
+
+        using (var doc = Make(ws, "h.pdf", "one", "two", "three"))
+        {
+            PdfSize refSize = doc.GetPageSize(1);
+
+            doc.InsertBlankPage(afterIndex: 1);
+
+            Assert.Equal(4, doc.PageCount);
+            Assert.Equal("two", PageText(doc, 1));
+            Assert.Equal("", PageText(doc, 2).Trim());          // the new blank page
+            Assert.Equal("three", PageText(doc, 3));
+            Assert.Equal(refSize.Width, doc.GetPageSize(2).Width, precision: 1);
+            Assert.Equal(refSize.Height, doc.GetPageSize(2).Height, precision: 1);
+            Assert.True(doc.IsDirty);
+
+            doc.Undo();
+            Assert.Equal(3, doc.PageCount);
+            Assert.Equal("three", PageText(doc, 2));
+
+            doc.Redo();
+            Assert.Equal(4, doc.PageCount);
+            saved = doc.SaveToBytes();
+        }
+
+        using var reloaded = PdfDocument.Load(saved);
+        Assert.Equal(4, reloaded.PageCount);
+        Assert.Equal("", PageText(reloaded, 2).Trim());
+    }
+
+    [Fact]
+    public void Insert_blank_page_at_the_front_uses_the_first_page_size()
+    {
+        using var ws = new TempWorkspace();
+        using var doc = Make(ws, "h.pdf", "one", "two");
+        PdfSize first = doc.GetPageSize(0);
+
+        doc.InsertBlankPage(afterIndex: -1);
+
+        Assert.Equal(3, doc.PageCount);
+        Assert.Equal("", PageText(doc, 0).Trim());
+        Assert.Equal("one", PageText(doc, 1));
+        Assert.Equal(first.Width, doc.GetPageSize(0).Width, precision: 1);
+    }
+
+    [Fact]
     public void History_is_bounded_and_new_edit_clears_redo()
     {
         using var ws = new TempWorkspace();

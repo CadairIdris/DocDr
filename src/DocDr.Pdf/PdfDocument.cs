@@ -468,6 +468,36 @@ public sealed class PdfDocument : IDisposable
         AfterEdit();
     }
 
+    /// <summary>
+    /// Insert one blank page after <paramref name="afterIndex"/> (0-based; pass -1 for the very
+    /// front). The new page's on-screen size matches the page it follows — or the page after it
+    /// when inserting at the front.
+    /// </summary>
+    public void InsertBlankPage(int afterIndex)
+    {
+        Locked(() =>
+        {
+            int at = Math.Clamp(afterIndex + 1, 0, _pages.Count);
+            int sizeRef = Math.Clamp(at - 1 >= 0 ? at - 1 : at, 0, _pages.Count - 1);
+            PdfSize size = GetPageSizes()[sizeRef]; // the displayed (rotation-applied) size
+
+            PushUndo();
+
+            int sourceId = _nextSourceId++;
+            FpdfDocumentT blank = fpdf_edit.FPDF_CreateNewDocument();
+            FpdfPageT page = fpdf_edit.FPDFPageNew(blank, 0, size.Width, size.Height);
+            fpdf_edit.FPDFPageGenerateContent(page);
+            fpdfview.FPDF_ClosePage(page);
+            _sources[sourceId] = new Source { Handle = blank, Owned = true };
+
+            _pages.Insert(at, new PageRef(sourceId, 0, 0));
+            _annotations.Insert(at, []);
+            Rebuild();
+        });
+
+        AfterEdit();
+    }
+
     // --- Watermark removal --------------------------------------------------------------
 
     /// <summary>

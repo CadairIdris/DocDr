@@ -52,7 +52,8 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 
 - **Rotate / delete / insert pages.** Targets the thumbnail-strip selection when the Pages
   panel is showing it, otherwise the active pane's current page. Delete confirms first;
-  Insert brings in every page of another PDF.
+  Insert brings in every page of another PDF, or a **blank page** sized to match the page
+  it follows (toolbar, or right-click a thumbnail).
 - **Undo / redo** (`Ctrl+Z` / `Ctrl+Y`, ~30 deep). The document is modelled as an ordered
   list of page references into one or more source PDFs; structural edits rebuild the live
   PDFium handle, undo restores an earlier version of the list.

@@ -260,6 +260,14 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
+    private void InsertBlankPage()
+    {
+        int after = TargetPages() is [var first, ..] ? first : LeftPane.CurrentPage - 1;
+        Document.InsertBlankPage(after);
+        LeftPane.GoToPage(after + 2);
+    }
+
+    [RelayCommand]
     private void ShowProperties()
     {
         var dialog = new DocumentPropertiesWindow(new DocumentPropertiesViewModel(Document))
@@ -336,6 +344,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
             case ThumbnailStripViewModel.ThumbnailCommand.Rotate180: Rotate180(); break;
             case ThumbnailStripViewModel.ThumbnailCommand.Delete: DeletePages(); break;
             case ThumbnailStripViewModel.ThumbnailCommand.InsertAfter: InsertPdf(); break;
+            case ThumbnailStripViewModel.ThumbnailCommand.InsertBlankAfter: InsertBlankPage(); break;
         }
     }
 

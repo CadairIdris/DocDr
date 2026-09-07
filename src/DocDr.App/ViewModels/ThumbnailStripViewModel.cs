@@ -53,6 +53,7 @@ public sealed partial class ThumbnailStripViewModel : ObservableObject
         Rotate180,
         Delete,
         InsertAfter,
+        InsertBlankAfter,
     }
 
     /// <summary>Raised when a context-menu action is chosen; the tab performs the edit.</summary>
