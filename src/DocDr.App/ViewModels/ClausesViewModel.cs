@@ -4,6 +4,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using DocDr.App.Services;
 using DocDr.Pdf;
 
 namespace DocDr.App.ViewModels;
@@ -45,6 +47,7 @@ public sealed partial class ClauseNodeViewModel : ObservableObject
 public sealed partial class ClausesViewModel : ObservableObject
 {
     private CancellationTokenSource? _load;
+    private string _sourceName = "this document";
 
     public ObservableCollection<ClauseNodeViewModel> Roots { get; } = [];
 
@@ -67,6 +70,10 @@ public sealed partial class ClausesViewModel : ObservableObject
     /// <summary>(Re)scan the document for clause headings on a background thread.</summary>
     public void Load(PdfDocument document)
     {
+        _sourceName = document.FilePath is { Length: > 0 } path
+            ? System.IO.Path.GetFileNameWithoutExtension(path)
+            : "this document";
+
         _load?.Cancel();
         _load?.Dispose();
         _load = new CancellationTokenSource();
@@ -107,6 +114,16 @@ public sealed partial class ClausesViewModel : ObservableObject
         if (node is not null)
         {
             ClauseActivated?.Invoke(node.PageIndex);
+        }
+    }
+
+    [RelayCommand]
+    private void CopyCitation(ClauseNodeViewModel? node)
+    {
+        if (node is not null)
+        {
+            Citations.CopyToClipboard(
+                Citations.ForClause(_sourceName, node.Number, node.Title, node.PageIndex + 1));
         }
     }
 

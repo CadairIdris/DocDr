@@ -22,7 +22,15 @@
             </TreeView.ItemContainerStyle>
             <TreeView.Resources>
                 <HierarchicalDataTemplate DataType="{x:Type vm:ClauseNodeViewModel}" ItemsSource="{Binding Children}">
-                    <Grid MinWidth="150">
+                    <Grid MinWidth="150"
+                          Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=TreeView}}">
+                        <Grid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Copy citation"
+                                          Command="{Binding PlacementTarget.Tag.CopyCitationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding}" />
+                            </ContextMenu>
+                        </Grid.ContextMenu>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />

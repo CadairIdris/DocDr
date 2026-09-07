@@ -16,6 +16,9 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   page — "in accordance with 8.3.1", "see 6.2.5", "Annex L" — get a faint underline and
   become clickable, jumping to the referenced clause. Figure / table references are not
   linked (their numbers aren't clause numbers).
+- **Cite this**: right-click a clause in the index for **Copy citation**
+  (`{file}, cl. 6.5 (Concrete cover), p. 88`); or select text on a page and click **Cite**
+  in the popup to copy the quoted passage with its source, nearest clause, and page.
 
 ### Dark mode
 

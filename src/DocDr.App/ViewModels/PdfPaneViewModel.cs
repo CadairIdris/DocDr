@@ -710,6 +710,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     private int _selectionHead = -1;
     private IReadOnlyList<PdfRect> _pendingQuads = [];
 
+    private string _pendingText = string.Empty;
+
     [ObservableProperty]
     private bool _commentToolActive;
 
@@ -1160,6 +1162,12 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         _pendingQuads = quads;
         PendingSelectionPage = _selectionPage;
 
+        IReadOnlyList<PdfCharBox> pageChars = CharBoxes(_selectionPage);
+        _pendingText = hi >= lo && hi < pageChars.Count
+            ? string.Concat(Enumerable.Range(lo, hi - lo + 1).Select(i => pageChars[i].Text))
+                .ReplaceLineEndings(" ").Trim()
+            : string.Empty;
+
         double scale = SlotScale(Pages[_selectionPage]);
         PdfSize unrotated = _document.GetUnrotatedPageSize(_selectionPage);
         PdfRotation rotation = _document.GetPageRotation(_selectionPage);
@@ -1183,6 +1191,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     {
         _selectionPage = _selectionAnchor = _selectionHead = -1;
         _pendingQuads = [];
+        _pendingText = string.Empty;
         PendingSelectionPage = -1;
         foreach (PageSlotViewModel slot in Pages)
         {
@@ -1979,6 +1988,44 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         _document.AddAnnotation(PendingSelectionPage,
             PdfAnnotation.NewHighlight(_pendingQuads, AnnotationColors.ToArgb(colorKey), null, Author));
         ClearTextSelection();
+    }
+
+    /// <summary>Copy a citation for the selected passage to the clipboard.</summary>
+    [RelayCommand]
+    private void CiteSelection()
+    {
+        if (!HasPendingSelection)
+        {
+            return;
+        }
+
+        string citation = Citations.Format(
+            CitationSource(), CurrentClauseNumber(PendingSelectionPage), PendingSelectionPage + 1, _pendingText);
+        ClearTextSelection();
+        Citations.CopyToClipboard(citation);
+    }
+
+    private string CitationSource() =>
+        _document.FilePath is { Length: > 0 } path
+            ? System.IO.Path.GetFileNameWithoutExtension(path)
+            : "this document";
+
+    /// <summary>The deepest detected clause that starts on or before <paramref name="page"/>, if any.</summary>
+    private string? CurrentClauseNumber(int page)
+    {
+        string? best = null;
+        int bestPage = -1;
+        foreach ((string number, int clausePage) in _clausePageMap)
+        {
+            if (clausePage <= page &&
+                (clausePage > bestPage || (clausePage == bestPage && number.Length > (best?.Length ?? 0))))
+            {
+                best = number;
+                bestPage = clausePage;
+            }
+        }
+
+        return best;
     }
 
     [RelayCommand]

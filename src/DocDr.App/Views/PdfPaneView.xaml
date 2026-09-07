@@ -602,6 +602,10 @@
                     <Button Content="Note…" Padding="8,3" Cursor="Hand"
                             Command="{Binding CommentOnSelectionCommand}"
                             Click="PopupAction_Click" />
+                    <Button Content="Cite" Padding="8,3" Margin="4,0,0,0" Cursor="Hand"
+                            ToolTip="Copy a citation (source, clause, page) for this passage"
+                            Command="{Binding CiteSelectionCommand}"
+                            Click="PopupAction_Click" />
                 </StackPanel>
             </Border>
         </Popup>
