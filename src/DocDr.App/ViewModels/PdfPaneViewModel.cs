@@ -906,7 +906,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 var leader = new PointCollection();
                 var leaderArrow = new PointCollection();
                 var handles = new List<Rect>();
-                Rect leaderTipHandle = Rect.Empty;
+                Rect leaderTipHandle = default;
                 Geometry? cloud = null;
                 if (annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud)
                 {
