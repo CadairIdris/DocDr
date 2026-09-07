@@ -35,9 +35,12 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   shows the replies, each with its author and time, and a box to add another. The whole
   thread is stored on the annotation and round-trips through save/reload; other PDF readers
   still show the opening comment. The Annotations tab flags rows that have replies.
-- **Text box** (toolbar toggle, drag a rectangle on the page): a bordered box of text in a
-  chosen colour and size, editable via the same dialog. Saved as a standard PDF stamp with a
-  real appearance, so it prints and shows in any reader. Double-click to edit; `Delete` to remove.
+- **Text box / callout / cloud** (toolbar toggles): a **text box** (drag a rectangle) is a
+  bordered box of text in a chosen colour and size; a **callout** (drag from what you're
+  pointing at to where the note goes) adds a leader line with an arrowhead; a **revision
+  cloud** (drag a rectangle) outlines a changed area with a scalloped border. All three are
+  saved as PDF stamps with a real appearance built from paths and text, so they print and
+  show correctly in any reader. Double-click a box to edit; `Delete` to remove.
 - **👁 Markup** toolbar button hides / shows the whole overlay (highlights, notes, ink) —
   a view toggle; the annotations are untouched and still saved.
 - Each annotation records its author and creation / modification dates in standard PDF

@@ -116,6 +116,18 @@
                                           Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=TextBox}"
                               AutomationProperties.Name="Text box tool"
                               ToolTip="Drag on the page to drop a text box" />
+                <ToggleButton Content="Callout" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
+                              IsEnabled="{Binding HasTabs}"
+                              IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
+                                          Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Callout}"
+                              AutomationProperties.Name="Callout tool"
+                              ToolTip="Drag from what you're pointing at to where the note goes" />
+                <ToggleButton Content="Cloud" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
+                              IsEnabled="{Binding HasTabs}"
+                              IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
+                                          Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Cloud}"
+                              AutomationProperties.Name="Cloud tool"
+                              ToolTip="Drag a rectangle to cloud a revised area" />
                 <Button Padding="8,3" Margin="6,0,0,0"
                         Content="{Binding SelectedTab.MarkupButtonLabel}"
                         Command="{Binding SelectedTab.ToggleAnnotationsCommand}"

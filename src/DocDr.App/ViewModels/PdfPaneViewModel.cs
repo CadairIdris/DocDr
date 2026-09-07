@@ -897,6 +897,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
                 Rect box = default;
                 var leader = new PointCollection();
+                var leaderArrow = new PointCollection();
                 Geometry? cloud = null;
                 if (annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud)
                 {
@@ -907,6 +908,23 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     {
                         (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale, crop);
                         leader.Add(new Point(x, y));
+                    }
+
+                    if (leader.Count >= 2)
+                    {
+                        Point tip = leader[0], next = leader[1];
+                        var dir = next - tip;
+                        double len = dir.Length;
+                        if (len > 0.01)
+                        {
+                            dir /= len;
+                            var perp = new Vector(-dir.Y, dir.X);
+                            const double ah = 12, aw = 4.5;
+                            Point basePt = tip + (dir * ah);
+                            leaderArrow.Add(basePt + (perp * aw));
+                            leaderArrow.Add(tip);
+                            leaderArrow.Add(basePt - (perp * aw));
+                        }
                     }
 
                     if (annotation.Kind == PdfAnnotationKind.Cloud)
@@ -923,6 +941,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     StrokeThickness = Math.Max(1, annotation.StrokeWidth * scale),
                     Box = box,
                     Leader = leader,
+                    LeaderArrow = leaderArrow,
                     CloudGeometry = cloud,
                     BoxText = annotation.Contents ?? string.Empty,
                     BoxFontSize = Math.Max(4, (annotation.FontSize > 0 ? annotation.FontSize : PdfAnnotation.DefaultFontSize) * scale),
@@ -1224,18 +1243,37 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             return;
         }
 
+        ShapeTool = ShapeTool.None; // one-shot
+
+        if (tool == ShapeTool.Callout)
+        {
+            // Drag from the thing you're pointing at (a = tip) to where the note goes (b).
+            PdfRect calloutBox = DefaultBoxAt(b, 190, 60);
+            IReadOnlyList<PdfPoint> leader = [a, BoxAttachPoint(calloutBox, a)];
+            uint calloutColor = AnnotationColors.ToArgb(InkColorKey);
+            OpenEditor(PdfAnnotationKind.Callout, string.Empty, AnnotationColors.FromArgb(calloutColor),
+                canDelete: false, Author, System.DateTimeOffset.Now, null, result =>
+                {
+                    if (result.Outcome == AnnotationEditorOutcome.Save)
+                    {
+                        _document.AddAnnotation(page, PdfAnnotation.NewCallout(
+                            calloutBox, leader,
+                            string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents,
+                            AnnotationColors.ToArgb(result.ColorKey), result.FontSize, Author)
+                            with { Replies = result.Replies });
+                    }
+                });
+            return;
+        }
+
         var box = new PdfRect(
             Math.Min(a.X, b.X), Math.Max(a.Y, b.Y), Math.Max(a.X, b.X), Math.Min(a.Y, b.Y));
 
         // A stray click with no real drag: give a sensible default box so the tool still works.
         if (box.Width < 8 || box.Height < 8)
         {
-            double w = tool == ShapeTool.Cloud ? 160 : 180;
-            double h = tool == ShapeTool.Cloud ? 90 : 60;
-            box = new PdfRect(box.Left, box.Bottom + h, box.Left + w, box.Bottom);
+            box = tool == ShapeTool.Cloud ? DefaultBoxAt(a, 160, 90) : DefaultBoxAt(a, 180, 60);
         }
-
-        ShapeTool = ShapeTool.None; // one-shot
 
         if (tool == ShapeTool.Cloud)
         {
@@ -1258,6 +1296,23 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             });
     }
 
+    /// <summary>A box of the given point size with its top-left at <paramref name="topLeft"/>.</summary>
+    private static PdfRect DefaultBoxAt(PdfPoint topLeft, double width, double height) =>
+        new(topLeft.X, topLeft.Y, topLeft.X + width, topLeft.Y - height);
+
+    /// <summary>The point on the edge of <paramref name="box"/> that a leader from <paramref name="target"/>
+    /// should attach to (nearest edge midpoint).</summary>
+    private static PdfPoint BoxAttachPoint(PdfRect box, PdfPoint target)
+    {
+        double l = Math.Min(box.Left, box.Right), r = Math.Max(box.Left, box.Right);
+        double bt = Math.Min(box.Top, box.Bottom), tp = Math.Max(box.Top, box.Bottom);
+        double cx = (l + r) / 2, cy = (bt + tp) / 2;
+
+        if (target.X < l) return new PdfPoint(l, cy);
+        if (target.X > r) return new PdfPoint(r, cy);
+        return target.Y > cy ? new PdfPoint(cx, tp) : new PdfPoint(cx, bt);
+    }
+
     public void CancelShape()
     {
         _shapePage = -1;
@@ -1277,9 +1332,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         PdfRotation rotation = _document.GetPageRotation(_shapePage);
         PdfPoint crop = _document.GetCropOrigin(_shapePage);
 
-        var pageRect = new PdfRect(
-            Math.Min(_shapeAnchor.X, _shapeHead.X), Math.Max(_shapeAnchor.Y, _shapeHead.Y),
-            Math.Max(_shapeAnchor.X, _shapeHead.X), Math.Min(_shapeAnchor.Y, _shapeHead.Y));
+        PdfRect pageRect = ShapeTool == ShapeTool.Callout
+            ? DefaultBoxAt(_shapeHead, 190, 60)
+            : new PdfRect(
+                Math.Min(_shapeAnchor.X, _shapeHead.X), Math.Max(_shapeAnchor.Y, _shapeHead.Y),
+                Math.Max(_shapeAnchor.X, _shapeHead.X), Math.Min(_shapeAnchor.Y, _shapeHead.Y));
         DeviceRect d = PdfCoordinates.PageToDevice(pageRect, unrotated, rotation, scale, crop);
         slot.ShapePreview = new Rect(d.X, d.Y, d.Width, d.Height);
     }

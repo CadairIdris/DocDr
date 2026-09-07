@@ -217,15 +217,19 @@
                                 </Path>
 
                                 <!-- Callout leader line + arrow. -->
-                                <Polyline Points="{Binding Leader}" Stroke="{Binding ShapeBrush}" StrokeThickness="1.5"
-                                          StrokeLineJoin="Round" IsHitTestVisible="False"
-                                          Visibility="{Binding IsCallout, Converter={StaticResource BoolToVisibility}}" />
+                                <Canvas IsHitTestVisible="False"
+                                        Visibility="{Binding IsCallout, Converter={StaticResource BoolToVisibility}}">
+                                    <Polyline Points="{Binding Leader}" Stroke="{Binding ShapeBrush}" StrokeThickness="1.5"
+                                              StrokeLineJoin="Round" />
+                                    <Polyline Points="{Binding LeaderArrow}" Stroke="{Binding ShapeBrush}" StrokeThickness="1.5"
+                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                                </Canvas>
 
                                 <!-- Text box / callout box. -->
                                 <Border Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
                                         Width="{Binding Box.Width}" Height="{Binding Box.Height}"
                                         BorderBrush="{Binding ShapeBrush}" BorderThickness="1.5"
-                                        Background="Transparent" Cursor="Hand" ClipToBounds="True"
+                                        Background="Transparent" Cursor="Hand" ClipToBounds="True" Padding="3,2"
                                         Visibility="{Binding IsTextBox, Converter={StaticResource BoolToVisibility}}"
                                         MouseLeftButtonDown="ShapeBox_MouseLeftButtonDown"
                                         Tag="{Binding Id}">
@@ -242,7 +246,8 @@
                                             </Style.Triggers>
                                         </Style>
                                     </Border.Style>
-                                    <TextBlock Text="{Binding BoxText}" TextWrapping="Wrap" Margin="3,2"
+                                    <TextBlock Text="{Binding BoxText}" TextWrapping="Wrap"
+                                               Width="{Binding BoxTextWidth}" HorizontalAlignment="Left"
                                                Foreground="{Binding ShapeBrush}" FontSize="{Binding BoxFontSize}" />
                                 </Border>
 

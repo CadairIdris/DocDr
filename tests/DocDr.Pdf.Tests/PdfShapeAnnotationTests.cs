@@ -52,6 +52,49 @@ public sealed class PdfShapeAnnotationTests
     }
 
     [Fact]
+    public void Callout_round_trips_with_its_leader_line()
+    {
+        using var ws = new TempWorkspace();
+        byte[] saved;
+
+        using (PdfDocument doc = Make(ws, "one"))
+        {
+            var box = new PdfRect(200, 400, 380, 350);
+            IReadOnlyList<PdfPoint> leader = [new PdfPoint(120, 300), new PdfPoint(200, 375)];
+            doc.AddAnnotation(0, PdfAnnotation.NewCallout(box, leader, "Check this dimension", 0xFFF06292u, 11, "rob"));
+            saved = doc.SaveToBytes();
+        }
+
+        using PdfDocument reloaded = PdfDocument.Load(saved);
+        PdfAnnotation a = Assert.Single(reloaded.GetAnnotations(0));
+        Assert.Equal(PdfAnnotationKind.Callout, a.Kind);
+        Assert.Equal("Check this dimension", a.Contents);
+        Assert.Equal(2, a.Leader.Count);
+        Assert.Equal(120, a.Leader[0].X, 1);
+        Assert.Equal(300, a.Leader[0].Y, 1);
+    }
+
+    [Fact]
+    public void Revision_cloud_round_trips_and_renders()
+    {
+        using var ws = new TempWorkspace();
+        using PdfDocument doc = Make(ws, "page");
+        var renderer = new PageRenderer();
+
+        int before = CountNonWhite(renderer.Render(doc, 0, 300, 388));
+        doc.AddAnnotation(0, PdfAnnotation.NewCloud(new PdfRect(80, 700, 420, 560), 0xFFF06292u, "rob"));
+        byte[] saved = doc.SaveToBytes();
+        int after = doc.WithAnnotationsBaked(() => CountNonWhite(renderer.Render(doc, 0, 300, 388)));
+        Assert.True(after > before + 30, "The baked cloud should add a visible scalloped outline.");
+
+        using PdfDocument reloaded = PdfDocument.Load(saved);
+        PdfAnnotation a = Assert.Single(reloaded.GetAnnotations(0));
+        Assert.Equal(PdfAnnotationKind.Cloud, a.Kind);
+        Assert.Equal(80, a.Box.Left, 1);
+        Assert.Equal(420, a.Box.Right, 1);
+    }
+
+    [Fact]
     public void Text_box_is_undoable_and_kept_off_the_live_handle()
     {
         using var ws = new TempWorkspace();

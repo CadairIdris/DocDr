@@ -32,11 +32,17 @@ public sealed record AnnotationVisual(
     /// <summary>The callout leader polyline (tip first) in slot DIP space; empty otherwise.</summary>
     public PointCollection Leader { get; init; } = [];
 
+    /// <summary>The open arrowhead at the callout leader's tip (base, tip, base) in slot DIP space.</summary>
+    public PointCollection LeaderArrow { get; init; } = [];
+
     /// <summary>The scalloped cloud outline in slot DIP space; null unless <see cref="Kind"/> is Cloud.</summary>
     public Geometry? CloudGeometry { get; init; }
 
     /// <summary>Text shown inside a text box / callout.</summary>
     public string BoxText { get; init; } = string.Empty;
+
+    /// <summary>Wrapping width for the box text (box width minus the border/padding), in DIP.</summary>
+    public double BoxTextWidth => Math.Max(1, Box.Width - 11);
 
     /// <summary>Text size in DIP for a text box / callout.</summary>
     public double BoxFontSize { get; init; }
