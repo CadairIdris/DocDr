@@ -329,24 +329,28 @@ from the diff view, three-way / merge, real-time multi-user markup sessions.
 
 ---
 
-### Stage 8 — Design-Code Navigation, Extraction & Reference Workflow (Future)
+### Stage 8 — Design-Code Navigation, Extraction & Reference Workflow (partially done)
 
 **Goal:** Make DocDr genuinely good at the daily engineering task of reading design codes and
 reference material — navigating dense clause-numbered documents, pulling data out of them, and
 building a searchable personal knowledge base of commentary and cross-references.
 
-**Feature bundle — clause-aware navigation:**
-- **Clause index / tree:** detect clause numbering from the text layer (`6.4.3`, `6.4.3(2)`,
-  `Table 3.1`, `Figure 5.2`, `Eq. (6.7)` and the common national-annex / appendix variants),
-  build a per-document clause tree, and show it alongside the bookmark outline. Jump to any
-  clause; the current clause is shown in the status bar as you scroll.
-- **Clickable textual cross-references:** turn in-body references ("see 6.2.5", "in accordance
-  with Table 3.1") into clickable links even though the code PDF has no real `/Link`
-  annotation for them — resolve against the clause index. Extends the Stage 1 in-document link
-  overlay.
-- **Cite this:** select a clause (or just a text range) and copy a formatted citation —
-  `EN 1993-1-1:2005, cl. 6.2.9.1(2)` — built from the document's catalog metadata + the
-  detected clause number, for pasting into a calculation or report.
+**Feature bundle — clause-aware navigation (DONE, `master`):**
+- **Clause index / tree (DONE):** `PdfClauses.Read` detects clause numbering from PDFium's
+  reading-order text (`6.4.3`, national-annex / appendix variants like `A.2.1`, bare chapter
+  and `Annex X` headings), builds a per-document tree, and shows it as a Navigator tab that
+  jumps to any clause. Background scan on open. Tuned for dotted-decimal (Eurocode / BS EN /
+  ISO); letter-section schemes (AISC `D1.2a`) are not covered. *Not done: current-clause
+  status-bar indicator while scrolling.*
+- **Clickable textual cross-references (DONE):** `PdfCrossReferences.Scan` turns cued in-body
+  references ("see 6.2.5", "in accordance with 8.3.1") and annex references ("Annex L") into
+  underlined clickable links, resolved against the clause index and merged into the Stage 1
+  link overlay. Figure / table references are *not* linked — their numbers aren't clause
+  numbers, so they can't be located reliably.
+- **Cite this (DONE):** right-click a clause in the index → "Copy citation"
+  (`{file}, cl. 6.5 (Concrete cover), p. 88`); or select text on a page → "Cite" in the popup
+  copies the quoted passage with source, nearest detected clause, and page. Currently keyed off
+  the filename — will use catalog metadata once Stage 5 lands.
 
 **Snip to clipboard with citation:** drag a box over any region of a page (a figure, a detail,
 a table) and copy it to the clipboard as an image together with an auto-generated caption
@@ -375,7 +379,8 @@ filters — so a multi-week piece of work survives closing the app.
 
 **Acceptance criteria:**
 - Opening a Eurocode part builds a clause tree that matches its printed numbering, and a
-  "see 6.2.5"-style reference in the body navigates to clause 6.2.5.
+  "see 6.2.5"-style reference in the body navigates to clause 6.2.5. *(met — verified on
+  BS EN 1992-1-1:2023)*
 - Snipping a code table and pasting into a spreadsheet gives usable rows/columns, and the
   clipboard caption names the code, edition, page and table number.
 - A note linked to a clause is reachable from the clause and appears when that clause's text
