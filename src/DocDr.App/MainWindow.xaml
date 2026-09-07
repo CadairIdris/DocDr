@@ -18,6 +18,7 @@
         Closing="OnWindowClosing">
     <Window.InputBindings>
         <KeyBinding Modifiers="Control" Key="S" Command="{Binding SelectedTab.SaveCommand}" />
+        <KeyBinding Modifiers="Control" Key="P" Command="{Binding SelectedTab.PrintCommand}" />
         <KeyBinding Modifiers="Control+Shift" Key="S" Command="{Binding SelectedTab.SaveAsCommand}" />
         <KeyBinding Modifiers="Control" Key="Z" Command="{Binding SelectedTab.UndoCommand}" />
         <KeyBinding Modifiers="Control" Key="Y" Command="{Binding SelectedTab.RedoCommand}" />
@@ -148,6 +149,9 @@
                 <Button Content="Properties…" Padding="8,3" Command="{Binding SelectedTab.ShowPropertiesCommand}"
                         IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Properties"
                         ToolTip="View / edit document metadata" />
+                <Button Content="Print…" Padding="8,3" Margin="4,0,0,0" Command="{Binding SelectedTab.PrintCommand}"
+                        IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Print"
+                        ToolTip="Print the document with edits and annotations (Ctrl+P)" />
                 <Separator />
                 <Button Content="Save" Padding="8,3" Command="{Binding SelectedTab.SaveCommand}"
                         IsEnabled="{Binding HasTabs}" ToolTip="Save (Ctrl+S)" />

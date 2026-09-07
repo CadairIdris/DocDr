@@ -59,6 +59,10 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   PDFium handle, undo restores an earlier version of the list.
 - **Save / Save As** (`Ctrl+S` / `Ctrl+Shift+S`). Files are loaded fully into memory so Save
   overwrites the original in place. Dirty tabs show `•` and prompt on close.
+- **Print…** (`Ctrl+P`): a standard print dialog (printer, page range, copies); pages are
+  rasterised through PDFium at print resolution and fitted to the sheet, from the current
+  in-memory state — so page edits and the annotation overlay are included. Long ranges warn
+  first (the window is unresponsive while the job spools).
 
 ### Stage 1 — Core viewer + PDFium plumbing (done)
 

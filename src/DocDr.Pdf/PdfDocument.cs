@@ -973,6 +973,30 @@ public sealed class PdfDocument : IDisposable
             return bytes;
     }
 
+    /// <summary>
+    /// Runs <paramref name="work"/> with this document's managed annotations (highlights,
+    /// comments, ink) temporarily written onto the live pages, then strips them again — the
+    /// same bake/unbake dance as <see cref="SaveToBytes"/>, but for rendering (printing /
+    /// export) instead of serialising. Serialised through the document lock; re-entrant, so
+    /// <paramref name="work"/> may itself call <see cref="Locked{T}"/> (e.g. a page render).
+    /// </summary>
+    public T WithAnnotationsBaked<T>(Func<T> work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        return Locked(() =>
+        {
+            BakeAnnotations();
+            try
+            {
+                return work();
+            }
+            finally
+            {
+                UnbakeAnnotations();
+            }
+        });
+    }
+
     private void BakeAnnotations()
     {
         for (int i = 0; i < _pages.Count; i++)

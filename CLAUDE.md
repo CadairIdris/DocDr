@@ -91,6 +91,20 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   Every `PageToDevice*` / `DeviceToPage` call site in `PdfPaneViewModel` passes it.
   `_cropOrigins` is cached alongside `_pageSizes` and cleared with it.
 
+## Printing (`PrintService`, Stage 1)
+
+- `DocumentTabViewModel.PrintCommand` → `PrintService.Print(document, jobName)`: a WPF
+  `PrintDialog` (`UserPageRangeEnabled`), then a `PdfPagePaginator` (a `DocumentPaginator`)
+  handed to `dialog.PrintDocument`. `GetPage(i)` rasterises one page via `PageImageService`
+  (`PageRenderer`, **not** the tab's cache) at 200 DPI, fits it to `PrintableArea*` preserving
+  aspect, and `DrawImage`s it centred into a `DrawingVisual`. Raster output.
+- Prints the **current in-memory state**: the render is wrapped in
+  `PdfDocument.WithAnnotationsBaked(...)` — the same `BakeAnnotations` / `UnbakeAnnotations`
+  dance `SaveToBytes` uses, so highlights / notes / ink print (they are normally overlay-only
+  and absent from the live handle). The doc lock is re-entrant, so the nested `Render` → `Locked`
+  is fine. Page edits/rotations are already on the handle.
+- `PrintDocument` blocks the UI thread for the whole spool; a range over ~40 pages warns first.
+
 ## Read mode (Stage 1)
 
 - `MainViewModel.IsReadMode` — full-screen (`WindowStyle=None` + borderless maximise, done in

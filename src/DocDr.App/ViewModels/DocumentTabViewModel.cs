@@ -268,6 +268,20 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
+    private void Print()
+    {
+        try
+        {
+            new PrintService().Print(Document, _baseTitle);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Could not print: {ex.Message}", "DocDr",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    [RelayCommand]
     private void ShowProperties()
     {
         var dialog = new DocumentPropertiesWindow(new DocumentPropertiesViewModel(Document))
