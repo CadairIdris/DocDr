@@ -317,8 +317,8 @@
                 <!-- Shape being dragged out right now. -->
                 <Canvas IsHitTestVisible="False"
                         Visibility="{Binding ShapePreview, Converter={StaticResource NotNullToVisibility}}">
-                    <Rectangle Canvas.Left="{Binding ShapePreview.Value.X}" Canvas.Top="{Binding ShapePreview.Value.Y}"
-                               Width="{Binding ShapePreview.Value.Width}" Height="{Binding ShapePreview.Value.Height}"
+                    <Rectangle Canvas.Left="{Binding ShapePreview.X}" Canvas.Top="{Binding ShapePreview.Y}"
+                               Width="{Binding ShapePreview.Width}" Height="{Binding ShapePreview.Height}"
                                Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.4" StrokeDashArray="4 3" />
                 </Canvas>
             </Grid>
