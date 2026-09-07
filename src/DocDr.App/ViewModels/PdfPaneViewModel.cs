@@ -1073,14 +1073,20 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             foreach (PdfLink link in links)
             {
                 DeviceRect d = PdfCoordinates.PageToDevice(link.Rect, unrotated, rotation, scale, crop);
-                visuals.Add(new LinkVisual(new Rect(d.X, d.Y, d.Width, d.Height), link.TargetPageIndex, link.Uri));
+                visuals.Add(new LinkVisual(new Rect(d.X, d.Y, d.Width, d.Height), link.TargetPageIndex, link.Uri)
+                {
+                    Follow = FollowLinkCommand,
+                });
             }
 
             foreach (PdfCrossRef reference in crossRefs)
             {
                 DeviceRect d = PdfCoordinates.PageToDevice(reference.Rect, unrotated, rotation, scale, crop);
                 visuals.Add(new LinkVisual(
-                    new Rect(d.X, d.Y, d.Width, d.Height), reference.TargetPageIndex, null, reference.Label));
+                    new Rect(d.X, d.Y, d.Width, d.Height), reference.TargetPageIndex, null, reference.Label)
+                {
+                    Follow = FollowLinkCommand,
+                });
             }
 
             slot.Links = visuals;

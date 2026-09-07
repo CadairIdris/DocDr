@@ -108,7 +108,7 @@
                                     BorderThickness="0" Focusable="False"
                                     ToolTip="{Binding Tooltip}"
                                     AutomationProperties.Name="{Binding Tooltip}"
-                                    Command="{Binding DataContext.FollowLinkCommand, RelativeSource={RelativeSource AncestorType={x:Type views:PdfPaneView}}}"
+                                    Command="{Binding Follow}"
                                     CommandParameter="{Binding}">
                                 <Button.Template>
                                     <ControlTemplate TargetType="Button">

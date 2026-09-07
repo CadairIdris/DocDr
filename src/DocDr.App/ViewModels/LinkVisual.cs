@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Input;
 
 namespace DocDr.App.ViewModels;
 
@@ -16,4 +17,8 @@ public sealed record LinkVisual(Rect Bounds, int? TargetPageIndex, string? Uri, 
 
     /// <summary>A reference detected from the page text (not a real PDF link) — shown underlined.</summary>
     public bool IsCrossReference => Label is not null;
+
+    /// <summary>The pane's follow-link command, carried on the item so the overlay button binds
+    /// directly (no <c>FindAncestor</c> — that fails transiently while the list re-virtualises).</summary>
+    public ICommand? Follow { get; init; }
 }
