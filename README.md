@@ -130,4 +130,7 @@ per-document concurrent rendering.
 
 ## Licence
 
-[MIT](LICENSE). PDFium ships via the `PDFiumCore` NuGet package (Apache-2.0).
+DocDr is [MIT](LICENSE). It bundles third-party components under their own permissive
+licences — PDFiumCore (Apache-2.0), PDFium (BSD-3-Clause), CommunityToolkit.Mvvm (MIT);
+see [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md), which `publish.ps1` copies into
+every build.

@@ -13,6 +13,8 @@
   run). Framework-dependent + single file is the smallest single .exe but still needs
   the runtime installed.
 
+  LICENSE and THIRD-PARTY-NOTICES.md are copied into the output.
+
 .EXAMPLE
   pwsh publish.ps1
   pwsh publish.ps1 -Mode framework-dependent
@@ -64,6 +66,14 @@ Write-Host "dotnet $($publishArgs -join ' ')" -ForegroundColor DarkGray
 & dotnet @publishArgs
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed ($LASTEXITCODE)"
+}
+
+# Ship the licence + third-party notices alongside the binary.
+foreach ($doc in 'LICENSE', 'THIRD-PARTY-NOTICES.md') {
+    $src = Join-Path $root $doc
+    if (Test-Path $src) {
+        Copy-Item $src (Join-Path $OutputDir $doc) -Force
+    }
 }
 
 $exe = Join-Path $OutputDir 'DocDr.App.exe'
