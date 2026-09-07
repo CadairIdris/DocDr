@@ -18,6 +18,13 @@ public sealed record LinkVisual(Rect Bounds, int? TargetPageIndex, string? Uri, 
     /// <summary>A reference detected from the page text (not a real PDF link) — shown underlined.</summary>
     public bool IsCrossReference => Label is not null;
 
+    /// <summary>Vertical slack (DIP) added above and below the text so the click target isn't a
+    /// hairline. The visual (underline / hover glow) still tracks <see cref="Bounds"/>.</summary>
+    public const double HitPadding = 3;
+
+    public Rect HitBounds => new(
+        Bounds.X, Bounds.Y - HitPadding, Bounds.Width, Bounds.Height + (2 * HitPadding));
+
     /// <summary>The pane's follow-link command, carried on the item so the overlay button binds
     /// directly (no <c>FindAncestor</c> — that fails transiently while the list re-virtualises).</summary>
     public ICommand? Follow { get; init; }

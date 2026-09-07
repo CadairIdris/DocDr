@@ -97,13 +97,13 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemContainerStyle>
                         <Style TargetType="ContentPresenter">
-                            <Setter Property="Canvas.Left" Value="{Binding Bounds.X}" />
-                            <Setter Property="Canvas.Top" Value="{Binding Bounds.Y}" />
+                            <Setter Property="Canvas.Left" Value="{Binding HitBounds.X}" />
+                            <Setter Property="Canvas.Top" Value="{Binding HitBounds.Y}" />
                         </Style>
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:LinkVisual}">
-                            <Button Width="{Binding Bounds.Width}" Height="{Binding Bounds.Height}"
+                            <Button Width="{Binding HitBounds.Width}" Height="{Binding HitBounds.Height}"
                                     Padding="0" MinWidth="0" MinHeight="0" Cursor="Hand"
                                     BorderThickness="0" Focusable="False"
                                     ToolTip="{Binding Tooltip}"
@@ -113,7 +113,8 @@
                                 <Button.Template>
                                     <ControlTemplate TargetType="Button">
                                         <Border x:Name="Hit" Background="Transparent">
-                                            <Grid>
+                                            <!-- Visual sits on the real text band, centred in the padded hit area. -->
+                                            <Grid Height="{Binding Bounds.Height}" VerticalAlignment="Center">
                                                 <Border x:Name="Glow" Background="{DynamicResource AccentBrush}"
                                                         Opacity="0" CornerRadius="1" />
                                                 <Border x:Name="Underline" Height="1" VerticalAlignment="Bottom"
