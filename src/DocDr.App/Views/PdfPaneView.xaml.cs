@@ -370,7 +370,16 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
-        _pane.SelectedAnnotationId = null;
+        // A click on an existing highlight selects it (and its delete button) instead of
+        // starting a new text selection.
+        if (_pane.TrySelectAnnotationAt(target.Slot.PageIndex, pagePoint))
+        {
+            SelectionPopup.IsOpen = false;
+            PageList.Focus();
+            e.Handled = true;
+            return;
+        }
+
         SelectionPopup.IsOpen = false;
         _selecting = true;
         _selectionSlot = target.Element;
@@ -404,6 +413,17 @@ public partial class PdfPaneView : UserControl
         if (_pane.EndTextSelection())
         {
             SelectionPopup.IsOpen = true;
+        }
+    }
+
+    private void PageList_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if ((e.Key == Key.Delete || e.Key == Key.Back)
+            && _pane?.SelectedAnnotationId is System.Guid id
+            && _pane.DeleteAnnotationCommand.CanExecute(id))
+        {
+            _pane.DeleteAnnotationCommand.Execute(id);
+            e.Handled = true;
         }
     }
 

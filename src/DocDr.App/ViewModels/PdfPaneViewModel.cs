@@ -686,6 +686,35 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     partial void OnSelectedAnnotationIdChanged(System.Guid? value) => BuildAnnotationOverlays();
 
+    /// <summary>
+    /// Select the topmost highlight whose band contains <paramref name="pt"/> (unrotated page
+    /// space). Returns true when one was hit; clears the selection and returns false otherwise.
+    /// </summary>
+    public bool TrySelectAnnotationAt(int pageIndex, PdfPoint pt)
+    {
+        IReadOnlyList<PdfAnnotation> annotations = _document.GetAnnotations(pageIndex);
+        for (int i = annotations.Count - 1; i >= 0; i--)
+        {
+            PdfAnnotation a = annotations[i];
+            if (a.Kind != PdfAnnotationKind.Highlight)
+            {
+                continue;
+            }
+
+            foreach (PdfRect q in a.Quads)
+            {
+                if (pt.X >= q.Left && pt.X <= q.Right && pt.Y >= q.Bottom && pt.Y <= q.Top)
+                {
+                    SelectedAnnotationId = a.Id;
+                    return true;
+                }
+            }
+        }
+
+        SelectedAnnotationId = null;
+        return false;
+    }
+
     /// <summary>Project every page's annotations into its slot's DIP space for the overlay.</summary>
     public void BuildAnnotationOverlays()
     {
@@ -971,7 +1000,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         end = Math.Clamp(end, 0, boxes.Count - 1);
 
         var quads = new List<PdfRect>();
-        double left = 0, right = 0, top = 0, bottom = 0, lastMid = double.NaN;
+        double left = 0, right = 0, top = 0, bottom = 0;
         bool inRun = false;
 
         void Flush()
@@ -987,16 +1016,27 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         for (int i = start; i <= end; i++)
         {
             PdfRect b = boxes[i].Box;
-            if (b.Right <= b.Left && b.Top <= b.Bottom)
+
+            // Skip degenerate boxes — spaces in particular come back with a real width but ~zero
+            // height, and letting one through would flush the run (killing the vertical overlap
+            // test) and split every word onto its own rectangle.
+            if (b.Right - b.Left < 0.5 || b.Top - b.Bottom < 0.5)
             {
                 continue;
             }
 
-            double mid = (b.Top + b.Bottom) / 2;
-            double lineHeight = Math.Max(1, b.Top - b.Bottom);
-            if (inRun && Math.Abs(mid - lastMid) > lineHeight * 0.6)
+            // Same line while this glyph's vertical span still overlaps the run's. Sub/superscripts
+            // and inline formula glyphs overlap and just widen the band; a real line break doesn't,
+            // so it starts a fresh rectangle. Each line's quad is then the bounding box of its
+            // glyphs — one clean rectangle, not a per-word staircase.
+            if (inRun)
             {
-                Flush();
+                double overlap = Math.Min(top, b.Top) - Math.Max(bottom, b.Bottom);
+                double glyphHeight = Math.Max(1, b.Top - b.Bottom);
+                if (overlap < glyphHeight * 0.35)
+                {
+                    Flush();
+                }
             }
 
             if (!inRun)
@@ -1014,8 +1054,6 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 top = Math.Max(top, b.Top);
                 bottom = Math.Min(bottom, b.Bottom);
             }
-
-            lastMid = mid;
         }
 
         Flush();
@@ -1119,6 +1157,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         (int page, PdfAnnotation? found) = FindAnnotation(id);
         if (found is not null)
         {
+            if (SelectedAnnotationId == id)
+            {
+                SelectedAnnotationId = null;
+            }
+
             _document.RemoveAnnotation(page, id);
         }
     }

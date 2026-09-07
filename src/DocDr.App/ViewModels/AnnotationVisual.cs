@@ -22,4 +22,7 @@ public sealed record AnnotationVisual(
     public Brush FillBrush => new SolidColorBrush(Color) { Opacity = 0.4 };
 
     public bool ShowMarker => Kind == PdfAnnotationKind.Comment || HasNote;
+
+    /// <summary>A selected highlight gets an inline trash button (comments are edited/deleted via the marker).</summary>
+    public bool ShowDeleteButton => IsSelected && Kind == PdfAnnotationKind.Highlight;
 }
