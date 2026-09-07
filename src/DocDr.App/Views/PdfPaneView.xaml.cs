@@ -23,6 +23,10 @@ public partial class PdfPaneView : UserControl
     private bool _leaderTipMoving;
     private PdfPoint _moveAnchor;
     private Point _pointerDown;
+    private bool _panning;
+    private Point _panStart;
+    private double _panStartH;
+    private double _panStartV;
     private FrameworkElement? _selectionSlot;
     private int _selectionPageIndex = -1;
     private int _wheelAccumulator;
@@ -375,6 +379,19 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        // Shift+wheel pans a zoomed-in page sideways (there's a horizontal scrollbar too).
+        if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0 && (Keyboard.Modifiers & ModifierKeys.Control) == 0)
+        {
+            _scrollViewer ??= FindScrollViewer(PageList);
+            if (_scrollViewer is { ScrollableWidth: > 0 })
+            {
+                _scrollViewer.ScrollToHorizontalOffset(_scrollViewer.HorizontalOffset - e.Delta);
+                e.Handled = true;
+            }
+
+            return;
+        }
+
         // Read mode: a spread fills the screen, so the wheel turns pages instead of scrolling.
         if (_pane.Mode == ViewMode.TwoPage && (Keyboard.Modifiers & ModifierKeys.Control) == 0)
         {
@@ -574,8 +591,51 @@ public partial class PdfPaneView : UserControl
             || Math.Abs(now.Y - _pointerDown.Y) >= SystemParameters.MinimumVerticalDragDistance;
     }
 
+    // --- Pan (middle-mouse drag; Shift+wheel handled in PageList_PreviewMouseWheel) --------
+
+    private void PageList_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Middle)
+        {
+            return;
+        }
+
+        _scrollViewer ??= FindScrollViewer(PageList);
+        if (_scrollViewer is null || (_scrollViewer.ScrollableWidth <= 0 && _scrollViewer.ScrollableHeight <= 0))
+        {
+            return;
+        }
+
+        _panning = true;
+        _panStart = e.GetPosition(this);
+        _panStartH = _scrollViewer.HorizontalOffset;
+        _panStartV = _scrollViewer.VerticalOffset;
+        PageList.CaptureMouse();
+        PageList.Cursor = Cursors.ScrollAll;
+        e.Handled = true;
+    }
+
+    private void PageList_PreviewMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_panning && e.ChangedButton == MouseButton.Middle)
+        {
+            _panning = false;
+            PageList.ReleaseMouseCapture();
+            PageList.ClearValue(CursorProperty);
+            e.Handled = true;
+        }
+    }
+
     private void PageList_MouseMove(object sender, MouseEventArgs e)
     {
+        if (_panning && _scrollViewer is not null)
+        {
+            Point now = e.GetPosition(this);
+            _scrollViewer.ScrollToHorizontalOffset(_panStartH - (now.X - _panStart.X));
+            _scrollViewer.ScrollToVerticalOffset(_panStartV - (now.Y - _panStart.Y));
+            return;
+        }
+
         if (_pane is null || _selectionSlot is null || e.LeftButton != MouseButtonState.Pressed)
         {
             return;

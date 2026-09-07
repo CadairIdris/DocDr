@@ -532,6 +532,8 @@
                  VirtualizingPanel.ScrollUnit="Pixel"
                  ScrollViewer.ScrollChanged="PageList_ScrollChanged"
                  PreviewMouseWheel="PageList_PreviewMouseWheel"
+                 PreviewMouseDown="PageList_PreviewMouseDown"
+                 PreviewMouseUp="PageList_PreviewMouseUp"
                  PreviewMouseLeftButtonDown="PageList_MouseLeftButtonDown"
                  PreviewMouseMove="PageList_MouseMove"
                  PreviewMouseLeftButtonUp="PageList_MouseLeftButtonUp"

@@ -137,6 +137,12 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 
 ## Page rendering (`BackgroundRenderQueue` / `PdfPaneViewModel`, Stage 1)
 
+- **Panning a zoomed page:** `CanContentScroll="True"` (needed to virtualise 408 pages) makes the
+  vertical `VirtualizingStackPanel` the `IScrollInfo`, and it gives no usable horizontal
+  scrollbar even when `ScrollableWidth > 0`. So a page wider than the pane is panned by
+  **middle-mouse drag** (`PageList_PreviewMouseDown`/`Up`, `_panning`, cursor `ScrollAll`) or
+  **Shift+wheel** (`PageList_PreviewMouseWheel`) — both drive `_scrollViewer.ScrollTo*Offset`.
+
 - One background worker rasterises pages newest-request-first. **The worker `catch`es every
   per-request exception and keeps looping** — an uncaught throw there kills the worker and
   *every* page then renders blank forever (this was a real bug: extreme zoom → a
