@@ -44,6 +44,10 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Bookmarks = new BookmarksViewModel(bookmarks);
         Bookmarks.BookmarkActivated += pageIndex => LeftPane.GoToPage(pageIndex + 1);
 
+        Clauses = new ClausesViewModel();
+        Clauses.ClauseActivated += pageIndex => LeftPane.GoToPage(pageIndex + 1);
+        Clauses.Load(document);
+
         Annotations = new AnnotationListViewModel();
         Annotations.Reload(document);
         Annotations.AnnotationActivated += OnAnnotationActivated;
@@ -66,6 +70,8 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     public ThumbnailStripViewModel Thumbnails { get; }
 
     public BookmarksViewModel Bookmarks { get; }
+
+    public ClausesViewModel Clauses { get; }
 
     public AnnotationListViewModel Annotations { get; }
 
@@ -460,6 +466,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         RightPane.ReloadPages(sizes);
         Thumbnails.Reload(sizes);
         Bookmarks.Reload(PdfBookmarks.Read(Document));
+        Clauses.Load(Document);
         Annotations.Reload(Document);
         Thumbnails.SetCurrentPage(LeftPane.CurrentPage);
 
@@ -537,6 +544,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Document.AnnotationsChanged -= OnAnnotationsChanged;
         Thumbnails.EditRequested -= OnThumbnailEditRequested;
         Annotations.AnnotationActivated -= OnAnnotationActivated;
+        Clauses.CancelLoad();
         LeftPane.Dispose();
         RightPane.Dispose();
         _cache.Purge(Document);

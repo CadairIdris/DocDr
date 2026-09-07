@@ -12,6 +12,7 @@
         <!-- Tab-strip icons: stroke geometry that tracks the RadioButton's foreground. -->
         <Geometry x:Key="IconPages">M4,2 H12 V14 H4 Z M6,5.5 H10 M6,8 H10 M6,10.5 H10</Geometry>
         <Geometry x:Key="IconBookmarks">M5,2.5 H11 V13.5 L8,10.8 L5,13.5 Z</Geometry>
+        <Geometry x:Key="IconClauses">M4,3 H13 M4,3 V11 M4,7 H9 M4,11 H9 M11,7 H13 M11,11 H13</Geometry>
         <Geometry x:Key="IconAnnotations">M3,3.5 H13 V10.5 H7.5 L4.5,13 V10.5 H3 Z</Geometry>
 
         <Style x:Key="NavTabIcon" TargetType="Path">
@@ -77,6 +78,12 @@
                              IsChecked="{Binding NavigationTab, Converter={StaticResource EnumEquals}, ConverterParameter=Bookmarks, Mode=OneWay}">
                     <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconBookmarks}" />
                 </RadioButton>
+                <RadioButton Style="{StaticResource NavTab}" Tag="{x:Static vm:NavigationTab.Clauses}"
+                             Checked="NavTab_Checked" AutomationProperties.Name="Clauses"
+                             ToolTip="Clause index (detected from the numbering)"
+                             IsChecked="{Binding NavigationTab, Converter={StaticResource EnumEquals}, ConverterParameter=Clauses, Mode=OneWay}">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconClauses}" />
+                </RadioButton>
                 <RadioButton Style="{StaticResource NavTab}" Tag="{x:Static vm:NavigationTab.Annotations}"
                              Checked="NavTab_Checked" AutomationProperties.Name="Annotations"
                              ToolTip="Comments, highlights and markup"
@@ -101,6 +108,15 @@
                 <ContentControl.ContentTemplate>
                     <DataTemplate>
                         <views:BookmarksPanelView />
+                    </DataTemplate>
+                </ContentControl.ContentTemplate>
+            </ContentControl>
+
+            <ContentControl Content="{Binding Clauses}"
+                            Visibility="{Binding NavigationTab, Converter={StaticResource EnumToVisibility}, ConverterParameter=Clauses}">
+                <ContentControl.ContentTemplate>
+                    <DataTemplate>
+                        <views:ClausesPanelView />
                     </DataTemplate>
                 </ContentControl.ContentTemplate>
             </ContentControl>

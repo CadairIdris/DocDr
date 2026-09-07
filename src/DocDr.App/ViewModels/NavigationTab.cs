@@ -5,5 +5,6 @@ public enum NavigationTab
 {
     Pages,
     Bookmarks,
+    Clauses,
     Annotations,
 }

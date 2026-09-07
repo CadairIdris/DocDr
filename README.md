@@ -5,6 +5,14 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 
 ## Status
 
+### Stage 8 — Design-code navigation (in progress)
+
+- **Clause index**: the Navigator panel has a new tab (tree icon) that lists the numbered
+  clauses of a standard — detected from the page text, so it works even when the PDF has no
+  bookmarks. Tuned for dotted-decimal numbering (Eurocode, BS EN, ISO); annexes are picked up
+  too. The scan runs in the background on open. Clicking a clause jumps the left pane to its
+  page. Codes with letter-section numbering (e.g. AISC `D1.2a`) are not covered yet.
+
 ### Dark mode
 
 - **System / Light / Dark** picker in the toolbar, persisted to `%APPDATA%\DocDr\settings.json`.
