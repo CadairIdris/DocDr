@@ -204,8 +204,11 @@ since PDFium exposes the underlying annotation API but no ready-made editing UI.
   "Export chunks…" toolbar action that splits the document's text into retrieval-sized chunks
   and writes JSONL. Sections from the clause tree → bookmark outline → whole document; ~600
   tokens (chars ÷ 4) with ~15% overlap; running headers/footers, page numbers and contents
-  leaders stripped; wrapped lines joined and de-hyphenated; no-text pages reported. Verified
-  on BS EN 1992-1-1:2023 (417 chunks). *Still open: catalog-table persistence and batch mode.*
+  leaders stripped; wrapped lines joined and de-hyphenated; no-text pages reported. Each record
+  carries a stable `id`, `token_estimate`, and (by default) a "`{doc} — {section}`" prefix in
+  `text` for contextual retrieval. Verified on BS EN 1992-1-1:2023 (~450 chunks). *Still open:
+  catalog-table persistence, batch mode, and an LLM "contextualise" pass (belongs with Stage 9
+  AI integration).*
 - **RAG chunk export (design):** an "Export → RAG chunks (JSONL)" action (single document or a
   catalog selection) that splits extracted body text into retrieval-sized chunks.
   - Split section-by-section using the bookmark outline (`PdfBookmarks`) for boundaries and

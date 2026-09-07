@@ -25,9 +25,10 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 - **Export chunks…** (toolbar) splits the document's text into overlapping, retrieval-sized
   passages and writes them as **JSONL** (one JSON object per line) for building a RAG index.
 - Sections come from the detected clause tree, or the bookmark outline, or the whole document;
-  each chunk carries `text`, `source_path`, `doc_title`, `page_start`, `page_end`,
-  `section_title` and `chunk_index`. Default ~600 tokens per chunk (chars ÷ 4) with ~15%
-  overlap.
+  each chunk carries a stable `id`, `text`, `source_path`, `doc_title`, `page_start`,
+  `page_end`, `section_title`, `chunk_index` and a `token_estimate`. Default ~600 tokens per
+  chunk (chars ÷ 4) with ~15% overlap. The `text` is prefixed with the document title and
+  section heading so the embedding carries where the passage sits.
 - Running headers / footers (lines that repeat across most pages), bare page numbers and
   contents-page leaders are stripped; wrapped lines are joined and words de-hyphenated across
   line breaks. Pages with no text layer are reported and skipped (OCR is a later stage).

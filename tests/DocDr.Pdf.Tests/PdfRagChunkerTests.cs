@@ -85,6 +85,28 @@ public sealed class PdfRagChunkerTests
     }
 
     [Fact]
+    public void Chunk_gives_each_chunk_a_stable_id_a_token_estimate_and_a_section_heading()
+    {
+        using var ws = new TempWorkspace();
+        string path = TestPdfBuilder.WritePdf(ws.Path("hdr.pdf"), Pages(10, "anchorage"), bookmarks:
+        [
+            new TestPdfBuilder.Bookmark("Bond", 0),
+            new TestPdfBuilder.Bookmark("Laps", 5),
+        ]);
+        using var doc = PdfDocument.Load(path);
+
+        var chunks = PdfRagChunker.Chunk(doc, new RagChunkOptions { TargetTokens = 90 }).Chunks;
+
+        Assert.Equal(chunks.Select((_, i) => $"hdr#c{i:D4}"), chunks.Select(c => c.Id));
+        Assert.All(chunks, c => Assert.Equal(c.Text.Length / 4, c.TokenEstimate));
+        Assert.All(chunks, c => Assert.StartsWith($"hdr — {c.SectionTitle}\n\n", c.Text));
+
+        var noHeading = PdfRagChunker.Chunk(
+            doc, new RagChunkOptions { TargetTokens = 90, IncludeSectionHeading = false }).Chunks;
+        Assert.All(noHeading, c => Assert.DoesNotContain("—", c.Text[..Math.Min(40, c.Text.Length)]));
+    }
+
+    [Fact]
     public void Chunk_reports_pages_with_no_text_layer()
     {
         using var ws = new TempWorkspace();
@@ -112,10 +134,12 @@ public sealed class PdfRagChunkerTests
         Assert.Equal(chunks.Count, lines.Length);
         using JsonDocument first = JsonDocument.Parse(lines[0]);
         JsonElement root = first.RootElement;
+        Assert.True(root.TryGetProperty("id", out _));
         Assert.True(root.TryGetProperty("text", out _));
         Assert.True(root.TryGetProperty("source_path", out _));
         Assert.True(root.TryGetProperty("page_start", out _));
         Assert.True(root.TryGetProperty("section_title", out _));
+        Assert.True(root.TryGetProperty("token_estimate", out _));
         Assert.Equal(0, root.GetProperty("chunk_index").GetInt32());
     }
 }

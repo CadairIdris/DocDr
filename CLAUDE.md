@@ -201,9 +201,13 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   hard-sliced), then packed: emit before a unit would push the buffer past `MaxChars`, then
   seed the next buffer with a word-snapped char tail of `OverlapChars`. **Every chunk ends up
   ≤ MaxChars** — the earlier paragraph-level carry could stack to ~2×, this can't.
-- `RagChunk` serialises snake_case (`source_path`, `page_start`, …) via
-  `JsonNamingPolicy.SnakeCaseLower` + `UnsafeRelaxedJsonEscaping`. `WriteJsonl(chunks, path)`
-  is UTF-8 no-BOM, one object per line.
+- `RagChunk` = `id` (`{filename stem}#c{index:D4}`, stable across re-exports) / `text` /
+  `source_path` / `doc_title` / `page_start` / `page_end` / `section_title` / `chunk_index` /
+  `token_estimate` (`text.Length / 4`). Serialised snake_case via `JsonNamingPolicy.SnakeCaseLower`
+  + `UnsafeRelaxedJsonEscaping`; `WriteJsonl(chunks, path)` is UTF-8 no-BOM, one object per line.
+- `RagChunkOptions.IncludeSectionHeading` (default true) prefixes `text` with
+  "`{doc title} — {section}\n\n`" (contextual-retrieval-lite). The windower reserves 160 chars
+  for it (`maxChars = MaxChars − 160`) so the finished text still lands ≤ `MaxChars`.
 - App: `DocumentTabViewModel.ExportRagChunksCommand` (async — `Task.Run(Chunk + WriteJsonl)`),
   toolbar "Export chunks…". Batch/folder mode and catalog persistence are not built yet.
 

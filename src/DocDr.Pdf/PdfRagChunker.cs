@@ -7,16 +7,19 @@ namespace DocDr.Pdf;
 
 /// <summary>
 /// One retrieval-sized passage of a document, ready to embed for RAG. Serialised with snake_case
-/// keys (<c>source_path</c>, <c>page_start</c>, …).
+/// keys (<c>source_path</c>, <c>page_start</c>, …). <see cref="Id"/> is stable across re-exports;
+/// <see cref="TokenEstimate"/> is <c>Text.Length / 4</c>.
 /// </summary>
 public sealed record RagChunk(
+    string Id,
     string Text,
     string SourcePath,
     string DocTitle,
     int PageStart,
     int PageEnd,
     string SectionTitle,
-    int ChunkIndex);
+    int ChunkIndex,
+    int TokenEstimate);
 
 /// <summary>Result of a chunk run: the chunks plus what could not be processed.</summary>
 public sealed record RagChunkResult(
@@ -35,6 +38,10 @@ public sealed record RagChunkOptions
 
     /// <summary>A chunk below this many tokens is only emitted when it is the tail of a section. Default 48.</summary>
     public int MinChunkTokens { get; init; } = 48;
+
+    /// <summary>Prefix each chunk's <c>text</c> with "<c>{doc title} — {section}</c>" so the embedding
+    /// carries where the passage sits (contextual-retrieval-lite). Default true.</summary>
+    public bool IncludeSectionHeading { get; init; } = true;
 
     internal int MaxChars => Math.Clamp(TargetTokens, 48, 4000) * 4;
 
@@ -381,11 +388,16 @@ public static partial class PdfRagChunker
     private static IReadOnlyList<RagChunk> BuildChunks(
         List<Paragraph> paragraphs, RagChunkOptions opt, string sourcePath, string docTitle)
     {
-        int maxChars = opt.MaxChars;
         int overlapChars = opt.OverlapChars;
+        // Leave room for the "{title} — {section}" prefix so the finished text still lands ≤ MaxChars.
+        int headingReserve = opt.IncludeSectionHeading ? 160 : 0;
+        int maxChars = Math.Max(200, opt.MaxChars - headingReserve);
         // Fill only to (max − overlap) so a chunk plus the tail carried into the next stays ≤ max.
         int budget = Math.Max(200, maxChars - overlapChars);
         int minChars = Math.Min(opt.MinChars, budget);
+        string idStem = sourcePath is { Length: > 0 }
+            ? Path.GetFileNameWithoutExtension(sourcePath)
+            : "chunk";
 
         // 1. Flatten paragraphs to units that are each no longer than the budget.
         var units = new List<Paragraph>();
@@ -427,13 +439,20 @@ public static partial class PdfRagChunker
 
         void Emit(bool force)
         {
-            string text = Normalise(buf.ToString());
-            if (realUnits == 0 || text.Length == 0 || (!force && text.Length < minChars))
+            string body = Normalise(buf.ToString());
+            if (realUnits == 0 || body.Length == 0 || (!force && body.Length < minChars))
             {
                 return;
             }
 
-            chunks.Add(new RagChunk(text, sourcePath, docTitle, firstPage, lastPage, section, index++));
+            string text = opt.IncludeSectionHeading && !string.IsNullOrEmpty(section)
+                ? $"{docTitle} — {section}\n\n{body}"
+                : body;
+
+            chunks.Add(new RagChunk(
+                $"{idStem}#c{index:D4}", text, sourcePath, docTitle,
+                firstPage, lastPage, section, index, text.Length / 4));
+            index++;
 
             buf.Clear();
             realUnits = 0;

@@ -324,7 +324,9 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
                 return r;
             });
 
-            string summary = $"{result.Chunks.Count} chunks from {result.SectionCount} section(s) written to\n{Path.GetFileName(path)}.";
+            long tokens = result.Chunks.Sum(c => (long)c.TokenEstimate);
+            string summary =
+                $"{result.Chunks.Count} chunks (~{tokens:N0} tokens) from {result.SectionCount} section(s) written to\n{Path.GetFileName(path)}.";
             if (result.PagesWithoutText.Count > 0)
             {
                 summary += $"\n\n{result.PagesWithoutText.Count} page(s) had no extractable text and were skipped — OCR is not available yet.";
