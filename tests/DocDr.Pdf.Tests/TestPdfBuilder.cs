@@ -33,16 +33,17 @@ internal static class TestPdfBuilder
         IReadOnlyList<Bookmark>? bookmarks = null,
         string? watermark = null,
         int watermarkOnFirstNPages = int.MaxValue,
-        IReadOnlyList<Link>? links = null)
+        IReadOnlyList<Link>? links = null,
+        double cropInset = 0)
     {
-        byte[] bytes = Build(pageLines, info, bookmarks ?? [], watermark, watermarkOnFirstNPages, links ?? []);
+        byte[] bytes = Build(pageLines, info, bookmarks ?? [], watermark, watermarkOnFirstNPages, links ?? [], cropInset);
         File.WriteAllBytes(path, bytes);
         return path;
     }
 
     private static byte[] Build(
         IReadOnlyList<string> pageLines, PdfInfo? info, IReadOnlyList<Bookmark> bookmarks,
-        string? watermark, int watermarkOnFirstNPages, IReadOnlyList<Link> links)
+        string? watermark, int watermarkOnFirstNPages, IReadOnlyList<Link> links, double cropInset)
     {
         int pageCount = pageLines.Count;
         var buffer = new MemoryStream();
@@ -103,7 +104,10 @@ internal static class TestPdfBuilder
             string annots = annotsByPage.TryGetValue(i, out List<int>? pageAnnots)
                 ? $" /Annots [ {string.Join(" ", pageAnnots.Select(a => $"{a} 0 R"))} ]"
                 : string.Empty;
-            Write($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {F(PageWidth)} {F(PageHeight)}] " +
+            string cropBox = cropInset > 0
+                ? $" /CropBox [{F(cropInset)} {F(cropInset)} {F(PageWidth - cropInset)} {F(PageHeight - cropInset)}]"
+                : string.Empty;
+            Write($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {F(PageWidth)} {F(PageHeight)}]{cropBox} " +
                   $"/Resources << /Font << /F1 3 0 R >> >> /Contents {5 + (2 * i)} 0 R{annots} >>\nendobj\n");
 
             string stream = $"BT /F1 24 Tf 72 {F(PageHeight - 96)} Td ({Escape(pageLines[i])}) Tj ET\n";

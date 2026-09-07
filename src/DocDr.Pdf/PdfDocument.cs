@@ -46,6 +46,7 @@ public sealed class PdfDocument : IDisposable
 
     private int _nextSourceId = OriginalSourceId + 1;
     private IReadOnlyList<PdfSize>? _pageSizes;
+    private IReadOnlyList<PdfPoint>? _cropOrigins;
     private bool _disposed;
 
     private PdfDocumentInfo _info = PdfDocumentInfo.Empty;
@@ -234,6 +235,73 @@ public sealed class PdfDocument : IDisposable
     {
         ValidatePageIndex(pageIndex);
         return GetPageSizes()[pageIndex];
+    }
+
+    /// <summary>
+    /// The CropBox lower-left, expressed in the MediaBox coordinate system, for every page.
+    /// <para>
+    /// PDFium's text and annotation APIs report page-space coordinates with the origin at the
+    /// <b>MediaBox</b> lower-left, but a page renders (and <see cref="GetPageSize"/> reports)
+    /// from its <b>CropBox</b>. When the two differ, geometry from those APIs must be shifted by
+    /// this offset to line up with the rendered image — subtract it to place text / annotation
+    /// rects on the page, add it back before writing an annotation.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<PdfPoint> GetCropOrigins()
+    {
+        if (_cropOrigins is not null)
+        {
+            return _cropOrigins;
+        }
+
+        return _cropOrigins = Locked(() =>
+        {
+            var origins = new PdfPoint[PageCount];
+            for (int i = 0; i < PageCount; i++)
+            {
+                origins[i] = ReadCropOrigin(Handle, i);
+            }
+
+            return (IReadOnlyList<PdfPoint>)origins;
+        });
+    }
+
+    public PdfPoint GetCropOrigin(int pageIndex)
+    {
+        ValidatePageIndex(pageIndex);
+        return GetCropOrigins()[pageIndex];
+    }
+
+    private static PdfPoint ReadCropOrigin(FpdfDocumentT handle, int pageIndex)
+    {
+        FpdfPageT? page = fpdfview.FPDF_LoadPage(handle, pageIndex);
+        if (page is null || page.__Instance == IntPtr.Zero)
+        {
+            return default;
+        }
+
+        try
+        {
+            float mL = 0, mB = 0, mR = 0, mT = 0, cL = 0, cB = 0, cR = 0, cT = 0;
+            bool hasMedia = fpdf_transformpage.FPDFPageGetMediaBox(page, ref mL, ref mB, ref mR, ref mT) != 0;
+            bool hasCrop = fpdf_transformpage.FPDFPageGetCropBox(page, ref cL, ref cB, ref cR, ref cT) != 0;
+            if (!hasCrop)
+            {
+                return default;
+            }
+
+            double mediaLeft = hasMedia ? mL : 0;
+            double mediaBottom = hasMedia ? mB : 0;
+
+            // PDFium renders the CropBox clamped to the MediaBox.
+            double x = Math.Max(cL, mediaLeft) - mediaLeft;
+            double y = Math.Max(cB, mediaBottom) - mediaBottom;
+            return new PdfPoint(x, y);
+        }
+        finally
+        {
+            fpdfview.FPDF_ClosePage(page);
+        }
     }
 
     /// <summary>Current clockwise rotation of a page.</summary>
@@ -547,6 +615,7 @@ public sealed class PdfDocument : IDisposable
         }
 
         _pageSizes = null;
+        _cropOrigins = null;
         SetDirty(true);
         Changed?.Invoke(this, EventArgs.Empty);
     }
@@ -697,6 +766,7 @@ public sealed class PdfDocument : IDisposable
     private void AfterEdit()
     {
         _pageSizes = null;
+        _cropOrigins = null;
         SetDirty(true);
         Changed?.Invoke(this, EventArgs.Empty);
     }
@@ -712,6 +782,7 @@ public sealed class PdfDocument : IDisposable
         if (result == HistoryResult.Pages)
         {
             _pageSizes = null;
+            _cropOrigins = null;
             Changed?.Invoke(this, EventArgs.Empty);
         }
 

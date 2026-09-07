@@ -680,10 +680,10 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 continue;
             }
 
-            double scale = slot.SizePoints.Width > 0
-                ? slot.LayoutWidth / slot.SizePoints.Width
-                : PdfCoordinates.PointToDip * Zoom;
-            double pageHeightPoints = slot.SizePoints.Height;
+            double scale = SlotScale(slot);
+            PdfSize unrotated = _document.GetUnrotatedPageSize(slot.PageIndex);
+            PdfRotation rotation = _document.GetPageRotation(slot.PageIndex);
+            PdfPoint crop = _document.GetCropOrigin(slot.PageIndex);
             var rects = new List<HighlightRect>();
 
             foreach ((SearchHit hit, int hitIndex) in pageHits)
@@ -691,7 +691,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 bool active = hitIndex == _activeHit;
                 foreach (PdfRect rect in hit.Rects)
                 {
-                    DeviceRect d = PdfCoordinates.PageToDevice(rect, pageHeightPoints, scale);
+                    DeviceRect d = PdfCoordinates.PageToDevice(rect, unrotated, rotation, scale, crop);
                     rects.Add(new HighlightRect(new Rect(d.X, d.Y, d.Width, d.Height), active));
                 }
             }
@@ -744,12 +744,14 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     /// <summary>The fixed highlight palette, for the selection popup.</summary>
     public IReadOnlyList<string> HighlightColorKeys => AnnotationColors.Keys;
 
-    /// <summary>Map a point within a page slot (DIP, top-left origin) to unrotated page space.</summary>
+    /// <summary>Map a point within a page slot (DIP, top-left origin) to unrotated page space
+    /// (MediaBox origin — the space char boxes, quads and ink points live in).</summary>
     public PdfPoint DevicePointToPage(int pageIndex, double deviceX, double deviceY)
     {
         PageSlotViewModel slot = Pages[pageIndex];
         return PdfCoordinates.DeviceToPage(deviceX, deviceY,
-            _document.GetUnrotatedPageSize(pageIndex), _document.GetPageRotation(pageIndex), SlotScale(slot));
+            _document.GetUnrotatedPageSize(pageIndex), _document.GetPageRotation(pageIndex),
+            SlotScale(slot), _document.GetCropOrigin(pageIndex));
     }
 
     partial void OnSelectedAnnotationIdChanged(System.Guid? value) => BuildAnnotationOverlays();
@@ -848,6 +850,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             double scale = SlotScale(slot);
             PdfSize unrotated = _document.GetUnrotatedPageSize(slot.PageIndex);
             PdfRotation rotation = _document.GetPageRotation(slot.PageIndex);
+            PdfPoint crop = _document.GetCropOrigin(slot.PageIndex);
 
             var visuals = new List<AnnotationVisual>(annotations.Count);
             foreach (PdfAnnotation annotation in annotations)
@@ -857,7 +860,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 {
                     foreach (PdfRect quad in annotation.Quads)
                     {
-                        DeviceRect d = PdfCoordinates.PageToDevice(quad, unrotated, rotation, scale);
+                        DeviceRect d = PdfCoordinates.PageToDevice(quad, unrotated, rotation, scale, crop);
                         rects.Add(new Rect(d.X, d.Y, d.Width, d.Height));
                     }
                 }
@@ -870,7 +873,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                         var pts = new PointCollection(stroke.Count);
                         foreach (PdfPoint p in stroke)
                         {
-                            (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale);
+                            (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale, crop);
                             pts.Add(new Point(x, y));
                         }
 
@@ -878,7 +881,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     }
                 }
 
-                DeviceRect bounds = PdfCoordinates.PageToDevice(annotation.Bounds, unrotated, rotation, scale);
+                DeviceRect bounds = PdfCoordinates.PageToDevice(annotation.Bounds, unrotated, rotation, scale, crop);
                 var marker = new Rect(Math.Max(0, bounds.X + bounds.Width - 8), Math.Max(0, bounds.Y - 6), 17, 17);
 
                 visuals.Add(new AnnotationVisual(annotation.Id, annotation.Kind, rects, marker,
@@ -939,11 +942,12 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             double scale = SlotScale(slot);
             PdfSize unrotated = _document.GetUnrotatedPageSize(slot.PageIndex);
             PdfRotation rotation = _document.GetPageRotation(slot.PageIndex);
+            PdfPoint crop = _document.GetCropOrigin(slot.PageIndex);
 
             var visuals = new List<LinkVisual>(links.Count);
             foreach (PdfLink link in links)
             {
-                DeviceRect d = PdfCoordinates.PageToDevice(link.Rect, unrotated, rotation, scale);
+                DeviceRect d = PdfCoordinates.PageToDevice(link.Rect, unrotated, rotation, scale, crop);
                 visuals.Add(new LinkVisual(new Rect(d.X, d.Y, d.Width, d.Height), link.TargetPageIndex, link.Uri));
             }
 
@@ -1029,10 +1033,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         double scale = SlotScale(Pages[_selectionPage]);
         PdfSize unrotated = _document.GetUnrotatedPageSize(_selectionPage);
         PdfRotation rotation = _document.GetPageRotation(_selectionPage);
+        PdfPoint crop = _document.GetCropOrigin(_selectionPage);
         double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
         foreach (PdfRect quad in quads)
         {
-            DeviceRect d = PdfCoordinates.PageToDevice(quad, unrotated, rotation, scale);
+            DeviceRect d = PdfCoordinates.PageToDevice(quad, unrotated, rotation, scale, crop);
             minX = Math.Min(minX, d.X);
             minY = Math.Min(minY, d.Y);
             maxX = Math.Max(maxX, d.X + d.Width);
@@ -1116,11 +1121,12 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         double scale = SlotScale(slot);
         PdfSize unrotated = _document.GetUnrotatedPageSize(_inkPage);
         PdfRotation rotation = _document.GetPageRotation(_inkPage);
+        PdfPoint crop = _document.GetCropOrigin(_inkPage);
 
         var pts = new System.Windows.Media.PointCollection(_inkStroke.Count);
         foreach (PdfPoint p in _inkStroke)
         {
-            (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale);
+            (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale, crop);
             pts.Add(new Point(x, y));
         }
 
@@ -1153,11 +1159,12 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         double scale = SlotScale(slot);
         PdfSize unrotated = _document.GetUnrotatedPageSize(_selectionPage);
         PdfRotation rotation = _document.GetPageRotation(_selectionPage);
+        PdfPoint crop = _document.GetCropOrigin(_selectionPage);
 
         var rects = new List<Rect>();
         foreach (PdfRect quad in BuildLineQuads(_selectionPage, lo, hi))
         {
-            DeviceRect d = PdfCoordinates.PageToDevice(quad, unrotated, rotation, scale);
+            DeviceRect d = PdfCoordinates.PageToDevice(quad, unrotated, rotation, scale, crop);
             rects.Add(new Rect(d.X, d.Y, d.Width, d.Height));
         }
 

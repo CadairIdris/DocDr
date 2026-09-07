@@ -79,10 +79,17 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 - `AnnotationsChanged` is the light event (overlay rebuild only); `Changed` is the heavy one
   (full pane/thumbnail reload). Undo/redo raises `Changed` only when pages/rotations actually
   moved, `AnnotationsChanged` always.
-- `PdfCoordinates.PageToDevice(rect, unrotatedSize, rotation, scale)` / `DeviceToPage(...)` are
-  the rotation-aware maps used by the overlay and mouse hit-testing (also fixes search
+- `PdfCoordinates.PageToDevice(rect, unrotatedSize, rotation, scale, cropOrigin)` / `DeviceToPage(...)`
+  are the rotation-aware maps used by the overlay and mouse hit-testing (also fixes search
   highlights on rotated pages). `PdfDocument.GetUnrotatedPageSize` swaps W/H for 90/270 —
   `FPDF_GetPageSizeByIndex` in this build returns the *rotated* size.
+- **CropBox ≠ MediaBox:** PDFium renders (and reports page size for) the *CropBox*, but the text
+  and annotation APIs (`FPDFText_GetCharBox`/`GetRect`, `FPDFAnnotGetRect`, `FPDFLinkGetDest` rects,
+  ink points) return coords in *MediaBox* space. DocDr's model stays MediaBox-relative; the App's
+  device↔page transforms take a `cropOrigin` (`PdfDocument.GetCropOrigin(i)` = CropBox lower-left
+  minus MediaBox lower-left, clamped ≥ 0) and subtract it going page→device / add it going back.
+  Every `PageToDevice*` / `DeviceToPage` call site in `PdfPaneViewModel` passes it.
+  `_cropOrigins` is cached alongside `_pageSizes` and cleared with it.
 
 ## Read mode (Stage 1)
 

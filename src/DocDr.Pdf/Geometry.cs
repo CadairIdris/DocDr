@@ -57,19 +57,21 @@ public static class PdfCoordinates
     /// coordinates) to a top-left-origin device rectangle on the page as it is displayed with
     /// <paramref name="rotation"/> applied.
     /// </summary>
-    /// <param name="rect">Rectangle in unrotated PDFium page space.</param>
-    /// <param name="unrotatedPageSize">Page size before rotation, in points.</param>
+    /// <param name="rect">Rectangle in unrotated PDFium page space (MediaBox origin).</param>
+    /// <param name="unrotatedPageSize">CropBox size before rotation, in points.</param>
     /// <param name="rotation">The page's clockwise display rotation.</param>
     /// <param name="scale">Points → target unit (e.g. <see cref="PointToDip"/> * zoom).</param>
-    public static DeviceRect PageToDevice(PdfRect rect, PdfSize unrotatedPageSize, PdfRotation rotation, double scale)
+    /// <param name="cropOrigin">CropBox lower-left in MediaBox space (see
+    /// <see cref="PdfDocument.GetCropOrigins"/>); subtracted so the rect lands on the rendered page.</param>
+    public static DeviceRect PageToDevice(PdfRect rect, PdfSize unrotatedPageSize, PdfRotation rotation, double scale, PdfPoint cropOrigin = default)
     {
         double w = unrotatedPageSize.Width * scale;
         double h = unrotatedPageSize.Height * scale;
 
-        double left = Math.Min(rect.Left, rect.Right);
-        double right = Math.Max(rect.Left, rect.Right);
-        double bottom = Math.Min(rect.Top, rect.Bottom);
-        double top = Math.Max(rect.Top, rect.Bottom);
+        double left = Math.Min(rect.Left, rect.Right) - cropOrigin.X;
+        double right = Math.Max(rect.Left, rect.Right) - cropOrigin.X;
+        double bottom = Math.Min(rect.Top, rect.Bottom) - cropOrigin.Y;
+        double top = Math.Max(rect.Top, rect.Bottom) - cropOrigin.Y;
 
         ReadOnlySpan<(double X, double Y)> corners =
         [
@@ -106,13 +108,13 @@ public static class PdfCoordinates
     /// <see cref="PageToDevice(PdfRect,PdfSize,PdfRotation,double)"/>.
     /// </summary>
     public static (double X, double Y) PageToDevicePoint(
-        PdfPoint point, PdfSize unrotatedPageSize, PdfRotation rotation, double scale)
+        PdfPoint point, PdfSize unrotatedPageSize, PdfRotation rotation, double scale, PdfPoint cropOrigin = default)
     {
         double w = unrotatedPageSize.Width * scale;
         double h = unrotatedPageSize.Height * scale;
 
-        double dx = point.X * scale;
-        double dy = h - (point.Y * scale);
+        double dx = (point.X - cropOrigin.X) * scale;
+        double dy = h - ((point.Y - cropOrigin.Y) * scale);
 
         return rotation switch
         {
@@ -130,7 +132,7 @@ public static class PdfCoordinates
     /// </summary>
     /// <param name="deviceX">X in DIP within the displayed page (0 = left edge).</param>
     /// <param name="deviceY">Y in DIP within the displayed page (0 = top edge).</param>
-    public static PdfPoint DeviceToPage(double deviceX, double deviceY, PdfSize unrotatedPageSize, PdfRotation rotation, double scale)
+    public static PdfPoint DeviceToPage(double deviceX, double deviceY, PdfSize unrotatedPageSize, PdfRotation rotation, double scale, PdfPoint cropOrigin = default)
     {
         double w = unrotatedPageSize.Width * scale;
         double h = unrotatedPageSize.Height * scale;
@@ -143,6 +145,6 @@ public static class PdfCoordinates
             _ => (deviceX, deviceY),
         };
 
-        return new PdfPoint(dx / scale, unrotatedPageSize.Height - (dy / scale));
+        return new PdfPoint((dx / scale) + cropOrigin.X, unrotatedPageSize.Height - (dy / scale) + cropOrigin.Y);
     }
 }
