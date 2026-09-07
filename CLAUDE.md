@@ -116,6 +116,10 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   `MoveLeaderTip`), not committed, until the drop's one `UpdateAnnotation`. Double-click a box to
   edit, `Esc` cancels. `AnnotationVisual.ResizeHandles` (squares) + `LeaderTipHandle` (a circle)
   are drawn non-interactive for the selected shape.
+- **Click vs drag:** `PdfPaneView` records `_pointerDown` on mouse-down; the text-selection
+  branch only commits (`EndTextSelection` + open `SelectionPopup`) if `PointerDragged` — moved ≥
+  `SystemParameters.Minimum{H,V}DragDistance`. A plain click on the page clears any pending run
+  and deselects the current annotation (no popup). There is no separate "select vs pan" mode.
 - `AnnotationsChanged` is the light event (overlay rebuild only); `Changed` is the heavy one
   (full pane/thumbnail reload). Undo/redo raises `Changed` only when pages/rotations actually
   moved, `AnnotationsChanged` always.

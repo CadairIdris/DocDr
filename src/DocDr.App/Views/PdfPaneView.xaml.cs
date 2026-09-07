@@ -22,6 +22,7 @@ public partial class PdfPaneView : UserControl
     private bool _resizing;
     private bool _leaderTipMoving;
     private PdfPoint _moveAnchor;
+    private Point _pointerDown;
     private FrameworkElement? _selectionSlot;
     private int _selectionPageIndex = -1;
     private int _wheelAccumulator;
@@ -387,6 +388,8 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        _pointerDown = e.GetPosition(this);
+
         // Let the note markers / popup handle their own clicks.
         if (e.OriginalSource is DependencyObject src && FindAncestor<ButtonBase>(src) is not null)
         {
@@ -504,6 +507,14 @@ public partial class PdfPaneView : UserControl
         e.Handled = true;
     }
 
+    /// <summary>The pointer moved far enough since mouse-down to count as a drag, not a click.</summary>
+    private bool PointerDragged(MouseEventArgs e)
+    {
+        Point now = e.GetPosition(this);
+        return Math.Abs(now.X - _pointerDown.X) >= SystemParameters.MinimumHorizontalDragDistance
+            || Math.Abs(now.Y - _pointerDown.Y) >= SystemParameters.MinimumVerticalDragDistance;
+    }
+
     private void PageList_MouseMove(object sender, MouseEventArgs e)
     {
         if (_pane is null || _selectionSlot is null || e.LeftButton != MouseButtonState.Pressed)
@@ -600,6 +611,15 @@ public partial class PdfPaneView : UserControl
 
         _selecting = false;
         PageList.ReleaseMouseCapture();
+
+        // A click (no meaningful drag) selects nothing — clear the pending run, deselect any
+        // annotation, and don't raise the selection popup. Only a drag selects text.
+        if (!PointerDragged(e))
+        {
+            _pane.ClearTextSelection();
+            _pane.SelectedAnnotationId = null;
+            return;
+        }
 
         if (_pane.EndTextSelection())
         {
