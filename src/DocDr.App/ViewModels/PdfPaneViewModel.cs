@@ -913,6 +913,10 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     DeviceRect d = PdfCoordinates.PageToDevice(annotation.Box, unrotated, rotation, scale, crop);
                     box = new Rect(d.X, d.Y, d.Width, d.Height);
 
+                    // Float the trash button above the box's top-right, clear of the corner
+                    // resize handle and (usually) the leader / its tip handle.
+                    marker = new Rect(Math.Max(0, box.Right - 6), Math.Max(0, box.Top - 26), 18, 18);
+
                     foreach (PdfPoint p in annotation.Leader)
                     {
                         (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale, crop);
@@ -944,6 +948,14 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                         {
                             const double ts = 11;
                             leaderTipHandle = new Rect(leader[0].X - (ts / 2), leader[0].Y - (ts / 2), ts, ts);
+
+                            // Keep the trash button clear of the leader: put it on the side of the
+                            // box the leader does NOT come out of (attach point is leader[1]).
+                            bool leaderOnTopOrRight = leader.Count >= 2
+                                && (leader[1].X >= box.Right - 1 || leader[1].Y <= box.Top + 1);
+                            marker = leaderOnTopOrRight
+                                ? new Rect(Math.Max(0, box.Left - 12), Math.Max(0, box.Top - 26), 18, 18)
+                                : new Rect(Math.Max(0, box.Right - 6), Math.Max(0, box.Top - 26), 18, 18);
                         }
                     }
                 }
