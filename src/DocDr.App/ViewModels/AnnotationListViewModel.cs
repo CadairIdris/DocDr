@@ -17,15 +17,26 @@ public sealed class AnnotationRowViewModel(int pageIndex, PdfAnnotation annotati
 
     public string PageLabel => $"p. {PageIndex + 1}";
 
-    public string Kind => annotation.Kind == PdfAnnotationKind.Highlight ? "Highlight" : "Comment";
+    /// <summary>A friendly kind label, always shown.</summary>
+    public string Kind => annotation.Kind switch
+    {
+        PdfAnnotationKind.Highlight => "Highlight",
+        PdfAnnotationKind.Comment => "Comment",
+        PdfAnnotationKind.Ink => "Freehand drawing",
+        PdfAnnotationKind.Cloud => "Revision cloud",
+        PdfAnnotationKind.TextBox => "Text box",
+        PdfAnnotationKind.Callout => "Callout",
+        _ => "Annotation",
+    };
 
     public Brush Swatch { get; } = new SolidColorBrush(AnnotationColors.ToColor(annotation.ColorArgb));
 
-    public bool IsComment => annotation.Kind == PdfAnnotationKind.Comment;
-
+    /// <summary>The annotation's text (comment / note / box text), collapsed to one line; empty if none.</summary>
     public string Text => string.IsNullOrWhiteSpace(annotation.Contents)
-        ? (annotation.Kind == PdfAnnotationKind.Highlight ? "(highlight)" : "(empty note)")
+        ? string.Empty
         : annotation.Contents.ReplaceLineEndings(" ").Trim();
+
+    public bool HasText => Text.Length > 0;
 
     /// <summary>"author · date" for the annotation, or just one of them, or empty.</summary>
     public string Attribution
