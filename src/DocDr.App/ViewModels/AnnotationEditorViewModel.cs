@@ -52,7 +52,8 @@ public sealed partial class AnnotationEditorViewModel : ObservableObject
         Kind = kind;
         _contents = contents ?? string.Empty;
         _selectedColorKey = colorKey ?? AnnotationColors.Default;
-        _fontSize = fontSize > 0 ? fontSize : PdfAnnotation.DefaultFontSize;
+        _fontSizeText = ((int)Math.Round(fontSize > 0 ? fontSize : PdfAnnotation.DefaultFontSize))
+            .ToString(System.Globalization.CultureInfo.InvariantCulture);
         CanDelete = canDelete;
         Author = string.IsNullOrWhiteSpace(author) ? "—" : author;
         Created = Format(created);
@@ -88,6 +89,9 @@ public sealed partial class AnnotationEditorViewModel : ObservableObject
     /// <summary>Show the colour swatches for highlights and the text-shape kinds.</summary>
     public bool ShowColors => IsHighlight || IsShape;
 
+    /// <summary>Only comments and noted highlights carry a conversation — a text box / callout does not.</summary>
+    public bool AllowReplies => Kind is PdfAnnotationKind.Comment or PdfAnnotationKind.Highlight;
+
     public bool CanDelete { get; }
 
     public string Title => Kind switch
@@ -100,16 +104,22 @@ public sealed partial class AnnotationEditorViewModel : ObservableObject
 
     public IReadOnlyList<string> Colors { get; } = AnnotationColors.Keys;
 
-    public IReadOnlyList<double> FontSizes { get; } = [8, 9, 10, 11, 12, 14, 16, 18, 24];
+    public IReadOnlyList<string> FontSizes { get; } = ["8", "9", "10", "11", "12", "14", "16", "18", "24"];
 
     [ObservableProperty]
-    private double _fontSize;
+    private string _fontSizeText;
+
+    private double FontSize =>
+        double.TryParse(FontSizeText, System.Globalization.NumberStyles.Number,
+            System.Globalization.CultureInfo.InvariantCulture, out double f) && f > 0
+            ? f
+            : PdfAnnotation.DefaultFontSize;
 
     /// <summary>The conversation so far: the opening comment then every reply, oldest first.</summary>
     public ObservableCollection<ThreadMessageViewModel> Thread { get; }
 
-    /// <summary>Whether to show the thread panel — only once at least one reply exists.</summary>
-    public bool HasThread => _replies.Count > 0;
+    /// <summary>Whether to show the thread panel — replies allowed for this kind, and at least one posted.</summary>
+    public bool ShowThread => AllowReplies && _replies.Count > 0;
 
     [ObservableProperty]
     private string _contents;
@@ -134,7 +144,7 @@ public sealed partial class AnnotationEditorViewModel : ObservableObject
 
         _replies.Add(PdfReply.New(text, _replyAuthor));
         NewReply = string.Empty;
-        OnPropertyChanged(nameof(HasThread));
+        OnPropertyChanged(nameof(ShowThread));
         RebuildThread();
     }
 
