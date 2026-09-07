@@ -59,8 +59,10 @@ public sealed partial class PageSlotViewModel : ObservableObject
     [ObservableProperty]
     private System.Windows.Media.PointCollection? _inkPreview;
 
+    /// <summary>A frozen brush (opacity baked in) — bound to <c>Polyline.Stroke</c> directly, since a
+    /// <c>{Binding}</c> on an inline <c>SolidColorBrush.Color</c> has no reliable data context.</summary>
     [ObservableProperty]
-    private Color _inkPreviewBrush = Colors.Yellow;
+    private System.Windows.Media.Brush _inkPreviewBrush = System.Windows.Media.Brushes.Transparent;
 
     [ObservableProperty]
     private double _inkPreviewThickness = 12;

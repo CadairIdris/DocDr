@@ -191,10 +191,63 @@ public partial class PdfPaneView : UserControl
 
     private int TopVisiblePageIndex()
     {
+        if (_pane!.Mode is ViewMode.SinglePage or ViewMode.Continuous && VisiblePageRange() is { } r)
+        {
+            return r.First;
+        }
+
         double offset = _scrollViewer!.VerticalOffset;
-        return _pane!.Mode == ViewMode.Grid
+        return _pane.Mode == ViewMode.Grid
             ? _pane.GetRowAtOffset(offset) * Math.Max(1, _pane.GridColumns)
             : _pane.GetPageAtOffset(offset);
+    }
+
+    /// <summary>
+    /// The span of pages whose realised containers actually intersect the viewport, read straight
+    /// from WPF's layout. The app's own <c>LayoutHeight</c>-sum model (<c>GetPageAtOffset</c>) drifts
+    /// from the virtualising panel's pixel-extent estimate right after a zoom — trusting it there
+    /// realises (and renders) the wrong pages, leaving what's actually on screen blank.
+    /// </summary>
+    private (int First, int Last)? VisiblePageRange()
+    {
+        if (_scrollViewer is null || _pane is null)
+        {
+            return null;
+        }
+
+        double viewport = Math.Max(1, _scrollViewer.ViewportHeight);
+        ItemContainerGenerator generator = PageList.ItemContainerGenerator;
+        int first = int.MaxValue, last = -1;
+
+        foreach (object item in PageList.Items)
+        {
+            if (generator.ContainerFromItem(item) is not FrameworkElement { IsVisible: true } container
+                || container.DataContext is not PageSlotViewModel slot)
+            {
+                continue;
+            }
+
+            double top;
+            try
+            {
+                top = container.TransformToVisual(_scrollViewer).Transform(new Point(0, 0)).Y;
+            }
+            catch (InvalidOperationException)
+            {
+                continue; // not in the same visual tree yet
+            }
+
+            double height = container.ActualHeight > 0 ? container.ActualHeight : slot.LayoutHeight;
+            if (top + height <= 0 || top >= viewport)
+            {
+                continue; // fully above or below the viewport
+            }
+
+            first = Math.Min(first, slot.PageIndex);
+            last = Math.Max(last, slot.PageIndex);
+        }
+
+        return last < 0 ? null : (first, last);
     }
 
     private void RefreshVisibleRange()
@@ -204,29 +257,35 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
-        if (_pane.Mode == ViewMode.SinglePage)
-        {
-            _pane.UpdateVisibleRange(_pane.CurrentPage - 1, _pane.CurrentPage - 1);
-            return;
-        }
-
         if (_pane.Mode == ViewMode.TwoPage)
         {
             _pane.UpdateVisibleRange(_pane.SpreadLeftIndex, _pane.SpreadLeftIndex + 1);
             return;
         }
 
+        if (_pane.Mode is ViewMode.SinglePage or ViewMode.Continuous)
+        {
+            if (VisiblePageRange() is { } r)
+            {
+                _pane.UpdateVisibleRange(r.First, r.Last);
+            }
+            else if (_pane.Mode == ViewMode.SinglePage)
+            {
+                _pane.UpdateVisibleRange(_pane.CurrentPage - 1, _pane.CurrentPage - 1);
+            }
+            else
+            {
+                double t = _scrollViewer.VerticalOffset;
+                _pane.UpdateVisibleRange(
+                    _pane.GetPageAtOffset(t), _pane.GetPageAtOffset(t + Math.Max(1, _scrollViewer.ViewportHeight)));
+            }
+
+            return;
+        }
+
         double top = _scrollViewer.VerticalOffset;
         double bottom = top + Math.Max(1, _scrollViewer.ViewportHeight);
-
-        if (_pane.Mode == ViewMode.Grid)
-        {
-            _pane.UpdateVisibleRows(_pane.GetRowAtOffset(top), _pane.GetRowAtOffset(bottom));
-        }
-        else
-        {
-            _pane.UpdateVisibleRange(_pane.GetPageAtOffset(top), _pane.GetPageAtOffset(bottom));
-        }
+        _pane.UpdateVisibleRows(_pane.GetRowAtOffset(top), _pane.GetRowAtOffset(bottom));
     }
 
     private void OnScrollToPageRequested(int pageIndex)

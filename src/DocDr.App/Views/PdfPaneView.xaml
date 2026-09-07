@@ -376,13 +376,9 @@
 
                 <!-- Highlighter stroke being drawn right now. -->
                 <Canvas IsHitTestVisible="False">
-                    <Polyline Points="{Binding InkPreview}"
+                    <Polyline Points="{Binding InkPreview}" Stroke="{Binding InkPreviewBrush}"
                               StrokeThickness="{Binding InkPreviewThickness}"
-                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round">
-                        <Polyline.Stroke>
-                            <SolidColorBrush Color="{Binding InkPreviewBrush}" Opacity="0.45" />
-                        </Polyline.Stroke>
-                    </Polyline>
+                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
                 </Canvas>
 
                 <!-- Shape being dragged out right now (box, plus a callout's leader + arrow). -->

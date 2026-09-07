@@ -144,11 +144,16 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 - `PdfPaneViewModel.MaxRenderEdge` (4096) caps a page bitmap's long side; WPF upscales it into
   the (larger) layout box, so only very high zoom goes soft. `CappedRenderSize` is used for both
   the enqueue size and the `OnPageRendered` stale check, so they agree.
-- `UpdateVisibleRange` clamps the realised span to `MaxRealizedPages` (16) — a transient bad
-  scroll-offset reading right after a zoom must not mark the whole document visible and queue
-  hundreds of large renders. Visible range still comes from `GetPageAtOffset` (the app's
-  `LayoutHeight`-sum model); it can disagree with WPF's VSP pixel-extent estimate for one layout
-  pass after a zoom, but the clamp bounds the damage and the next `ScrollChanged` reconciles.
+- **Visible-range detection reads WPF's realised containers, not the app's height model.**
+  `PdfPaneView.VisiblePageRange()` walks `PageList.Items` → `ContainerFromItem` → the containers
+  that actually intersect the viewport (`TransformToVisual(scrollViewer)`), and `RefreshVisibleRange`
+  / `TopVisiblePageIndex` use that for SinglePage + Continuous. The app's own `GetPageAtOffset`
+  (a `LayoutHeight`-sum) drifts from the virtualising panel's pixel-extent *estimate* for a
+  layout pass or two right after a zoom — trusting it there realised (and rendered) the wrong
+  pages, leaving what was actually on screen blank. `GetPageAtOffset` is now only a fallback for
+  the frame before any container is realised (and still drives Grid rows).
+- `UpdateVisibleRange` clamps the realised span to `MaxRealizedPages` (16) as a backstop against
+  a bad reading queuing hundreds of large renders.
 
 ## Printing (`PrintService`, Stage 1)
 

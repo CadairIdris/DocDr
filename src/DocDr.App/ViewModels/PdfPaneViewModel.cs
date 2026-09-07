@@ -1290,7 +1290,9 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
 
         slot.InkPreview = pts;
-        slot.InkPreviewBrush = AnnotationColors.ToColor(InkColorKey);
+        var brush = new SolidColorBrush(AnnotationColors.ToColor(InkColorKey)) { Opacity = 0.45 };
+        brush.Freeze();
+        slot.InkPreviewBrush = brush;
         slot.InkPreviewThickness = Math.Max(1, InkStrokeWidthPoints * scale);
     }
 
