@@ -55,6 +55,16 @@ public sealed partial class PageSlotViewModel : ObservableObject
     [ObservableProperty]
     private IReadOnlyList<System.Windows.Rect> _selectionRects = [];
 
+    /// <summary>The highlighter stroke being drawn on this page right now (DIP space), or null.</summary>
+    [ObservableProperty]
+    private System.Windows.Media.PointCollection? _inkPreview;
+
+    [ObservableProperty]
+    private Color _inkPreviewBrush = Colors.Yellow;
+
+    [ObservableProperty]
+    private double _inkPreviewThickness = 12;
+
     /// <summary>True while a container for this slot is realised in the visual tree.</summary>
     public bool IsRealized { get; set; }
 }

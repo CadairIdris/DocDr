@@ -46,6 +46,57 @@ public sealed class PdfAnnotationTests
     }
 
     [Fact]
+    public void Ink_round_trips_through_save_and_reload()
+    {
+        using var ws = new TempWorkspace();
+        byte[] saved;
+        var stroke = new PdfPoint[] { new(60, 700), new(90, 660), new(150, 690), new(220, 640), new(300, 680) };
+
+        using (PdfDocument doc = Make(ws, "ink.pdf", "page one", "page two", "page three"))
+        {
+            doc.AddAnnotation(1, PdfAnnotation.NewInk([stroke], Green, strokeWidth: 12, author: "rob"));
+            Assert.True(doc.IsDirty);
+            Assert.True(doc.CanUndo);
+            saved = doc.SaveToBytes();
+        }
+
+        using PdfDocument reloaded = PdfDocument.Load(saved);
+        Assert.Empty(reloaded.GetAnnotations(0));
+
+        PdfAnnotation a = Assert.Single(reloaded.GetAnnotations(1));
+        Assert.Equal(PdfAnnotationKind.Ink, a.Kind);
+        Assert.Empty(a.Quads);
+        Assert.Equal("rob", a.Author);
+        Assert.InRange(a.StrokeWidth, 11, 13);
+
+        IReadOnlyList<PdfPoint> back = Assert.Single(a.Strokes);
+        Assert.Equal(stroke.Length, back.Count);
+        for (int i = 0; i < stroke.Length; i++)
+        {
+            Assert.Equal(stroke[i].X, back[i].X, 1);
+            Assert.Equal(stroke[i].Y, back[i].Y, 1);
+        }
+
+        string raw = System.Text.Encoding.Latin1.GetString(saved);
+        Assert.Contains("/Ink", raw);
+        Assert.Contains("/InkList", raw);
+    }
+
+    [Fact]
+    public void Undo_removes_an_ink_stroke()
+    {
+        using var ws = new TempWorkspace();
+        using PdfDocument doc = Make(ws, "ink.pdf", "a", "b");
+
+        doc.AddAnnotation(0, PdfAnnotation.NewInk(
+            [new PdfPoint[] { new(10, 10), new(50, 50) }], Yellow, strokeWidth: 10));
+        Assert.Single(doc.GetAnnotations(0));
+
+        doc.Undo();
+        Assert.Empty(doc.GetAnnotations(0));
+    }
+
+    [Fact]
     public void Comment_round_trips_with_its_text_and_author()
     {
         using var ws = new TempWorkspace();

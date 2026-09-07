@@ -712,6 +712,20 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _commentToolActive;
 
+    /// <summary>When on, dragging on a page draws a freehand highlighter stroke. Mirrored to both panes.</summary>
+    [ObservableProperty]
+    private bool _highlighterToolActive;
+
+    /// <summary>Palette key the highlighter pen uses.</summary>
+    [ObservableProperty]
+    private string _inkColorKey = AnnotationColors.Default;
+
+    /// <summary>Highlighter stroke width, in PDF points.</summary>
+    private const double InkStrokeWidthPoints = 12.0;
+
+    private int _inkPage = -1;
+    private List<PdfPoint>? _inkStroke;
+
     /// <summary>Id of the annotation to draw as selected (e.g. picked from the annotations list).</summary>
     [ObservableProperty]
     private System.Guid? _selectedAnnotationId;
@@ -741,8 +755,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     partial void OnSelectedAnnotationIdChanged(System.Guid? value) => BuildAnnotationOverlays();
 
     /// <summary>
-    /// Select the topmost highlight whose band contains <paramref name="pt"/> (unrotated page
-    /// space). Returns true when one was hit; clears the selection and returns false otherwise.
+    /// Select the topmost highlight band or ink stroke under <paramref name="pt"/> (unrotated
+    /// page space). Returns true when one was hit; clears the selection and returns false otherwise.
     /// </summary>
     public bool TrySelectAnnotationAt(int pageIndex, PdfPoint pt)
     {
@@ -750,23 +764,55 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         for (int i = annotations.Count - 1; i >= 0; i--)
         {
             PdfAnnotation a = annotations[i];
-            if (a.Kind != PdfAnnotationKind.Highlight)
-            {
-                continue;
-            }
 
-            foreach (PdfRect q in a.Quads)
+            if (a.Kind == PdfAnnotationKind.Highlight)
             {
-                if (pt.X >= q.Left && pt.X <= q.Right && pt.Y >= q.Bottom && pt.Y <= q.Top)
+                foreach (PdfRect q in a.Quads)
                 {
-                    SelectedAnnotationId = a.Id;
-                    return true;
+                    if (pt.X >= q.Left && pt.X <= q.Right && pt.Y >= q.Bottom && pt.Y <= q.Top)
+                    {
+                        SelectedAnnotationId = a.Id;
+                        return true;
+                    }
                 }
+            }
+            else if (a.Kind == PdfAnnotationKind.Ink && HitsInk(a, pt))
+            {
+                SelectedAnnotationId = a.Id;
+                return true;
             }
         }
 
         SelectedAnnotationId = null;
         return false;
+    }
+
+    private static bool HitsInk(PdfAnnotation ink, PdfPoint pt)
+    {
+        double tolerance = (Math.Max(1, ink.StrokeWidth) / 2) + 3;
+        double toleranceSq = tolerance * tolerance;
+
+        foreach (IReadOnlyList<PdfPoint> stroke in ink.Strokes)
+        {
+            for (int i = 1; i < stroke.Count; i++)
+            {
+                if (DistanceSqToSegment(pt, stroke[i - 1], stroke[i]) <= toleranceSq)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static double DistanceSqToSegment(PdfPoint p, PdfPoint a, PdfPoint b)
+    {
+        double dx = b.X - a.X, dy = b.Y - a.Y;
+        double lenSq = (dx * dx) + (dy * dy);
+        double t = lenSq <= 0 ? 0 : Math.Clamp((((p.X - a.X) * dx) + ((p.Y - a.Y) * dy)) / lenSq, 0, 1);
+        double cx = a.X + (t * dx), cy = a.Y + (t * dy);
+        return ((p.X - cx) * (p.X - cx)) + ((p.Y - cy) * (p.Y - cy));
     }
 
     /// <summary>Project every page's annotations into its slot's DIP space for the overlay.</summary>
@@ -802,12 +848,32 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     }
                 }
 
+                var strokes = new List<PointCollection>();
+                if (annotation.Kind == PdfAnnotationKind.Ink)
+                {
+                    foreach (IReadOnlyList<PdfPoint> stroke in annotation.Strokes)
+                    {
+                        var pts = new PointCollection(stroke.Count);
+                        foreach (PdfPoint p in stroke)
+                        {
+                            (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale);
+                            pts.Add(new Point(x, y));
+                        }
+
+                        strokes.Add(pts);
+                    }
+                }
+
                 DeviceRect bounds = PdfCoordinates.PageToDevice(annotation.Bounds, unrotated, rotation, scale);
                 var marker = new Rect(Math.Max(0, bounds.X + bounds.Width - 8), Math.Max(0, bounds.Y - 6), 17, 17);
 
                 visuals.Add(new AnnotationVisual(annotation.Id, annotation.Kind, rects, marker,
                     AnnotationColors.ToColor(annotation.ColorArgb), annotation.HasNote,
-                    annotation.Id == SelectedAnnotationId));
+                    annotation.Id == SelectedAnnotationId)
+                {
+                    Strokes = strokes,
+                    StrokeThickness = Math.Max(1, annotation.StrokeWidth * scale),
+                });
             }
 
             slot.Annotations = visuals;
@@ -978,6 +1044,86 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
 
         OnPropertyChanged(nameof(HasPendingSelection));
+    }
+
+    // --- Freehand highlighter (driven by PdfPaneView mouse handlers) --------------------
+
+    public void BeginInk(int pageIndex, PdfPoint pagePoint)
+    {
+        _inkPage = pageIndex;
+        _inkStroke = [pagePoint];
+        UpdateInkPreview();
+    }
+
+    public void ExtendInk(PdfPoint pagePoint)
+    {
+        if (_inkStroke is null)
+        {
+            return;
+        }
+
+        PdfPoint last = _inkStroke[^1];
+        double dx = pagePoint.X - last.X, dy = pagePoint.Y - last.Y;
+        if ((dx * dx) + (dy * dy) < 1.5) // ~1.2pt: keep the polyline light
+        {
+            return;
+        }
+
+        _inkStroke.Add(pagePoint);
+        UpdateInkPreview();
+    }
+
+    /// <summary>Finish a highlighter stroke; commits it as an ink annotation when it has length.</summary>
+    public void EndInk()
+    {
+        List<PdfPoint>? stroke = _inkStroke;
+        int page = _inkPage;
+        _inkStroke = null;
+        _inkPage = -1;
+        ClearInkPreview();
+
+        if (stroke is null || page < 0 || stroke.Count < 2)
+        {
+            return; // a stray click with no drag draws nothing
+        }
+
+        _document.AddAnnotation(page, PdfAnnotation.NewInk(
+            [stroke], AnnotationColors.ToArgb(InkColorKey), InkStrokeWidthPoints, Author));
+    }
+
+    private void UpdateInkPreview()
+    {
+        if (_inkStroke is null || _inkPage < 0)
+        {
+            return;
+        }
+
+        PageSlotViewModel slot = Pages[_inkPage];
+        double scale = SlotScale(slot);
+        PdfSize unrotated = _document.GetUnrotatedPageSize(_inkPage);
+        PdfRotation rotation = _document.GetPageRotation(_inkPage);
+
+        var pts = new System.Windows.Media.PointCollection(_inkStroke.Count);
+        foreach (PdfPoint p in _inkStroke)
+        {
+            (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale);
+            pts.Add(new Point(x, y));
+        }
+
+        slot.InkPreview = pts;
+        slot.InkPreviewBrush = AnnotationColors.ToColor(InkColorKey);
+        slot.InkPreviewThickness = Math.Max(1, InkStrokeWidthPoints * scale);
+    }
+
+    private void ClearInkPreview()
+    {
+        foreach (PageSlotViewModel slot in Pages)
+        {
+            if (slot.InkPreview is not null)
+            {
+                slot.InkPreview = null;
+            }
+        }
     }
 
     private void UpdateSelectionRects()

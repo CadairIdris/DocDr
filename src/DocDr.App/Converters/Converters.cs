@@ -85,6 +85,16 @@ public sealed class EnumToVisibilityConverter : IValueConverter
         Binding.DoNothing;
 }
 
+/// <summary>True when the two bound values are equal (by <c>Equals</c>). One-way.</summary>
+public sealed class EqualityConverter : IMultiValueConverter
+{
+    public object Convert(object?[] values, Type targetType, object? parameter, CultureInfo culture) =>
+        values.Length == 2 && Equals(values[0], values[1]);
+
+    public object[] ConvertBack(object? value, Type[] targetTypes, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
 /// <summary>Enum equality test usable as a converter (parameter = enum member name).</summary>
 public sealed class EnumEqualsConverter : IValueConverter
 {

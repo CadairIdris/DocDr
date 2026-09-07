@@ -103,7 +103,38 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     {
         LeftPane.CommentToolActive = value;
         RightPane.CommentToolActive = value;
+        if (value)
+        {
+            HighlighterToolActive = false;
+        }
     }
+
+    /// <summary>When on, dragging on a page draws a freehand highlighter stroke. Mirrored to both panes.</summary>
+    [ObservableProperty]
+    private bool _highlighterToolActive;
+
+    partial void OnHighlighterToolActiveChanged(bool value)
+    {
+        LeftPane.HighlighterToolActive = value;
+        RightPane.HighlighterToolActive = value;
+        if (value)
+        {
+            CommentToolActive = false;
+        }
+    }
+
+    /// <summary>Palette key the highlighter pen uses, mirrored to both panes.</summary>
+    [ObservableProperty]
+    private string _inkColorKey = AnnotationColors.Default;
+
+    partial void OnInkColorKeyChanged(string value)
+    {
+        LeftPane.InkColorKey = value;
+        RightPane.InkColorKey = value;
+    }
+
+    /// <summary>The highlighter palette for the toolbar swatches.</summary>
+    public System.Collections.Generic.IReadOnlyList<string> InkColorKeys => AnnotationColors.Keys;
 
     /// <summary>Whether the Annotations navigation tab is offered (the document has any).</summary>
     public bool HasAnnotations => Document.HasAnnotations;

@@ -8,6 +8,9 @@ public enum PdfAnnotationKind
 
     /// <summary>A sticky-note comment anchored to a point (PDF subtype <c>Text</c>).</summary>
     Comment,
+
+    /// <summary>A freehand highlighter drawing — one or more polylines (PDF subtype <c>Ink</c>).</summary>
+    Ink,
 }
 
 /// <summary>
@@ -25,20 +28,27 @@ public sealed record PdfAnnotation(
     DateTimeOffset? Created,
     DateTimeOffset? Modified)
 {
-    /// <summary>PDF annotation subtype number for <see cref="Kind"/> (matches the PDF spec / PDFium).</summary>
-    public int Subtype => Kind == PdfAnnotationKind.Highlight ? 9 : 1;
+    /// <summary>Freehand ink strokes (each a polyline in unrotated page space). Empty unless <see cref="Kind"/> is Ink.</summary>
+    public IReadOnlyList<IReadOnlyList<PdfPoint>> Strokes { get; init; } = [];
 
-    /// <summary>Smallest rectangle covering every quad.</summary>
+    /// <summary>Ink stroke width in points.</summary>
+    public double StrokeWidth { get; init; }
+
+    /// <summary>PDF annotation subtype number for <see cref="Kind"/> (matches the PDF spec / PDFium).</summary>
+    public int Subtype => Kind switch
+    {
+        PdfAnnotationKind.Highlight => 9,
+        PdfAnnotationKind.Ink => 15,
+        _ => 1,
+    };
+
+    /// <summary>Smallest rectangle covering every quad / stroke point.</summary>
     public PdfRect Bounds
     {
         get
         {
-            if (Quads.Count == 0)
-            {
-                return default;
-            }
-
             double left = double.MaxValue, bottom = double.MaxValue, right = double.MinValue, top = double.MinValue;
+
             foreach (PdfRect q in Quads)
             {
                 left = Math.Min(left, Math.Min(q.Left, q.Right));
@@ -47,7 +57,24 @@ public sealed record PdfAnnotation(
                 top = Math.Max(top, Math.Max(q.Top, q.Bottom));
             }
 
-            return new PdfRect(left, top, right, bottom);
+            foreach (IReadOnlyList<PdfPoint> stroke in Strokes)
+            {
+                foreach (PdfPoint p in stroke)
+                {
+                    left = Math.Min(left, p.X);
+                    right = Math.Max(right, p.X);
+                    bottom = Math.Min(bottom, p.Y);
+                    top = Math.Max(top, p.Y);
+                }
+            }
+
+            if (left > right || bottom > top)
+            {
+                return default;
+            }
+
+            double pad = Kind == PdfAnnotationKind.Ink ? Math.Max(1, StrokeWidth) : 0;
+            return new PdfRect(left - pad, top + pad, right + pad, bottom - pad);
         }
     }
 
@@ -63,6 +90,18 @@ public sealed record PdfAnnotation(
     {
         DateTimeOffset now = DateTimeOffset.Now;
         return new(Guid.NewGuid(), PdfAnnotationKind.Comment, [iconRect], 0xFFFFD54F, text, author, now, now);
+    }
+
+    public static PdfAnnotation NewInk(
+        IReadOnlyList<IReadOnlyList<PdfPoint>> strokes, uint colorArgb, double strokeWidth, string? author = null)
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+        var copied = strokes.Select(s => (IReadOnlyList<PdfPoint>)s.ToArray()).ToArray();
+        return new(Guid.NewGuid(), PdfAnnotationKind.Ink, [], colorArgb, null, author, now, now)
+        {
+            Strokes = copied,
+            StrokeWidth = strokeWidth,
+        };
     }
 }
 

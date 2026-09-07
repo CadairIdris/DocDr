@@ -26,8 +26,11 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 - **Highlight text**: drag to select text on a page, then pick one of five colours from
   the popup. **Comment**: "Comment…" in that popup attaches a note to the highlight, or the
   **💬 Note** toolbar toggle drops a standalone sticky note where you click.
-- Click a note marker to edit or delete; the nav panel's **Annotations** tab lists every
-  annotation (with its author and date) and jumps to it.
+- **Freehand highlighter** (**✏️ Draw**): drag anywhere on the page to draw a marker-pen
+  stroke in the chosen colour; written out as a standard PDF `Ink` annotation.
+- Click a highlight or stroke to select it (accent outline + trash button; `Delete` also
+  works). Click a note marker to edit or delete. The nav panel's **Annotations** tab lists
+  every annotation (with its author and date) and jumps to it.
 - Each annotation records its author and creation / modification dates in standard PDF
   fields, and DocDr reads that data back from files annotated in other apps.
 - Annotations are DocDr's own model during a session (so they survive rotate / delete /

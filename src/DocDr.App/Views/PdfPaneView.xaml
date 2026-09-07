@@ -136,6 +136,36 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:AnnotationVisual}">
                             <Canvas>
+                                <!-- Freehand highlighter strokes. -->
+                                <ItemsControl ItemsSource="{Binding Strokes}" IsHitTestVisible="False">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Polyline Points="{Binding}"
+                                                      Stroke="{Binding DataContext.StrokeBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                      StrokeThickness="{Binding DataContext.StrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round">
+                                                <Polyline.Style>
+                                                    <Style TargetType="Polyline">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Value="True"
+                                                                         Binding="{Binding DataContext.IsSelected, RelativeSource={RelativeSource AncestorType=ItemsControl}}">
+                                                                <Setter Property="Effect">
+                                                                    <Setter.Value>
+                                                                        <DropShadowEffect Color="#8A6FBF" BlurRadius="7" ShadowDepth="0" Opacity="0.95" />
+                                                                    </Setter.Value>
+                                                                </Setter>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Polyline.Style>
+                                            </Polyline>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
                                 <ItemsControl ItemsSource="{Binding Rects}" IsHitTestVisible="False">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
@@ -219,6 +249,17 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+
+                <!-- Highlighter stroke being drawn right now. -->
+                <Canvas IsHitTestVisible="False">
+                    <Polyline Points="{Binding InkPreview}"
+                              StrokeThickness="{Binding InkPreviewThickness}"
+                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round">
+                        <Polyline.Stroke>
+                            <SolidColorBrush Color="{Binding InkPreviewBrush}" Opacity="0.45" />
+                        </Polyline.Stroke>
+                    </Polyline>
+                </Canvas>
             </Grid>
         </DataTemplate>
 

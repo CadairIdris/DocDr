@@ -16,6 +16,7 @@ public partial class PdfPaneView : UserControl
     private bool _programmaticScroll;
 
     private bool _selecting;
+    private bool _inking;
     private FrameworkElement? _selectionSlot;
     private int _selectionPageIndex = -1;
     private int _wheelAccumulator;
@@ -403,6 +404,18 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        if (_pane.HighlighterToolActive)
+        {
+            _inking = true;
+            _selectionSlot = target.Element;
+            _selectionPageIndex = target.Slot.PageIndex;
+            _pane.SelectedAnnotationId = null;
+            _pane.BeginInk(target.Slot.PageIndex, pagePoint);
+            PageList.CaptureMouse();
+            e.Handled = true;
+            return;
+        }
+
         // A click on an existing highlight selects it (and its delete button) instead of
         // starting a new text selection.
         if (_pane.TrySelectAnnotationAt(target.Slot.PageIndex, pagePoint))
@@ -424,18 +437,40 @@ public partial class PdfPaneView : UserControl
 
     private void PageList_MouseMove(object sender, MouseEventArgs e)
     {
-        if (!_selecting || _pane is null || _selectionSlot is null || e.LeftButton != MouseButtonState.Pressed)
+        if (_pane is null || _selectionSlot is null || e.LeftButton != MouseButtonState.Pressed)
         {
             return;
         }
 
         Point local = e.GetPosition(_selectionSlot);
-        _pane.ExtendTextSelection(_pane.DevicePointToPage(_selectionPageIndex, local.X, local.Y));
+        PdfPoint pagePoint = _pane.DevicePointToPage(_selectionPageIndex, local.X, local.Y);
+
+        if (_inking)
+        {
+            _pane.ExtendInk(pagePoint);
+        }
+        else if (_selecting)
+        {
+            _pane.ExtendTextSelection(pagePoint);
+        }
     }
 
     private void PageList_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (!_selecting || _pane is null)
+        if (_pane is null)
+        {
+            return;
+        }
+
+        if (_inking)
+        {
+            _inking = false;
+            PageList.ReleaseMouseCapture();
+            _pane.EndInk();
+            return;
+        }
+
+        if (!_selecting)
         {
             return;
         }

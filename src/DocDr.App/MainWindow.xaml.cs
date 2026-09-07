@@ -66,6 +66,15 @@ public partial class MainWindow : Window
         }
     }
 
+    private void InkColor_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string key } && _viewModel?.SelectedTab is { } tab)
+        {
+            tab.InkColorKey = key;
+            tab.HighlighterToolActive = true;
+        }
+    }
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (_viewModel is not { IsReadMode: true })

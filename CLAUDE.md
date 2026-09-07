@@ -57,9 +57,15 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 
 ## Annotations (`PdfDocument`, Stage 3)
 
-- Highlights + text-note comments live in DocDr's model — `_annotations` (a
-  `List<List<PdfAnnotation>>` index-aligned with `_pages`), snapshotted alongside `_pages` in
-  each `HistoryStep`. Quads are in **unrotated** page space (same as `FPDFText_GetRect`).
+- Highlights, text-note comments and freehand ink (highlighter) live in DocDr's model —
+  `_annotations` (a `List<List<PdfAnnotation>>` index-aligned with `_pages`), snapshotted
+  alongside `_pages` in each `HistoryStep`. Quads / ink stroke points are in **unrotated**
+  page space (same as `FPDFText_GetRect`).
+- Ink = PDF subtype 15. `PdfInkInterop` marshals the `FS_POINTF[]` for
+  `FPDFAnnotAddInkStroke` / `FPDFAnnotGetInkListPath` by hand — PDFiumCore only exposes a
+  single-`FS_POINTF_` wrapper and its pointer factory (`__CreateInstance`) is `internal`, so
+  it's reached once by reflection. `PdfAnnotationWriter` writes ink at ~150/255 alpha;
+  `PdfCoordinates.PageToDevicePoint` is the point-level rotation map for the overlay `Polyline`s.
 - **The live PDFium handle never carries our annotations during a session.** The ctor reads
   existing subtype-1/9 annotations via `PdfAnnotations.ReadLocked` then `StripManaged`s them off
   the original handle (== `_sources[0]`), so `Rebuild()` imports a clean base and the WPF overlay

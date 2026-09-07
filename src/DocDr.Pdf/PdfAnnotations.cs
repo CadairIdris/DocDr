@@ -11,6 +11,7 @@ public static class PdfAnnotations
 {
     internal const int SubtypeText = 1;
     internal const int SubtypeHighlight = 9;
+    internal const int SubtypeInk = 15;
 
     public static IReadOnlyList<PdfAnnotation> Read(PdfDocument document, int pageIndex)
     {
@@ -44,7 +45,7 @@ public static class PdfAnnotations
                 try
                 {
                     int subtype = fpdf_annot.FPDFAnnotGetSubtype(annot);
-                    if (subtype != SubtypeHighlight && subtype != SubtypeText)
+                    if (subtype is not (SubtypeHighlight or SubtypeText or SubtypeInk))
                     {
                         continue;
                     }
@@ -54,6 +55,23 @@ public static class PdfAnnotations
                     DateTimeOffset? created = PdfDate.TryParse(ReadString(annot, "CreationDate"), out DateTimeOffset c) ? c : null;
                     DateTimeOffset? modified = PdfDate.TryParse(ReadString(annot, "M"), out DateTimeOffset m) ? m : null;
                     Guid id = Guid.TryParse(ReadString(annot, "NM"), out Guid nm) ? nm : Guid.NewGuid();
+
+                    if (subtype == SubtypeInk)
+                    {
+                        IReadOnlyList<IReadOnlyList<PdfPoint>> strokes = PdfInkInterop.ReadStrokes(annot);
+                        if (strokes.Count == 0)
+                        {
+                            continue;
+                        }
+
+                        result.Add(new PdfAnnotation(id, PdfAnnotationKind.Ink, [], ReadColor(annot),
+                            contents, author, created, modified)
+                        {
+                            Strokes = strokes,
+                            StrokeWidth = ReadBorderWidth(annot),
+                        });
+                        continue;
+                    }
 
                     PdfAnnotationKind kind = subtype == SubtypeHighlight
                         ? PdfAnnotationKind.Highlight
@@ -114,6 +132,12 @@ public static class PdfAnnotations
         }
 
         return new PdfRect(r.Left, Math.Max(r.Top, r.Bottom), r.Right, Math.Min(r.Top, r.Bottom));
+    }
+
+    private static double ReadBorderWidth(FpdfAnnotationT annot)
+    {
+        float h = 0, v = 0, w = 0;
+        return fpdf_annot.FPDFAnnotGetBorder(annot, ref h, ref v, ref w) != 0 && w > 0 ? w : 8.0;
     }
 
     private static uint ReadColor(FpdfAnnotationT annot)

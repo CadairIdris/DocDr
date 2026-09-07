@@ -57,6 +57,43 @@
                               IsChecked="{Binding SelectedTab.CommentToolActive, Mode=TwoWay}"
                               AutomationProperties.Name="Comment tool"
                               ToolTip="Click a page to drop a comment. Or select text and use the highlight popup." />
+                <ToggleButton Content="✏️ Draw" Padding="8,3" Margin="4,0,0,0"
+                              IsEnabled="{Binding HasTabs}"
+                              IsChecked="{Binding SelectedTab.HighlighterToolActive, Mode=TwoWay}"
+                              AutomationProperties.Name="Highlighter tool"
+                              ToolTip="Draw freehand highlighter strokes on the page" />
+                <ItemsControl ItemsSource="{Binding SelectedTab.InkColorKeys}" VerticalAlignment="Center" Margin="2,0,0,0"
+                              IsEnabled="{Binding HasTabs}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Width="18" Height="18" Margin="1,0" Padding="0" Cursor="Hand"
+                                    ToolTip="{Binding}" BorderThickness="0"
+                                    Background="{Binding Converter={StaticResource HighlightSwatch}}"
+                                    Click="InkColor_Click" Tag="{Binding}">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Sw" CornerRadius="3" Background="{TemplateBinding Background}"
+                                                BorderThickness="2" BorderBrush="Transparent" />
+                                        <ControlTemplate.Triggers>
+                                            <DataTrigger Value="True">
+                                                <DataTrigger.Binding>
+                                                    <MultiBinding Converter="{StaticResource Equality}">
+                                                        <Binding Path="." />
+                                                        <Binding Path="DataContext.SelectedTab.InkColorKey" RelativeSource="{RelativeSource AncestorType=Window}" />
+                                                    </MultiBinding>
+                                                </DataTrigger.Binding>
+                                                <Setter TargetName="Sw" Property="BorderBrush" Value="{DynamicResource PrimaryTextBrush}" />
+                                            </DataTrigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
                 <Button Content="⛶ Read" Padding="8,3" Margin="4,0,0,0"
                         Command="{Binding ToggleReadModeCommand}" IsEnabled="{Binding HasTabs}"
                         AutomationProperties.Name="Read mode"

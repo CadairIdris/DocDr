@@ -23,7 +23,7 @@ internal static class PdfAnnotationWriter
             int subtype = fpdf_annot.FPDFAnnotGetSubtype(annot);
             fpdf_annot.FPDFPageCloseAnnot(annot);
 
-            if (subtype is PdfAnnotations.SubtypeHighlight or PdfAnnotations.SubtypeText)
+            if (subtype is PdfAnnotations.SubtypeHighlight or PdfAnnotations.SubtypeText or PdfAnnotations.SubtypeInk)
             {
                 fpdf_annot.FPDFPageRemoveAnnot(page, i);
             }
@@ -42,7 +42,7 @@ internal static class PdfAnnotationWriter
 
             try
             {
-                SetColor(annot, a.ColorArgb);
+                SetColor(annot, a.ColorArgb, a.Kind == PdfAnnotationKind.Ink ? (uint)150 : 255);
                 SetRect(annot, a.Bounds);
 
                 if (a.Kind == PdfAnnotationKind.Highlight)
@@ -50,6 +50,15 @@ internal static class PdfAnnotationWriter
                     foreach (PdfRect quad in a.Quads)
                     {
                         AppendQuad(annot, quad);
+                    }
+                }
+
+                if (a.Kind == PdfAnnotationKind.Ink)
+                {
+                    fpdf_annot.FPDFAnnotSetBorder(annot, 0, 0, (float)Math.Max(1, a.StrokeWidth));
+                    foreach (IReadOnlyList<PdfPoint> stroke in a.Strokes)
+                    {
+                        PdfInkInterop.AddStroke(annot, stroke);
                     }
                 }
 
@@ -77,12 +86,12 @@ internal static class PdfAnnotationWriter
         }
     }
 
-    private static void SetColor(FpdfAnnotationT annot, uint argb)
+    private static void SetColor(FpdfAnnotationT annot, uint argb, uint alpha)
     {
         uint r = (argb >> 16) & 0xFF;
         uint g = (argb >> 8) & 0xFF;
         uint b = argb & 0xFF;
-        fpdf_annot.FPDFAnnotSetColor(annot, FPDFANNOT_COLORTYPE.FPDFANNOT_COLORTYPE_Color, r, g, b, 255);
+        fpdf_annot.FPDFAnnotSetColor(annot, FPDFANNOT_COLORTYPE.FPDFANNOT_COLORTYPE_Color, r, g, b, alpha);
     }
 
     private static void SetRect(FpdfAnnotationT annot, PdfRect rect)

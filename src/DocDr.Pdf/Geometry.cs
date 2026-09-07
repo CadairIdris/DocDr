@@ -101,6 +101,29 @@ public static class PdfCoordinates
     }
 
     /// <summary>
+    /// Map a single unrotated page-space point to a top-left-origin device point on the page as
+    /// displayed with <paramref name="rotation"/> applied. The point analogue of
+    /// <see cref="PageToDevice(PdfRect,PdfSize,PdfRotation,double)"/>.
+    /// </summary>
+    public static (double X, double Y) PageToDevicePoint(
+        PdfPoint point, PdfSize unrotatedPageSize, PdfRotation rotation, double scale)
+    {
+        double w = unrotatedPageSize.Width * scale;
+        double h = unrotatedPageSize.Height * scale;
+
+        double dx = point.X * scale;
+        double dy = h - (point.Y * scale);
+
+        return rotation switch
+        {
+            PdfRotation.Clockwise90 => (h - dy, dx),
+            PdfRotation.Rotate180 => (w - dx, h - dy),
+            PdfRotation.CounterClockwise90 => (dy, w - dx),
+            _ => (dx, dy),
+        };
+    }
+
+    /// <summary>
     /// Inverse of the rotation-aware <see cref="PageToDevice(PdfRect,PdfSize,PdfRotation,double)"/>:
     /// map a top-left-origin device point on the displayed (rotated) page back to unrotated
     /// PDFium page space (points, bottom-left origin).
