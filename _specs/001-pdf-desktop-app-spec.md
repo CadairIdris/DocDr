@@ -23,8 +23,14 @@ than one large build.
 
 **Explicitly future / out of scope for initial build:**
 - OCR of scanned/image-only PDFs (Stage 6, deferred)
-- Drawing tools — dimension lines with snapping, PDF overlay, side-by-side diff (Stage 7, deferred)
-- Format conversion, e-signing, forms, AI features — not planned
+- Drawing, comparison & review tools — dimension lines with snapping, quick measure, PDF
+  overlay, side-by-side diff, markups schedule (Stage 7, deferred)
+- Design-code navigation & extraction — clause tree, clickable cross-references, cite / snip
+  with citation, table extraction, cross-document links, revision awareness, saved sessions
+  (Stage 8, deferred)
+- Local API / headless mode for scripts and AI agents (Stage 9, deferred)
+- Format conversion, e-signing, forms, in-app AI chat — not planned (an external agent may
+  drive DocDr through the Stage 9 API instead)
 
 ## 2. Architecture
 
@@ -250,12 +256,13 @@ existing text layer.
 
 ---
 
-### Stage 7 — Drawing & Comparison Tools (Future)
+### Stage 7 — Drawing, Comparison & Review Tools (Future)
 
-**Goal:** Markup and comparison features aimed at construction / engineering drawings, where
-the page is vector linework at a known scale rather than flowing text.
+**Goal:** Measurement, comparison and review-tracking features aimed at construction /
+engineering drawings — where the page is vector linework at a known scale rather than flowing
+text — plus a markups schedule that also serves document review generally.
 
-**Shared foundations (build once, all three features below reuse them):**
+**Shared foundations (build once; the measurement and comparison features reuse them):**
 - **Page vector model:** walk every path object on a page via PDFium (`FPDFPageGetObject` /
   `FPDFPageObjGetType` == path / `FPDFPath*` segment accessors), transform each segment to
   page space through the object + page matrices, and index the resulting line segments in a
@@ -278,6 +285,9 @@ the page is vector linework at a known scale rather than flowing text.
   or segment intersection within a tolerance — with a snap indicator; no snap on a page with
   no vector geometry. Authored as a stamp-backed annotation like the other shapes, so it
   prints and round-trips.
+- **Quick measure (no annotation):** a ruler / area tool that shows a live length or polygon
+  area readout in the calibrated unit as you move the cursor, using the same snapping, without
+  committing anything to the page. The lightweight companion to the dimension annotation.
 - **Overlay two PDFs:** a pane view mode that renders the current page and the matching page
   of a chosen second document, tints one green and one red, and composites them. Works
   directly for revisions exported from the same source; 2-point registration handles pairs
@@ -291,10 +301,18 @@ the page is vector linework at a known scale rather than flowing text.
     boxes drawn around each connected region of change.
   - **Page-level diff:** flag inserted / deleted / reordered pages by comparing per-page text
     (or render) hashes.
+- **Markups schedule (review workflow):** every annotation gains a review status
+  (`open` / `responded` / `closed` / `superseded`), an optional discipline / category, and a
+  priority. A "Markups" panel lists them all with filter / sort / group (by status, page,
+  author, discipline) and jumps to each. Export the set as a schedule (CSV / Excel) or a
+  stamped PDF with a summary sheet. This is DocDr's equivalent of Bluebeam Revu's *Markups
+  List* + basic *Studio*-style review tracking; it deliberately stops short of Studio's
+  live multi-user sessions and cloud sync (single-file / catalog-backed only). The status and
+  metadata ride along in the annotation's private key like the reply thread does.
 
-**Out of scope:** angular / radius / area measurement (dimension line is linear only for v1),
+**Out of scope:** angular / radius measurement (dimension line is linear only for v1),
 CAD-style object snapping beyond endpoint/on-line/intersection, editing the other document
-from the diff view, three-way / merge.
+from the diff view, three-way / merge, real-time multi-user markup sessions.
 
 **Acceptance criteria:**
 - On a vector drawing (e.g. an RC details sheet), a dimension line snapped between two
@@ -305,6 +323,91 @@ from the diff view, three-way / merge.
   registration.
 - A text diff of two revisions of a specification highlights exactly the changed clauses in
   both panes.
+- A review with a dozen markups across several pages exports to a schedule whose rows carry
+  the comment text, page, author, date, status and any reply, and re-importing / reopening the
+  PDF restores every status.
+
+---
+
+### Stage 8 — Design-Code Navigation, Extraction & Reference Workflow (Future)
+
+**Goal:** Make DocDr genuinely good at the daily engineering task of reading design codes and
+reference material — navigating dense clause-numbered documents, pulling data out of them, and
+building a searchable personal knowledge base of commentary and cross-references.
+
+**Feature bundle — clause-aware navigation:**
+- **Clause index / tree:** detect clause numbering from the text layer (`6.4.3`, `6.4.3(2)`,
+  `Table 3.1`, `Figure 5.2`, `Eq. (6.7)` and the common national-annex / appendix variants),
+  build a per-document clause tree, and show it alongside the bookmark outline. Jump to any
+  clause; the current clause is shown in the status bar as you scroll.
+- **Clickable textual cross-references:** turn in-body references ("see 6.2.5", "in accordance
+  with Table 3.1") into clickable links even though the code PDF has no real `/Link`
+  annotation for them — resolve against the clause index. Extends the Stage 1 in-document link
+  overlay.
+- **Cite this:** select a clause (or just a text range) and copy a formatted citation —
+  `EN 1993-1-1:2005, cl. 6.2.9.1(2)` — built from the document's catalog metadata + the
+  detected clause number, for pasting into a calculation or report.
+
+**Snip to clipboard with citation:** drag a box over any region of a page (a figure, a detail,
+a table) and copy it to the clipboard as an image together with an auto-generated caption
+naming the source — document title, page, and clause/figure/table number when detectable.
+One-keystroke capture for reports and emails.
+
+**Table extraction:** draw a box over a table; reconstruct rows and columns from the character
+boxes plus any ruling lines and copy to the clipboard / export as CSV. Linear code tables
+(material properties, partial factors, section data) are the target — merged cells and nested
+headers are best-effort. Equation → LaTeX/MathML is explicitly out of scope for this stage.
+
+**Cross-document / clause links (knowledge base):** typed links stored in the catalog between
+annotations, documents, and clauses — e.g. a note in a calc "relates to" a clause in EN
+1992-1-1, which "is superseded by" a clause in the 2023 edition. Browse the links from either
+end; surface them in search results. This is the connective tissue that turns the Stage 5
+catalog into a personal engineering reference base.
+
+**Revision / withdrawal awareness:** mark a document (or a specific edition of a code) as
+superseded-by another in the catalog; warn on opening a withdrawn edition and offer to open
+the current one. Using a withdrawn code is a real liability, so this is a guardrail, not just
+a convenience.
+
+**Restore review session:** save and reopen a named workspace — which documents are open, at
+which page / zoom / view mode, the split layout, the nav-panel state and any active markup
+filters — so a multi-week piece of work survives closing the app.
+
+**Acceptance criteria:**
+- Opening a Eurocode part builds a clause tree that matches its printed numbering, and a
+  "see 6.2.5"-style reference in the body navigates to clause 6.2.5.
+- Snipping a code table and pasting into a spreadsheet gives usable rows/columns, and the
+  clipboard caption names the code, edition, page and table number.
+- A note linked to a clause is reachable from the clause and appears when that clause's text
+  matches a search.
+- Opening a withdrawn code edition that has a newer edition in the library shows a warning.
+
+---
+
+### Stage 9 — Local API / Headless Mode (Future, cross-cutting)
+
+**Goal:** Expose DocDr's document capabilities to the user's own engineering software, scripts
+and (later) AI agents — turning it from an application into local infrastructure. This is a
+thin transport layer over capabilities delivered by earlier stages; it can grow incrementally
+alongside them rather than being a single milestone.
+
+**Requirements:**
+- A local endpoint (HTTP on loopback, and/or a CLI) — no external network, no auth beyond the
+  local machine — offering read operations over: catalog search (FTS + structured fields),
+  document and clause text extraction, page rendering to an image at a requested DPI,
+  annotation / markup listing, and RAG chunk export (Stage 5).
+- Write operations are limited and explicit: add an annotation / note, add a catalog tag or
+  cross-document link. No structural PDF edits over the API in v1.
+- Responses are plain JSON (plus image bytes for renders); every returned text span carries
+  its document id, page and, where known, clause number, so a caller can cite what it used.
+- Designed with an AI agent as a first-class consumer: the same operations a person does in
+  the UI (find the governing clause, read it, draft a review comment, summarise the changes
+  between two revisions) are expressible as API calls.
+
+**Acceptance criteria:**
+- A script can search the library, fetch the text of a named clause with its citation, and
+  render that clause's page to a PNG, using only the local API.
+- Adding a note via the API is visible in the app on the next open and round-trips on save.
 
 ## 4. Open Decisions for the Agent to Flag Before/During Build
 
@@ -329,4 +432,19 @@ from the diff view, three-way / merge.
 - Overlay / diff registration (Stage 7) — is translation + uniform scale enough, or is
   rotation / non-uniform scale needed for real drawing pairs.
 - Recommended build order for Stage 7: dimension line + calibration (no snap) → assume-aligned
-  overlay → side-by-side + text diff → snapping and 2-point registration as follow-ups.
+  overlay → side-by-side + text diff → snapping and 2-point registration as follow-ups; the
+  markups schedule is independent and can land any time after Stage 3.
+- Markups schedule (Stage 7) — schedule export format (CSV vs real .xlsx vs a stamped summary
+  PDF), and whether status/discipline are a fixed vocabulary or user-configurable.
+- Clause-number detection (Stage 8) — how much to hard-code per code family (Eurocode, BS,
+  ASTM/AISC, ICE) vs a general numbering grammar; confirm against a sample of the user's own
+  codes before relying on it.
+- Table extraction (Stage 8) — line-based (use ruling rectangles) vs whitespace-based column
+  detection, and how much merged-cell / multi-row-header handling is worth it for v1.
+- Stage 9 API surface & transport — HTTP-on-loopback vs CLI vs both; whether it runs in-process
+  with the app or as a separate lightweight host over the same DocDr.Pdf / catalog libraries;
+  the exact operation list. Build the smallest useful slice (search + text + render) first.
+- Recommended stage order overall: 5 (catalog) unblocks 8's knowledge base and 9's search;
+  6 (OCR) unblocks batch chunking and scanned-drawing tools; 7's markups schedule and 8's
+  clause navigation / snip-with-citation are the highest day-to-day value and only need
+  Stages 1–3.
