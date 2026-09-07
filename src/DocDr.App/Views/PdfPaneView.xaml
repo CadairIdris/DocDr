@@ -403,6 +403,18 @@
                  PreviewMouseMove="PageList_MouseMove"
                  PreviewMouseLeftButtonUp="PageList_MouseLeftButtonUp"
                  PreviewKeyDown="PageList_PreviewKeyDown">
+            <ListBox.Style>
+                <Style TargetType="ListBox" BasedOn="{StaticResource {x:Type ListBox}}">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding HighlighterToolActive}" Value="True">
+                            <Setter Property="Cursor" Value="Pen" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding CommentToolActive}" Value="True">
+                            <Setter Property="Cursor" Value="Cross" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </ListBox.Style>
             <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem">
                     <Setter Property="Padding" Value="0" />

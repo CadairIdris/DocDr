@@ -25,6 +25,21 @@
         <KeyBinding Key="F11" Command="{Binding ToggleReadModeCommand}" />
         <KeyBinding Key="Escape" Command="{Binding ExitReadModeCommand}" />
     </Window.InputBindings>
+
+    <Window.Resources>
+        <!-- Toolbar tools read as "on" with a filled accent pill when active. -->
+        <Style x:Key="ToolToggle" TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+            <Style.Triggers>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource ChromeBrush}" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
     <Grid>
     <DockPanel>
         <ToolBarTray DockPanel.Dock="Top"
@@ -48,16 +63,16 @@
                         IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Remove watermark"
                         ToolTip="Find and remove content repeated on every page" />
                 <Separator />
-                <ToggleButton Content="Split view" Padding="8,3"
+                <ToggleButton Content="Split view" Padding="8,3" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.IsSplitView, Mode=TwoWay}"
                               ToolTip="Show a second, independent pane for this document" />
-                <ToggleButton Content="💬 Note" Padding="8,3" Margin="4,0,0,0"
+                <ToggleButton Content="💬 Note" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.CommentToolActive, Mode=TwoWay}"
                               AutomationProperties.Name="Comment tool"
                               ToolTip="Click a page to drop a comment. Or select text and use the highlight popup." />
-                <ToggleButton Content="✏️ Draw" Padding="8,3" Margin="4,0,0,0"
+                <ToggleButton Content="✏️ Draw" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.HighlighterToolActive, Mode=TwoWay}"
                               AutomationProperties.Name="Highlighter tool"
