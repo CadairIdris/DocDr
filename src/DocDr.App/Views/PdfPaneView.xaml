@@ -113,12 +113,20 @@
                                 <Button.Template>
                                     <ControlTemplate TargetType="Button">
                                         <Border x:Name="Hit" Background="Transparent">
-                                            <Border x:Name="Glow" Background="{DynamicResource AccentBrush}"
-                                                    Opacity="0" CornerRadius="1" />
+                                            <Grid>
+                                                <Border x:Name="Glow" Background="{DynamicResource AccentBrush}"
+                                                        Opacity="0" CornerRadius="1" />
+                                                <Border x:Name="Underline" Height="1" VerticalAlignment="Bottom"
+                                                        Background="{DynamicResource AccentBrush}" Opacity="0" />
+                                            </Grid>
                                         </Border>
                                         <ControlTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsCrossReference}" Value="True">
+                                                <Setter TargetName="Underline" Property="Opacity" Value="0.4" />
+                                            </DataTrigger>
                                             <Trigger Property="IsMouseOver" Value="True">
                                                 <Setter TargetName="Glow" Property="Opacity" Value="0.18" />
+                                                <Setter TargetName="Underline" Property="Opacity" Value="0.7" />
                                             </Trigger>
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>

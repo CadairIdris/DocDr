@@ -46,6 +46,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
         Clauses = new ClausesViewModel();
         Clauses.ClauseActivated += pageIndex => LeftPane.GoToPage(pageIndex + 1);
+        Clauses.Scanned += OnClausesScanned;
         Clauses.Load(document);
 
         Annotations = new AnnotationListViewModel();
@@ -483,6 +484,13 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(HasAnnotations));
     }
 
+    private void OnClausesScanned(IReadOnlyList<PdfClause> clauses)
+    {
+        IReadOnlyDictionary<string, int> map = PdfCrossReferences.BuildPageMap(clauses);
+        LeftPane.SetClausePageMap(map);
+        RightPane.SetClausePageMap(map);
+    }
+
     private void OnAnnotationActivated(int pageIndex, Guid id)
     {
         LeftPane.SelectedAnnotationId = id;
@@ -544,6 +552,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Document.AnnotationsChanged -= OnAnnotationsChanged;
         Thumbnails.EditRequested -= OnThumbnailEditRequested;
         Annotations.AnnotationActivated -= OnAnnotationActivated;
+        Clauses.Scanned -= OnClausesScanned;
         Clauses.CancelLoad();
         LeftPane.Dispose();
         RightPane.Dispose();

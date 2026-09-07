@@ -111,6 +111,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         _searchCts = null;
         _charBoxCache.Clear();
         _linkCache.Clear();
+        _crossRefCache.Clear();
         ClearTextSelection();
 
         Pages.Clear();
@@ -998,6 +999,19 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     /// <summary>Raw link regions per page (from PDFium), read once and kept until the pages reload.</summary>
     private readonly Dictionary<int, IReadOnlyList<PdfLink>> _linkCache = [];
 
+    /// <summary>Detected textual cross-references per page, resolved against <see cref="_clausePageMap"/>.</summary>
+    private readonly Dictionary<int, IReadOnlyList<PdfCrossRef>> _crossRefCache = [];
+
+    private IReadOnlyDictionary<string, int> _clausePageMap = new Dictionary<string, int>();
+
+    /// <summary>Supply the clause-number → page map so cross-references become clickable.</summary>
+    public void SetClausePageMap(IReadOnlyDictionary<string, int> map)
+    {
+        _clausePageMap = map;
+        _crossRefCache.Clear();
+        BuildLinkOverlays();
+    }
+
     /// <summary>
     /// Project each realised page's <c>/Link</c> regions into its slot's DIP space. Reads are
     /// lazy and cached, so this is cheap to call on every scroll / zoom / layout change.
@@ -1022,7 +1036,23 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 _linkCache[slot.PageIndex] = links;
             }
 
-            if (links.Count == 0)
+            IReadOnlyList<PdfCrossRef> crossRefs = [];
+            if (_clausePageMap.Count > 0 &&
+                !_crossRefCache.TryGetValue(slot.PageIndex, out crossRefs!))
+            {
+                try
+                {
+                    crossRefs = PdfCrossReferences.Scan(_document, slot.PageIndex, _clausePageMap);
+                }
+                catch (PdfException)
+                {
+                    crossRefs = [];
+                }
+
+                _crossRefCache[slot.PageIndex] = crossRefs;
+            }
+
+            if (links.Count == 0 && crossRefs.Count == 0)
             {
                 if (slot.Links.Count > 0)
                 {
@@ -1037,11 +1067,18 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             PdfRotation rotation = _document.GetPageRotation(slot.PageIndex);
             PdfPoint crop = _document.GetCropOrigin(slot.PageIndex);
 
-            var visuals = new List<LinkVisual>(links.Count);
+            var visuals = new List<LinkVisual>(links.Count + crossRefs.Count);
             foreach (PdfLink link in links)
             {
                 DeviceRect d = PdfCoordinates.PageToDevice(link.Rect, unrotated, rotation, scale, crop);
                 visuals.Add(new LinkVisual(new Rect(d.X, d.Y, d.Width, d.Height), link.TargetPageIndex, link.Uri));
+            }
+
+            foreach (PdfCrossRef reference in crossRefs)
+            {
+                DeviceRect d = PdfCoordinates.PageToDevice(reference.Rect, unrotated, rotation, scale, crop);
+                visuals.Add(new LinkVisual(
+                    new Rect(d.X, d.Y, d.Width, d.Height), reference.TargetPageIndex, null, reference.Label));
             }
 
             slot.Links = visuals;

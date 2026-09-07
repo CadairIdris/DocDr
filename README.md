@@ -12,6 +12,10 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   bookmarks. Tuned for dotted-decimal numbering (Eurocode, BS EN, ISO); annexes are picked up
   too. The scan runs in the background on open. Clicking a clause jumps the left pane to its
   page. Codes with letter-section numbering (e.g. AISC `D1.2a`) are not covered yet.
+- **Clickable cross-references**: once the clause index is built, textual references in the
+  page — "in accordance with 8.3.1", "see 6.2.5", "Annex L" — get a faint underline and
+  become clickable, jumping to the referenced clause. Figure / table references are not
+  linked (their numbers aren't clause numbers).
 
 ### Dark mode
 
