@@ -353,6 +353,24 @@ building a searchable personal knowledge base of commentary and cross-references
   copies the quoted passage with source, nearest detected clause, and page. Currently keyed off
   the filename — will use catalog metadata once Stage 5 lands.
 
+**Tunable clause / reference detection:** the current detector (`PdfClauses` / `PdfCrossReferences`)
+is driven by hard-coded word lists and a single dotted-decimal numbering assumption. Two levels of
+user control, in order of value / cost:
+
+- *Extra vocabulary (cheap, do first).* Expose the word lists as editable settings, merged with the
+  built-ins: cross-reference cue phrases (`see`, `in accordance with`, …), caption keywords
+  (`Figure`, `Table` → add `Fig.`, `Diagram`, `Detail`), annex words (`Annex` → `Appendix`,
+  `Schedule`), and boilerplate/noise prefixes to ignore. Additive strings only — no way to break
+  the existing tree. Covers house style, `Fig.`-style abbreviations, and non-English codes. A
+  per-document override (stored in the catalog once Stage 5 lands) beats a global list for
+  mixed libraries.
+- *Numbering schemes (harder, later).* Bundled profiles rather than a raw user regex — a wrong
+  pattern silently corrupts the whole tree and few users will debug one. Ship a small set
+  (Eurocode / BS / ISO dotted-decimal — the current one; AISC letter-section `D1.2a`; ACI; IBC
+  `1605.3.1.2`; `Article N` schemes), auto-select from the document title with a manual override
+  dropdown per document. Dovetails with the Stage 5 catalog: a file catalogued as "AISC 360-16"
+  just carries its scheme. Each profile is `{ headingRegex, captionRegex, annexRegex, levelOf() }`.
+
 **Snip to clipboard with citation:** drag a box over any region of a page (a figure, a detail,
 a table) and copy it to the clipboard as an image together with an auto-generated caption
 naming the source — document title, page, and clause/figure/table number when detectable.
@@ -442,9 +460,12 @@ alongside them rather than being a single milestone.
   markups schedule is independent and can land any time after Stage 3.
 - Markups schedule (Stage 7) — schedule export format (CSV vs real .xlsx vs a stamped summary
   PDF), and whether status/discipline are a fixed vocabulary or user-configurable.
-- Clause-number detection (Stage 8) — how much to hard-code per code family (Eurocode, BS,
-  ASTM/AISC, ICE) vs a general numbering grammar; confirm against a sample of the user's own
-  codes before relying on it.
+- Clause-number detection (Stage 8) — dotted-decimal is shipped and verified on the Eurocodes.
+  Open: whether to add other code families as bundled numbering-scheme profiles vs a general
+  grammar, and how the profile is chosen (title auto-detect + per-document override, tied to the
+  catalog). Plus a cheaper first step — user-editable cue/caption/annex word lists merged with the
+  built-ins (see the "Tunable clause / reference detection" note in Stage 8). Confirm against a
+  sample of the user's own codes before relying on any of it.
 - Table extraction (Stage 8) — line-based (use ruling rectangles) vs whitespace-based column
   detection, and how much merged-cell / multi-row-header handling is worth it for v1.
 - Stage 9 API surface & transport — HTTP-on-loopback vs CLI vs both; whether it runs in-process
