@@ -726,6 +726,9 @@ public sealed class PdfDocument : IDisposable
 
         Locked(() =>
         {
+            // The font handle belongs to the current document, so it must be closed *before*
+            // AdoptStrippedBytes swaps the handle out and closes the old one — closing it after
+            // would be a use-after-free.
             FpdfFontT font = fpdf_edit.FPDFTextLoadStandardFont(Handle, "Helvetica");
             try
             {
@@ -772,13 +775,6 @@ public sealed class PdfDocument : IDisposable
                     pagesProcessed++;
                     progress?.Report(new OcrProgress(pageIndex + 1, total, written));
                 }
-
-                if (pagesProcessed > 0)
-                {
-                    byte[] bytes = SerialiseCurrentHandle();
-                    AdoptStrippedBytes(
-                        bytes, "Could not reopen the document after adding the OCR text layer.");
-                }
             }
             finally
             {
@@ -786,6 +782,13 @@ public sealed class PdfDocument : IDisposable
                 {
                     fpdf_edit.FPDFFontClose(font);
                 }
+            }
+
+            if (pagesProcessed > 0)
+            {
+                byte[] bytes = SerialiseCurrentHandle();
+                AdoptStrippedBytes(
+                    bytes, "Could not reopen the document after adding the OCR text layer.");
             }
         });
 
