@@ -51,12 +51,6 @@
                         AutomationProperties.Name="Merge PDFs"
                         ToolTip="Combine several PDFs into one new document" />
                 <Separator />
-                <ToggleButton Content="Navigator" Padding="8,3" Style="{StaticResource ToolToggle}"
-                              IsEnabled="{Binding HasTabs}"
-                              IsChecked="{Binding SelectedTab.IsNavigationPanelVisible, Mode=TwoWay}"
-                              AutomationProperties.Name="Navigator panel"
-                              ToolTip="Side panel: page thumbnails, bookmarks and comments" />
-                <Separator />
                 <Button Content="Watermark…" Padding="8,3"
                         Command="{Binding SelectedTab.RemoveWatermarksCommand}"
                         IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Remove watermark"

@@ -221,9 +221,23 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
     // --- Navigation panel ----------------------------------------------------------------
 
-    /// <summary>Show or hide the side panel (its section is chosen from the panel's own tab strip).</summary>
+    /// <summary>
+    /// From the left icon rail: open the panel to <paramref name="tab"/>, or — if it is already
+    /// open on that section — collapse it.
+    /// </summary>
     [RelayCommand]
-    private void ToggleNavigationPanel() => IsNavigationPanelVisible = !IsNavigationPanelVisible;
+    private void ShowNavigationSection(NavigationTab tab)
+    {
+        if (IsNavigationPanelVisible && NavigationTab == tab)
+        {
+            IsNavigationPanelVisible = false;
+        }
+        else
+        {
+            NavigationTab = tab;
+            IsNavigationPanelVisible = true;
+        }
+    }
 
     // --- Page editing ------------------------------------------------------------------
 

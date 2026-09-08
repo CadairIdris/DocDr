@@ -2,9 +2,9 @@ using System.Windows.Controls;
 
 namespace DocDr.App.Views;
 
-public partial class NavigationPanelView : UserControl
+public partial class NavigationRailView : UserControl
 {
-    public NavigationPanelView()
+    public NavigationRailView()
     {
         InitializeComponent();
     }

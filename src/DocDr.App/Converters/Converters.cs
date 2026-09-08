@@ -105,6 +105,21 @@ public sealed class EqualityConverter : IMultiValueConverter
         throw new NotSupportedException();
 }
 
+/// <summary>
+/// True when the navigation panel is open <b>and</b> showing the section named by the parameter.
+/// Values: <c>[NavigationTab current, bool panelVisible]</c>; parameter: the enum member name.
+/// </summary>
+public sealed class NavRailActiveConverter : IMultiValueConverter
+{
+    public object Convert(object?[] values, Type targetType, object? parameter, CultureInfo culture) =>
+        values.Length == 2
+        && values[1] is true
+        && values[0]?.ToString() == parameter?.ToString();
+
+    public object[] ConvertBack(object? value, Type[] targetTypes, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
 /// <summary>Enum equality test usable as a converter (parameter = enum member name).</summary>
 public sealed class EnumEqualsConverter : IValueConverter
 {

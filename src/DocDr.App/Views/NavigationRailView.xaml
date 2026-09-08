@@ -1,0 +1,101 @@
+<UserControl x:Class="DocDr.App.Views.NavigationRailView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:DocDr.App.ViewModels"
+             xmlns:sys="clr-namespace:System;assembly=mscorlib"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance vm:DocumentTabViewModel}"
+             d:DesignHeight="400" d:DesignWidth="40">
+    <UserControl.Resources>
+        <Style x:Key="RailButton" TargetType="Button">
+            <Setter Property="Width" Value="40" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="0">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource TabItemBrush}" />
+                            </Trigger>
+                            <!-- Active section: filled + accent bar on the left edge. -->
+                            <Trigger Property="Tag">
+                                <Trigger.Value>
+                                    <sys:Boolean>True</sys:Boolean>
+                                </Trigger.Value>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource TabItemActiveBrush}" />
+                                <Setter TargetName="Bd" Property="BorderThickness" Value="2,0,0,0" />
+                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Border Background="{DynamicResource ChromeBrush}"
+            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+        <StackPanel>
+            <Button Style="{StaticResource RailButton}" ToolTip="Page thumbnails"
+                    AutomationProperties.Name="Pages"
+                    Command="{Binding ShowNavigationSectionCommand}"
+                    CommandParameter="{x:Static vm:NavigationTab.Pages}">
+                <Button.Tag>
+                    <MultiBinding Converter="{StaticResource NavRailActive}" ConverterParameter="Pages">
+                        <Binding Path="NavigationTab" />
+                        <Binding Path="IsNavigationPanelVisible" />
+                    </MultiBinding>
+                </Button.Tag>
+                <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconPages}" />
+            </Button>
+
+            <Button Style="{StaticResource RailButton}" ToolTip="Bookmarks / document outline"
+                    AutomationProperties.Name="Bookmarks"
+                    Command="{Binding ShowNavigationSectionCommand}"
+                    CommandParameter="{x:Static vm:NavigationTab.Bookmarks}">
+                <Button.Tag>
+                    <MultiBinding Converter="{StaticResource NavRailActive}" ConverterParameter="Bookmarks">
+                        <Binding Path="NavigationTab" />
+                        <Binding Path="IsNavigationPanelVisible" />
+                    </MultiBinding>
+                </Button.Tag>
+                <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconBookmarks}" />
+            </Button>
+
+            <Button Style="{StaticResource RailButton}" ToolTip="Clause index (detected from the numbering)"
+                    AutomationProperties.Name="Clauses"
+                    Command="{Binding ShowNavigationSectionCommand}"
+                    CommandParameter="{x:Static vm:NavigationTab.Clauses}">
+                <Button.Tag>
+                    <MultiBinding Converter="{StaticResource NavRailActive}" ConverterParameter="Clauses">
+                        <Binding Path="NavigationTab" />
+                        <Binding Path="IsNavigationPanelVisible" />
+                    </MultiBinding>
+                </Button.Tag>
+                <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconClauses}" />
+            </Button>
+
+            <Button Style="{StaticResource RailButton}" ToolTip="Comments, highlights and markup"
+                    AutomationProperties.Name="Comments"
+                    Command="{Binding ShowNavigationSectionCommand}"
+                    CommandParameter="{x:Static vm:NavigationTab.Annotations}">
+                <Button.Tag>
+                    <MultiBinding Converter="{StaticResource NavRailActive}" ConverterParameter="Annotations">
+                        <Binding Path="NavigationTab" />
+                        <Binding Path="IsNavigationPanelVisible" />
+                    </MultiBinding>
+                </Button.Tag>
+                <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconAnnotations}" />
+            </Button>
+        </StackPanel>
+    </Border>
+</UserControl>

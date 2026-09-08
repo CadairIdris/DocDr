@@ -62,6 +62,21 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   So Save / SaveAs / strip on a secured PDF all drop the security handler; `PdfDocument.IsEncrypted`
   exposes the state and the watermark review dialog notes it.
 
+## Navigation panel (icon rail)
+
+- **`NavigationRailView`** is a ~40px always-visible strip (column 0 of `DocumentTabView`) with
+  four icon buttons — Pages / Bookmarks / Clauses / Comments. Each runs
+  `DocumentTabViewModel.ShowNavigationSectionCommand(NavigationTab)`: opens the panel to that
+  section, or collapses it if it's already open on that section. Active-section highlight (accent
+  bar) via `NavRailActiveConverter` (values `[NavigationTab, IsNavigationPanelVisible]`, param =
+  member name) bound to each button's `Tag`, with a `<sys:Boolean>True` trigger value (a string
+  `"True"` won't match a boxed bool on an `object` `Tag`).
+- **`NavigationPanelView`** is now just the four section `ContentControl`s (no internal tab
+  strip). The section icon geometries + `NavTabIcon` `Path` style moved to `App.xaml`.
+- Rail hides in read mode (bound to the window's `IsReadMode`, like the tab strip). There is no
+  toolbar "Navigator" button any more. Panel still starts closed; `DocumentTabView.xaml.cs`
+  `ApplyNavColumn` (collapse/restore the panel column) is unchanged — the panel is now column 1.
+
 ## Batch merge + generated outlines (`PdfDocument.Merge` / `PdfOutlineWriter` / `PdfHeadings`)
 
 - **`PdfDocument.Merge(paths)` → `MergeResult(Document, SourceStartPages)`** — a new untitled
