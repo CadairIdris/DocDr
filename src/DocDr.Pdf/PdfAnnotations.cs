@@ -16,6 +16,7 @@ public static class PdfAnnotations
 
     /// <summary>Private annotation key carrying a stamp-backed shape's real geometry (JSON).</summary>
     internal const string ShapeKey = "DocDrShape";
+    internal const string ImageKey = "DocDrImage";
 
     public static IReadOnlyList<PdfAnnotation> Read(PdfDocument document, int pageIndex)
     {
@@ -66,6 +67,12 @@ public static class PdfAnnotations
                     {
                         PdfAnnotation? shape = PdfShapeCodec.Decode(
                             ReadString(annot, ShapeKey), id, ReadColor(annot), contents, author, created, modified, replies);
+                        if (shape is { Kind: PdfAnnotationKind.Image })
+                        {
+                            byte[]? png = TryFromBase64(ReadString(annot, ImageKey));
+                            shape = png is not null ? shape with { ImageData = png } : null;
+                        }
+
                         if (shape is not null)
                         {
                             result.Add(shape);
@@ -187,5 +194,22 @@ public static class PdfAnnotations
         int chars = Math.Max(0, (int)(byteLength / 2) - 1); // trailing UTF-16 NUL
         string text = PdfTextExtractor.Utf16(buffer, chars).TrimEnd('\0');
         return string.IsNullOrEmpty(text) ? null : text;
+    }
+
+    private static byte[]? TryFromBase64(string? s)
+    {
+        if (string.IsNullOrEmpty(s))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Convert.FromBase64String(s);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
     }
 }

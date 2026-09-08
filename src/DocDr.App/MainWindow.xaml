@@ -47,6 +47,9 @@
                      Visibility="{Binding IsReadMode, Converter={StaticResource InverseBoolToVisibility}}">
             <ToolBar>
                 <Button Command="{Binding OpenCommand}" Content="Open PDF…" Padding="10,3" />
+                <Button Command="{Binding NewDocumentCommand}" Content="New…" Padding="8,3" Margin="4,0,0,0"
+                        AutomationProperties.Name="New document"
+                        ToolTip="Create a blank page to build a collage on" />
                 <Button Command="{Binding MergeCommand}" Content="Merge…" Padding="8,3" Margin="4,0,0,0"
                         AutomationProperties.Name="Merge PDFs"
                         ToolTip="Combine several PDFs into one new document" />
@@ -124,6 +127,26 @@
                                           Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Cloud}"
                               AutomationProperties.Name="Cloud tool"
                               ToolTip="Drag a rectangle to cloud a revised area" />
+                <ToggleButton Content="▭" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
+                              IsEnabled="{Binding HasTabs}"
+                              IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
+                                          Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Rectangle}"
+                              AutomationProperties.Name="Rectangle tool" ToolTip="Drag a rectangle" />
+                <ToggleButton Content="◯" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
+                              IsEnabled="{Binding HasTabs}"
+                              IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
+                                          Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Ellipse}"
+                              AutomationProperties.Name="Ellipse tool" ToolTip="Drag an ellipse" />
+                <ToggleButton Content="╱" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
+                              IsEnabled="{Binding HasTabs}"
+                              IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
+                                          Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Line}"
+                              AutomationProperties.Name="Line tool" ToolTip="Drag a straight line" />
+                <ToggleButton Content="→" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
+                              IsEnabled="{Binding HasTabs}"
+                              IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
+                                          Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Arrow}"
+                              AutomationProperties.Name="Arrow tool" ToolTip="Drag from the tail to the arrowhead" />
                 <Button Padding="8,3" Margin="6,0,0,0"
                         Content="{Binding SelectedTab.MarkupButtonLabel}"
                         Command="{Binding SelectedTab.ToggleAnnotationsCommand}"
@@ -289,6 +312,8 @@
                                Foreground="{DynamicResource SecondaryTextBrush}" />
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,14,0,0">
                         <Button Content="Open PDF…" Command="{Binding OpenCommand}" Padding="16,5" />
+                        <Button Content="New document…" Command="{Binding NewDocumentCommand}" Padding="16,5"
+                                Margin="8,0,0,0" AutomationProperties.Name="New document" />
                         <Button Content="Merge PDFs…" Command="{Binding MergeCommand}" Padding="16,5"
                                 Margin="8,0,0,0" AutomationProperties.Name="Merge PDFs" />
                     </StackPanel>

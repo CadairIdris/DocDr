@@ -263,14 +263,52 @@
                                     </Path.Style>
                                 </Path>
 
-                                <!-- Callout leader line + arrow. -->
-                                <Canvas IsHitTestVisible="False"
-                                        Visibility="{Binding IsCallout, Converter={StaticResource BoolToVisibility}}">
+                                <!-- Callout / line / arrow leader + arrowhead. -->
+                                <Canvas IsHitTestVisible="False">
+                                    <Canvas.Style>
+                                        <Style TargetType="Canvas">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsCallout}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsLineShape}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Canvas.Style>
                                     <Polyline Points="{Binding Leader}" Stroke="{Binding ShapeBrush}" StrokeThickness="1.5"
                                               StrokeLineJoin="Round" />
                                     <Polyline Points="{Binding LeaderArrow}" Stroke="{Binding ShapeBrush}" StrokeThickness="1.5"
                                               StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
                                 </Canvas>
+
+                                <!-- Pasted image. -->
+                                <Image Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
+                                       Width="{Binding Box.Width}" Height="{Binding Box.Height}"
+                                       Source="{Binding Image}" Stretch="Fill" IsHitTestVisible="False"
+                                       Visibility="{Binding IsImage, Converter={StaticResource BoolToVisibility}}" />
+
+                                <!-- Rectangle / ellipse outline. -->
+                                <Rectangle Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
+                                           Width="{Binding Box.Width}" Height="{Binding Box.Height}"
+                                           Stroke="{Binding ShapeBrush}" StrokeThickness="1.5" IsHitTestVisible="False"
+                                           Visibility="{Binding IsRectangle, Converter={StaticResource BoolToVisibility}}" />
+                                <Ellipse Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
+                                         Width="{Binding Box.Width}" Height="{Binding Box.Height}"
+                                         Stroke="{Binding ShapeBrush}" StrokeThickness="1.5" IsHitTestVisible="False"
+                                         Visibility="{Binding IsEllipse, Converter={StaticResource BoolToVisibility}}" />
+
+                                <!-- Selection border for a box-shaped annotation (image / rectangle / ellipse). -->
+                                <Rectangle Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
+                                           Width="{Binding Box.Width}" Height="{Binding Box.Height}"
+                                           Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" IsHitTestVisible="False"
+                                           Visibility="{Binding ShowBoxSelection, Converter={StaticResource BoolToVisibility}}">
+                                    <Rectangle.Effect>
+                                        <DropShadowEffect Color="#8A6FBF" BlurRadius="9" ShadowDepth="0" Opacity="0.9" />
+                                    </Rectangle.Effect>
+                                </Rectangle>
 
                                 <!-- Text box / callout box. -->
                                 <Border Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"

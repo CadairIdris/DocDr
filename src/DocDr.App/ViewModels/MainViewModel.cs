@@ -185,9 +185,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Add a tab for an already-loaded document (merge output, or an opened file).</summary>
+    /// <summary>Add a tab for an already-loaded document (merge output, a new blank doc, an opened file).</summary>
     public void AddDocumentTab(PdfDocument document, string title)
     {
+        document.ImageDecoder = new AppImageDecoder();
+
         var tab = new DocumentTabViewModel(
             UniqueTitle(title), document, document.GetPageSizes(), document.GetOutline(),
             _renderQueue, _cache);
@@ -195,6 +197,30 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Tabs.Add(tab);
         SelectedTab = tab;
         StatusText = $"{document.PageCount} page(s) — {Tabs.Count} tab(s) open.";
+    }
+
+    [RelayCommand]
+    private void NewDocument()
+    {
+        var viewModel = new NewDocumentViewModel(_settings);
+        var window = new NewDocumentWindow(viewModel) { Owner = Application.Current?.MainWindow };
+        PdfSize? size = null;
+        viewModel.Confirmed = s => { size = s; window.Close(); };
+        window.ShowDialog();
+        if (size is not { } chosen)
+        {
+            return;
+        }
+
+        try
+        {
+            AddDocumentTab(PdfDocument.CreateBlank(chosen), "Untitled");
+        }
+        catch (PdfException ex)
+        {
+            MessageBox.Show($"Could not create the document: {ex.Message}", "DocDr",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     [RelayCommand]

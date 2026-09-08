@@ -22,6 +22,16 @@ public sealed class AppSettings
 
     public AppTheme Theme { get; set; } = AppTheme.System;
 
+    /// <summary>Last page size picked in the New-document dialog ("A4", "A3", … or "Custom").</summary>
+    public string LastPageSize { get; set; } = "A4";
+
+    /// <summary>Last custom page size (mm) entered in the New-document dialog.</summary>
+    public double LastCustomWidthMm { get; set; } = 210;
+
+    public double LastCustomHeightMm { get; set; } = 297;
+
+    public bool LastPageLandscape { get; set; }
+
     /// <summary>Absolute paths of recently opened documents, most recent first.</summary>
     public List<string> RecentFiles { get; set; } = [];
 

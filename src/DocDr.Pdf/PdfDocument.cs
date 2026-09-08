@@ -56,6 +56,10 @@ public sealed class PdfDocument : IDisposable
     /// <summary>A DocDr-generated outline that overrides the file's own (if any). Written on save.</summary>
     private IReadOnlyList<PdfBookmark>? _outline;
 
+    /// <summary>Decoder for image-annotation bytes, used when baking. Set by the app; null = image
+    /// annotations are skipped on save.</summary>
+    public IImageDecoder? ImageDecoder { get; set; }
+
     private PdfDocument(FpdfDocumentT handle, GCHandle pin, string? path, int pageCount)
     {
         _handle = handle;
@@ -238,6 +242,41 @@ public sealed class PdfDocument : IDisposable
         _handleHasOriginalInfo = false; // FPDF_CreateNewDocument has no Info dict; re-added at save time
         _info = PdfDocumentInfo.Empty;
         IsDirty = true;
+    }
+
+    /// <summary>
+    /// Create a new one-page untitled document of the given size (points). No <see cref="FilePath"/>,
+    /// dirty, empty undo history — a blank canvas for building a collage.
+    /// </summary>
+    public static PdfDocument CreateBlank(PdfSize sizePoints)
+    {
+        if (sizePoints.Width <= 1 || sizePoints.Height <= 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sizePoints), "Page size must be positive.");
+        }
+
+        PdfiumLibrary.EnsureInitialized();
+        lock (PdfiumLibrary.SyncRoot)
+        {
+            FpdfDocumentT? handle = fpdf_edit.FPDF_CreateNewDocument();
+            if (handle is null || handle.__Instance == IntPtr.Zero)
+            {
+                throw new PdfException("PDFium could not create a new document.");
+            }
+
+            FpdfPageT? page = fpdf_edit.FPDFPageNew(handle, 0, (float)sizePoints.Width, (float)sizePoints.Height);
+            if (page is null || page.__Instance == IntPtr.Zero)
+            {
+                fpdfview.FPDF_CloseDocument(handle);
+                throw new PdfException("PDFium could not create the page.");
+            }
+
+            fpdf_edit.FPDFPageGenerateContent(page);
+            fpdfview.FPDF_ClosePage(page);
+
+            var sources = new Dictionary<int, Source> { [OriginalSourceId] = new() { Handle = handle, Owned = true } };
+            return new PdfDocument(handle, [new PageRef(OriginalSourceId, 0, 0)], [[]], sources, OriginalSourceId + 1);
+        }
     }
 
     /// <summary>
@@ -1299,7 +1338,7 @@ public sealed class PdfDocument : IDisposable
                 PdfAnnotationWriter.StripManaged(page);
                 if (_annotations[i].Count > 0)
                 {
-                    PdfAnnotationWriter.Write(Handle, page, _annotations[i]);
+                    PdfAnnotationWriter.Write(Handle, page, _annotations[i], ImageDecoder);
                 }
             }
             finally

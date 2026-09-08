@@ -7,6 +7,10 @@ public enum ShapeTool
     TextBox,
     Callout,
     Cloud,
+    Rectangle,
+    Ellipse,
+    Line,
+    Arrow,
 }
 
 /// <summary>Which corner handle of a selected shape box is being dragged to resize it.</summary>

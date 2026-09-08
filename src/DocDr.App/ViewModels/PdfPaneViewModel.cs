@@ -949,7 +949,27 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     box = new Rect(d.X, Math.Max(0, d.Y + d.Height - pin), pin, pin);
                     marker = new Rect(box.Right - 4, Math.Max(0, box.Top - 22), 18, 18); // trash, above the pin
                 }
-                else if (annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud)
+                else if (annotation.Kind is PdfAnnotationKind.Line or PdfAnnotationKind.Arrow)
+                {
+                    foreach (PdfPoint p in annotation.Leader)
+                    {
+                        (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale, crop);
+                        leader.Add(new Point(x, y));
+                    }
+
+                    if (annotation.Kind == PdfAnnotationKind.Arrow && leader.Count >= 2)
+                    {
+                        leaderArrow = LeaderArrowHead(leader[0], leader[1]);
+                    }
+
+                    if (leader.Count >= 1)
+                    {
+                        marker = new Rect(Math.Max(0, leader[0].X - 6), Math.Max(0, leader[0].Y - 26), 18, 18);
+                    }
+                }
+                else if (annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout
+                    or PdfAnnotationKind.Cloud or PdfAnnotationKind.Image or PdfAnnotationKind.Rectangle
+                    or PdfAnnotationKind.Ellipse)
                 {
                     DeviceRect d = PdfCoordinates.PageToDevice(annotation.Box, unrotated, rotation, scale, crop);
                     box = new Rect(d.X, d.Y, d.Width, d.Height);
@@ -1018,6 +1038,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     NoteText = annotation.Contents ?? string.Empty,
                     NoteMeta = FormatNoteMeta(annotation),
                     ReplyCount = annotation.Replies.Count,
+                    Image = annotation.Kind == PdfAnnotationKind.Image ? DecodeImage(annotation) : null,
                 });
             }
 
@@ -1027,6 +1048,37 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     private double SlotScale(PageSlotViewModel slot) =>
         slot.SizePoints.Width > 0 ? slot.LayoutWidth / slot.SizePoints.Width : PdfCoordinates.PointToDip * Zoom;
+
+    private readonly Dictionary<System.Guid, System.Windows.Media.ImageSource> _imageCache = [];
+
+    private System.Windows.Media.ImageSource? DecodeImage(PdfAnnotation annotation)
+    {
+        if (annotation.ImageData is not { Length: > 0 } bytes)
+        {
+            return null;
+        }
+
+        if (_imageCache.TryGetValue(annotation.Id, out System.Windows.Media.ImageSource? cached))
+        {
+            return cached;
+        }
+
+        try
+        {
+            var image = new System.Windows.Media.Imaging.BitmapImage();
+            image.BeginInit();
+            image.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            image.StreamSource = new System.IO.MemoryStream(bytes, writable: false);
+            image.EndInit();
+            image.Freeze();
+            _imageCache[annotation.Id] = image;
+            return image;
+        }
+        catch (Exception ex) when (ex is NotSupportedException or ArgumentException)
+        {
+            return null;
+        }
+    }
 
     private static string FormatNoteMeta(PdfAnnotation annotation)
     {
@@ -1446,6 +1498,41 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
 
         ShapeTool = ShapeTool.None; // one-shot
+        uint shapeColour = AnnotationColors.ToArgb(InkColorKey);
+
+        if (tool is ShapeTool.Line or ShapeTool.Arrow)
+        {
+            // Too short to be a real drag → a small default segment so a click still works.
+            double dx = b.X - a.X, dy = b.Y - a.Y;
+            if ((dx * dx) + (dy * dy) < 25)
+            {
+                b = new PdfPoint(a.X + 60, a.Y);
+            }
+
+            PdfAnnotation line = tool == ShapeTool.Arrow
+                ? PdfAnnotation.NewArrow(a, b, shapeColour, Author)
+                : PdfAnnotation.NewLine(a, b, shapeColour, Author);
+            _document.AddAnnotation(page, line);
+            SelectedAnnotationId = line.Id;
+            return;
+        }
+
+        if (tool is ShapeTool.Rectangle or ShapeTool.Ellipse)
+        {
+            var r = new PdfRect(
+                Math.Min(a.X, b.X), Math.Max(a.Y, b.Y), Math.Max(a.X, b.X), Math.Min(a.Y, b.Y));
+            if (r.Width < 8 || r.Height < 8)
+            {
+                r = DefaultBoxAt(a, 160, 100);
+            }
+
+            PdfAnnotation shape = tool == ShapeTool.Ellipse
+                ? PdfAnnotation.NewEllipse(r, shapeColour, Author)
+                : PdfAnnotation.NewRectangle(r, shapeColour, Author);
+            _document.AddAnnotation(page, shape);
+            SelectedAnnotationId = shape.Id;
+            return;
+        }
 
         if (tool == ShapeTool.Callout)
         {
@@ -1500,6 +1587,114 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             });
     }
 
+    /// <summary>
+    /// Paste the clipboard onto <paramref name="pageIndex"/> around <paramref name="centre"/>
+    /// (unrotated page points): an image / screenshot / image file → an image annotation, else
+    /// text → a text box. The new annotation is selected so it can be dragged into place.
+    /// </summary>
+    public void PasteFromClipboard(int pageIndex, PdfPoint centre)
+    {
+        if (pageIndex < 0 || pageIndex >= _document.PageCount)
+        {
+            return;
+        }
+
+        PdfSize pageSize = _document.GetUnrotatedPageSize(pageIndex);
+
+        if (ClipboardImagePng() is { } png && DecodedSize(png) is var (dw, dh) && dw > 0 && dh > 0)
+        {
+            // px → pt at 1:1, then cap to ~85 % of the page so it lands visible.
+            double w = dw, h = dh;
+            double k = Math.Min(1, Math.Min(pageSize.Width * 0.85 / w, pageSize.Height * 0.85 / h));
+            w *= k;
+            h *= k;
+            var box = new PdfRect(centre.X - (w / 2), centre.Y + (h / 2), centre.X + (w / 2), centre.Y - (h / 2));
+            PdfAnnotation image = PdfAnnotation.NewImage(box, png, Author);
+            _document.AddAnnotation(pageIndex, image);
+            SelectedAnnotationId = image.Id;
+            AnnotationsVisible = true;
+            return;
+        }
+
+        string? text = ClipboardText();
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            double fontSize = PdfAnnotation.DefaultFontSize;
+            PdfRect box = FitTextBox(DefaultBoxAt(new PdfPoint(centre.X - 110, centre.Y + 40), 220, 80), text, fontSize);
+            PdfAnnotation textBox = PdfAnnotation.NewTextBox(box, text, AnnotationColors.ToArgb(InkColorKey), fontSize, Author);
+            _document.AddAnnotation(pageIndex, textBox);
+            SelectedAnnotationId = textBox.Id;
+            AnnotationsVisible = true;
+        }
+    }
+
+    private static byte[]? ClipboardImagePng()
+    {
+        try
+        {
+            if (System.Windows.Clipboard.ContainsImage() &&
+                System.Windows.Clipboard.GetImage() is { } source)
+            {
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(source));
+                using var ms = new System.IO.MemoryStream();
+                encoder.Save(ms);
+                return ms.ToArray();
+            }
+
+            if (System.Windows.Clipboard.ContainsFileDropList())
+            {
+                foreach (string? file in System.Windows.Clipboard.GetFileDropList())
+                {
+                    if (file is not null && IsImageFile(file) && System.IO.File.Exists(file))
+                    {
+                        return System.IO.File.ReadAllBytes(file);
+                    }
+                }
+            }
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            // clipboard busy / unreadable
+        }
+
+        return null;
+    }
+
+    private static string? ClipboardText()
+    {
+        try
+        {
+            return System.Windows.Clipboard.ContainsText() ? System.Windows.Clipboard.GetText() : null;
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsImageFile(string path)
+    {
+        string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
+        return ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".tif" or ".tiff";
+    }
+
+    private static (double Width, double Height)? DecodedSize(byte[] encoded)
+    {
+        try
+        {
+            var frame = System.Windows.Media.Imaging.BitmapFrame.Create(
+                new System.IO.MemoryStream(encoded, writable: false),
+                System.Windows.Media.Imaging.BitmapCreateOptions.DelayCreation,
+                System.Windows.Media.Imaging.BitmapCacheOption.None);
+            return (frame.PixelWidth, frame.PixelHeight);
+        }
+        catch (Exception ex) when (ex is NotSupportedException or ArgumentException or System.IO.FileFormatException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Shrink-wrap <paramref name="box"/> to just fit <paramref name="text"/> at
     /// <paramref name="fontSize"/> — never wider than the box, keeping its top-left anchored.</summary>
     private static PdfRect FitTextBox(PdfRect box, string? text, double fontSize)
@@ -1529,6 +1724,15 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         (_, double needed) = PdfTextWrap.FittedSize(text, right - left, fontSize);
         double height = Math.Max(top - bottom, needed);
         return new PdfRect(left, top, right, top - height);
+    }
+
+    private static double DistanceToSegment(PdfPoint p, PdfPoint a, PdfPoint b)
+    {
+        double dx = b.X - a.X, dy = b.Y - a.Y;
+        double lenSq = (dx * dx) + (dy * dy);
+        double t = lenSq < 1e-6 ? 0 : Math.Clamp(((p.X - a.X) * dx + (p.Y - a.Y) * dy) / lenSq, 0, 1);
+        double cx = a.X + (t * dx), cy = a.Y + (t * dy);
+        return Math.Sqrt(((p.X - cx) * (p.X - cx)) + ((p.Y - cy) * (p.Y - cy)));
     }
 
     /// <summary>A box of the given point size with its top-left at <paramref name="topLeft"/>.</summary>
@@ -1566,8 +1770,17 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         for (int i = annotations.Count - 1; i >= 0; i--)
         {
             PdfAnnotation a = annotations[i];
+
+            if (a.Kind is PdfAnnotationKind.Line or PdfAnnotationKind.Arrow
+                && a.Leader.Count >= 2
+                && DistanceToSegment(pt, a.Leader[0], a.Leader[1]) <= 6 / Math.Max(0.05, scale))
+            {
+                return a.Id;
+            }
+
             if (a.Kind is not (PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout
-                or PdfAnnotationKind.Cloud or PdfAnnotationKind.Comment))
+                or PdfAnnotationKind.Cloud or PdfAnnotationKind.Comment or PdfAnnotationKind.Image
+                or PdfAnnotationKind.Rectangle or PdfAnnotationKind.Ellipse))
             {
                 continue;
             }
@@ -1642,6 +1855,12 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     /// <summary>Offset a shape's box by (dx, dy) page points; a callout keeps its tip and re-attaches the leader.</summary>
     private static PdfAnnotation MoveShape(PdfAnnotation a, double dx, double dy)
     {
+        if (a.Kind is PdfAnnotationKind.Line or PdfAnnotationKind.Arrow && a.Leader.Count >= 2)
+        {
+            PdfPoint[] shifted = a.Leader.Select(p => new PdfPoint(p.X + dx, p.Y + dy)).ToArray();
+            return a with { Strokes = [shifted] };
+        }
+
         var box = new PdfRect(a.Box.Left + dx, a.Box.Top + dy, a.Box.Right + dx, a.Box.Bottom + dy);
         if (a.Kind == PdfAnnotationKind.Callout && a.Leader.Count >= 1)
         {
@@ -1670,7 +1889,9 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
 
         PdfAnnotation? a = _document.GetAnnotations(pageIndex).FirstOrDefault(x => x.Id == sel);
-        if (a is null || a.Kind is not (PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud))
+        if (a is null || a.Kind is not (PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout
+            or PdfAnnotationKind.Cloud or PdfAnnotationKind.Image or PdfAnnotationKind.Rectangle
+            or PdfAnnotationKind.Ellipse))
         {
             return null;
         }
@@ -1899,6 +2120,15 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         {
             (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale, crop);
             return new Point(x, y);
+        }
+
+        if (ShapeTool is ShapeTool.Line or ShapeTool.Arrow)
+        {
+            Point from = ToDip(_shapeAnchor), to = ToDip(_shapeHead);
+            slot.ShapePreview = new Rect(from, new Size(0, 0)); // keeps the preview canvas visible
+            slot.ShapePreviewLeader = [from, to];
+            slot.ShapePreviewArrow = ShapeTool == ShapeTool.Arrow ? LeaderArrowHead(to, from) : null;
+            return;
         }
 
         PdfRect pageRect = ShapeTool == ShapeTool.Callout

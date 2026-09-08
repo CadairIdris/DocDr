@@ -19,7 +19,8 @@ internal static class PdfShapeCodec
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    private sealed record Shape(string Kind, double[] Box, double[][]? Leader, double FontSize, bool? AutoSize);
+    private sealed record Shape(
+        string Kind, double[] Box, double[][]? Leader, double FontSize, bool? AutoSize, uint? Color);
 
     public static string Encode(PdfAnnotation a)
     {
@@ -32,7 +33,8 @@ internal static class PdfShapeCodec
             [a.Box.Left, a.Box.Top, a.Box.Right, a.Box.Bottom],
             leader,
             a.FontSize,
-            a.AutoSize ? null : false);
+            a.AutoSize ? null : false,
+            a.ColorArgb == 0 ? null : a.ColorArgb);
 
         return JsonSerializer.Serialize(shape, Options);
     }
@@ -60,7 +62,7 @@ internal static class PdfShapeCodec
 
         if (shape is null || shape.Box is not { Length: 4 }
             || !Enum.TryParse(shape.Kind, out PdfAnnotationKind kind)
-            || kind is not (PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud))
+            || !PdfAnnotation.IsStampKind(kind))
         {
             return null;
         }
@@ -70,7 +72,13 @@ internal static class PdfShapeCodec
             ? [shape.Leader.Where(p => p.Length == 2).Select(p => new PdfPoint(p[0], p[1])).ToArray()]
             : [];
 
-        return new PdfAnnotation(id, kind, [box], colorArgb, contents, author, created, modified)
+        bool lineKind = kind is PdfAnnotationKind.Line or PdfAnnotationKind.Arrow;
+        if (lineKind && strokes.Count == 0)
+        {
+            return null; // a line with no endpoints is nothing
+        }
+
+        return new PdfAnnotation(id, kind, [box], shape.Color ?? colorArgb, contents, author, created, modified)
         {
             Strokes = strokes,
             FontSize = shape.FontSize > 0 ? shape.FontSize : PdfAnnotation.DefaultFontSize,

@@ -816,7 +816,12 @@ public partial class PdfPaneView : UserControl
 
     private void PageList_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if ((e.Key == Key.Delete || e.Key == Key.Back)
+        if (e.Key == Key.V && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && _pane is not null)
+        {
+            PasteAtVisibleCentre();
+            e.Handled = true;
+        }
+        else if ((e.Key == Key.Delete || e.Key == Key.Back)
             && _pane?.SelectedAnnotationId is System.Guid id
             && _pane.DeleteAnnotationCommand.CanExecute(id))
         {
@@ -884,6 +889,58 @@ public partial class PdfPaneView : UserControl
             }
 
             source = VisualTreeHelper.GetParent(source);
+        }
+
+        return null;
+    }
+
+    /// <summary>Paste the clipboard onto the topmost visible page, at the centre of its visible band.</summary>
+    private void PasteAtVisibleCentre()
+    {
+        if (_pane is null || _scrollViewer is null || VisiblePageRange() is not { } range)
+        {
+            return;
+        }
+
+        int pageIndex = range.First;
+        if (PageList.ItemContainerGenerator.ContainerFromItem(PageItem(pageIndex)) is not FrameworkElement container
+            || FindDescendantSlot(container) is not { } slot)
+        {
+            return;
+        }
+
+        double top;
+        try
+        {
+            top = slot.TransformToVisual(_scrollViewer).Transform(new Point(0, 0)).Y;
+        }
+        catch (InvalidOperationException)
+        {
+            return;
+        }
+
+        double bandTop = Math.Max(0, top);
+        double bandBottom = Math.Min(_scrollViewer.ViewportHeight, top + slot.ActualHeight);
+        var centreInScrollViewer = new Point(
+            _scrollViewer.ViewportWidth / 2, (bandTop + bandBottom) / 2);
+        Point local = _scrollViewer.TranslatePoint(centreInScrollViewer, slot);
+
+        _pane.PasteFromClipboard(pageIndex, _pane.DevicePointToPage(pageIndex, local.X, local.Y));
+    }
+
+    private static FrameworkElement? FindDescendantSlot(DependencyObject root)
+    {
+        if (root is Grid { DataContext: PageSlotViewModel } grid)
+        {
+            return grid;
+        }
+
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            if (FindDescendantSlot(VisualTreeHelper.GetChild(root, i)) is { } found)
+            {
+                return found;
+            }
         }
 
         return null;

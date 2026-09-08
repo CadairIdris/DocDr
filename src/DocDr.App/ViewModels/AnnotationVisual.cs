@@ -69,6 +69,22 @@ public sealed record AnnotationVisual(
 
     public bool IsCloud => Kind == PdfAnnotationKind.Cloud;
 
+    public bool IsImage => Kind == PdfAnnotationKind.Image;
+
+    public bool IsRectangle => Kind == PdfAnnotationKind.Rectangle;
+
+    public bool IsEllipse => Kind == PdfAnnotationKind.Ellipse;
+
+    /// <summary>A straight line or arrow — drawn from <see cref="Leader"/>.</summary>
+    public bool IsLineShape => Kind is PdfAnnotationKind.Line or PdfAnnotationKind.Arrow;
+
+    /// <summary>Decoded bitmap for an <see cref="PdfAnnotationKind.Image"/>; null otherwise.</summary>
+    public ImageSource? Image { get; init; }
+
+    /// <summary>A selected box-shaped annotation shows corner resize handles + a selection border.</summary>
+    public bool ShowBoxSelection => IsSelected && Kind is PdfAnnotationKind.Image
+        or PdfAnnotationKind.Rectangle or PdfAnnotationKind.Ellipse;
+
     /// <summary>A standalone sticky note — drawn as a coloured pin the user can drag.</summary>
     public bool IsNote => Kind == PdfAnnotationKind.Comment;
 
@@ -96,5 +112,7 @@ public sealed record AnnotationVisual(
 
     /// <summary>A selected annotation gets an inline trash button.</summary>
     public bool ShowDeleteButton => IsSelected && Kind is PdfAnnotationKind.Highlight or PdfAnnotationKind.Ink
-        or PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud or PdfAnnotationKind.Comment;
+        or PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud or PdfAnnotationKind.Comment
+        or PdfAnnotationKind.Image or PdfAnnotationKind.Rectangle or PdfAnnotationKind.Ellipse
+        or PdfAnnotationKind.Line or PdfAnnotationKind.Arrow;
 }

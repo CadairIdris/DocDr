@@ -33,17 +33,17 @@ internal static class PdfAnnotationWriter
         }
     }
 
-    public static void Write(FpdfDocumentT doc, FpdfPageT page, IReadOnlyList<PdfAnnotation> annotations)
+    public static void Write(
+        FpdfDocumentT doc, FpdfPageT page, IReadOnlyList<PdfAnnotation> annotations, IImageDecoder? imageDecoder = null)
     {
-        bool hasStamp = annotations.Any(a =>
-            a.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud);
-        FpdfFontT? font = hasStamp ? fpdf_edit.FPDFTextLoadStandardFont(doc, "Helvetica") : null;
+        bool needsFont = annotations.Any(a => a.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout);
+        FpdfFontT? font = needsFont ? fpdf_edit.FPDFTextLoadStandardFont(doc, "Helvetica") : null;
 
         try
         {
             foreach (PdfAnnotation a in annotations)
             {
-                WriteOne(doc, page, font, a);
+                WriteOne(doc, page, font, a, imageDecoder);
             }
         }
         finally
@@ -55,7 +55,8 @@ internal static class PdfAnnotationWriter
         }
     }
 
-    private static void WriteOne(FpdfDocumentT doc, FpdfPageT page, FpdfFontT? font, PdfAnnotation a)
+    private static void WriteOne(
+        FpdfDocumentT doc, FpdfPageT page, FpdfFontT? font, PdfAnnotation a, IImageDecoder? imageDecoder)
     {
         FpdfAnnotationT? annot = fpdf_annot.FPDFPageCreateAnnot(page, a.Subtype);
         if (annot is null || annot.__Instance == IntPtr.Zero)
@@ -85,10 +86,14 @@ internal static class PdfAnnotationWriter
                 }
             }
 
-            if (a.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud)
+            if (a.IsStampBacked)
             {
-                PdfStampAppearance.Build(doc, annot, font, a);
+                PdfStampAppearance.Build(doc, annot, font, a, imageDecoder);
                 SetString(annot, PdfAnnotations.ShapeKey, PdfShapeCodec.Encode(a));
+                if (a.Kind == PdfAnnotationKind.Image && a.ImageData is { Length: > 0 } png)
+                {
+                    SetString(annot, PdfAnnotations.ImageKey, Convert.ToBase64String(png));
+                }
             }
 
             if (!string.IsNullOrEmpty(a.Contents))

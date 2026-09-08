@@ -20,6 +20,21 @@ public enum PdfAnnotationKind
 
     /// <summary>A scalloped "revision cloud" outlining a changed area (a <c>Stamp</c> appearance).</summary>
     Cloud,
+
+    /// <summary>A pasted raster image placed on the page (a <c>Stamp</c> appearance).</summary>
+    Image,
+
+    /// <summary>A plain rectangle outline (a <c>Stamp</c> appearance).</summary>
+    Rectangle,
+
+    /// <summary>A plain ellipse outline (a <c>Stamp</c> appearance).</summary>
+    Ellipse,
+
+    /// <summary>A straight line between two points (a <c>Stamp</c> appearance).</summary>
+    Line,
+
+    /// <summary>A straight line with an arrowhead at its end point (a <c>Stamp</c> appearance).</summary>
+    Arrow,
 }
 
 /// <summary>
@@ -71,21 +86,37 @@ public sealed record PdfAnnotation(
     /// <summary>Replies to this comment, oldest first. Empty for a thread with no replies yet.</summary>
     public IReadOnlyList<PdfReply> Replies { get; init; } = [];
 
+    /// <summary>Encoded (PNG) bytes for a <see cref="PdfAnnotationKind.Image"/>; null otherwise.</summary>
+    public byte[]? ImageData { get; init; }
+
+    /// <summary>Stamp-backed kinds whose appearance DocDr builds itself.</summary>
+    public bool IsStampBacked => IsStampKind(Kind);
+
+    /// <summary>Whether <paramref name="kind"/> is drawn as a DocDr-built <c>Stamp</c> appearance.</summary>
+    public static bool IsStampKind(PdfAnnotationKind kind) => kind is PdfAnnotationKind.TextBox
+        or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud or PdfAnnotationKind.Image
+        or PdfAnnotationKind.Rectangle or PdfAnnotationKind.Ellipse or PdfAnnotationKind.Line
+        or PdfAnnotationKind.Arrow;
+
     /// <summary>PDF annotation subtype number for <see cref="Kind"/> (matches the PDF spec / PDFium).</summary>
     public int Subtype => Kind switch
     {
         PdfAnnotationKind.Highlight => 9,
         PdfAnnotationKind.Ink => 15,
-        PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud => 13, // Stamp — DocDr builds the appearance
+        _ when IsStampBacked => 13, // Stamp — DocDr builds the appearance
         _ => 1,
     };
 
-    /// <summary>The box rectangle for a <see cref="PdfAnnotationKind.TextBox"/> / <see cref="PdfAnnotationKind.Callout"/>
-    /// / <see cref="PdfAnnotationKind.Cloud"/> (the first quad). Default for other kinds.</summary>
+    /// <summary>The box rectangle for a box-shaped kind (text box, callout, cloud, image, rectangle,
+    /// ellipse) — the first quad. Default for the others.</summary>
     public PdfRect Box => Quads.Count > 0 ? Quads[0] : default;
 
-    /// <summary>The callout leader points (tip first, box-attach last) for a <see cref="PdfAnnotationKind.Callout"/>.</summary>
-    public IReadOnlyList<PdfPoint> Leader => Kind == PdfAnnotationKind.Callout && Strokes.Count > 0 ? Strokes[0] : [];
+    /// <summary>The two/more control points for a <see cref="PdfAnnotationKind.Callout"/> leader, or
+    /// the two end points of a <see cref="PdfAnnotationKind.Line"/> / <see cref="PdfAnnotationKind.Arrow"/>
+    /// (tip / arrowhead first).</summary>
+    public IReadOnlyList<PdfPoint> Leader =>
+        Kind is PdfAnnotationKind.Callout or PdfAnnotationKind.Line or PdfAnnotationKind.Arrow
+        && Strokes.Count > 0 ? Strokes[0] : [];
 
     /// <summary>Smallest rectangle covering every quad / stroke point.</summary>
     public PdfRect Bounds
@@ -122,6 +153,7 @@ public sealed record PdfAnnotation(
             {
                 PdfAnnotationKind.Ink => Math.Max(1, StrokeWidth),
                 PdfAnnotationKind.Cloud => 6,   // the scallops bulge outside the vertex rectangle
+                PdfAnnotationKind.Arrow => 6,   // the arrowhead pokes past the end point
                 _ => 0,
             };
             return new PdfRect(left - pad, top + pad, right + pad, bottom - pad);
@@ -183,6 +215,45 @@ public sealed record PdfAnnotation(
     {
         DateTimeOffset now = DateTimeOffset.Now;
         return new(Guid.NewGuid(), PdfAnnotationKind.Cloud, [area], colorArgb, null, author, now, now);
+    }
+
+    public static PdfAnnotation NewImage(PdfRect box, byte[] png, string? author = null)
+    {
+        ArgumentNullException.ThrowIfNull(png);
+        DateTimeOffset now = DateTimeOffset.Now;
+        return new(Guid.NewGuid(), PdfAnnotationKind.Image, [box], 0, null, author, now, now)
+        {
+            ImageData = png,
+            AutoSize = false,
+        };
+    }
+
+    public static PdfAnnotation NewRectangle(PdfRect box, uint colorArgb, string? author = null) =>
+        NewBoxShape(PdfAnnotationKind.Rectangle, box, colorArgb, author);
+
+    public static PdfAnnotation NewEllipse(PdfRect box, uint colorArgb, string? author = null) =>
+        NewBoxShape(PdfAnnotationKind.Ellipse, box, colorArgb, author);
+
+    private static PdfAnnotation NewBoxShape(PdfAnnotationKind kind, PdfRect box, uint colorArgb, string? author)
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+        return new(Guid.NewGuid(), kind, [box], colorArgb, null, author, now, now) { AutoSize = false };
+    }
+
+    public static PdfAnnotation NewLine(PdfPoint from, PdfPoint to, uint colorArgb, string? author = null) =>
+        NewLineShape(PdfAnnotationKind.Line, from, to, colorArgb, author);
+
+    public static PdfAnnotation NewArrow(PdfPoint from, PdfPoint to, uint colorArgb, string? author = null) =>
+        NewLineShape(PdfAnnotationKind.Arrow, from, to, colorArgb, author);
+
+    private static PdfAnnotation NewLineShape(PdfAnnotationKind kind, PdfPoint from, PdfPoint to, uint colorArgb, string? author)
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+        // Strokes[0] = [end, start] so index 0 is the arrowhead tip (matches the callout leader order).
+        return new(Guid.NewGuid(), kind, [], colorArgb, null, author, now, now)
+        {
+            Strokes = [[to, from]],
+        };
     }
 }
 

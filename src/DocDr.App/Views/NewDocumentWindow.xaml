@@ -1,0 +1,48 @@
+<Window x:Class="DocDr.App.Views.NewDocumentWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:DocDr.App.ViewModels"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance vm:NewDocumentViewModel}"
+        Title="New document" SizeToContent="Height" Width="340"
+        Icon="/DocDr.App;component/Assets/DocDr.ico"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" ResizeMode="NoResize">
+    <Window.Resources>
+        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}" />
+    </Window.Resources>
+    <StackPanel Margin="18">
+        <TextBlock Text="Page size" FontWeight="SemiBold" Margin="0,0,0,6"
+                   Foreground="{DynamicResource PrimaryTextBrush}" />
+        <ComboBox ItemsSource="{Binding SizeNames}" SelectedItem="{Binding SelectedSize}" />
+
+        <Grid Margin="0,12,0,0" IsEnabled="{Binding IsCustom}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="70" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="70" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Width" VerticalAlignment="Center" Margin="0,0,6,0"
+                       Foreground="{DynamicResource SecondaryTextBrush}" />
+            <TextBox Grid.Column="1" Text="{Binding WidthMm, StringFormat=0.#}" VerticalContentAlignment="Center" />
+            <TextBlock Grid.Column="2" Text="Height" VerticalAlignment="Center" Margin="10,0,6,0"
+                       Foreground="{DynamicResource SecondaryTextBrush}" />
+            <TextBox Grid.Column="3" Text="{Binding HeightMm, StringFormat=0.#}" VerticalContentAlignment="Center" />
+            <TextBlock Grid.Column="4" Text="mm" VerticalAlignment="Center" Margin="6,0,0,0"
+                       Foreground="{DynamicResource SecondaryTextBrush}" />
+        </Grid>
+
+        <CheckBox Content="Landscape" IsChecked="{Binding Landscape}" Margin="0,14,0,0"
+                  Foreground="{DynamicResource PrimaryTextBrush}" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+            <Button Content="Cancel" MinWidth="80" Padding="8,4" Margin="0,0,8,0" IsCancel="True"
+                    Command="{Binding CancelCommand}" />
+            <Button Content="Create" MinWidth="90" Padding="8,4" IsDefault="True"
+                    Command="{Binding CreateCommand}" />
+        </StackPanel>
+    </StackPanel>
+</Window>

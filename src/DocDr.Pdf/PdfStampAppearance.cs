@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using PDFiumCore;
 
 namespace DocDr.Pdf;
@@ -15,7 +16,8 @@ internal static class PdfStampAppearance
     private const int LineJoinRound = 1;
     private const double CloudBumpRadius = 8.0;
 
-    public static void Build(FpdfDocumentT doc, FpdfAnnotationT annot, FpdfFontT? font, PdfAnnotation a)
+    public static void Build(
+        FpdfDocumentT doc, FpdfAnnotationT annot, FpdfFontT? font, PdfAnnotation a, IImageDecoder? imageDecoder)
     {
         (uint r, uint g, uint b) = Rgb(a.ColorArgb);
         PdfRect box = Normalise(a.Box);
@@ -28,7 +30,7 @@ internal static class PdfStampAppearance
                 break;
 
             case PdfAnnotationKind.Callout:
-                DrawLeader(annot, a.Leader, r, g, b);
+                DrawLeader(annot, a.Leader, r, g, b, arrow: true);
                 StrokeRect(annot, box, r, g, b, 1.5f);
                 DrawText(doc, annot, font, a, box, r, g, b);
                 break;
@@ -36,7 +38,77 @@ internal static class PdfStampAppearance
             case PdfAnnotationKind.Cloud:
                 DrawCloud(annot, box, r, g, b);
                 break;
+
+            case PdfAnnotationKind.Rectangle:
+                StrokeRect(annot, box, r, g, b, 1.5f);
+                break;
+
+            case PdfAnnotationKind.Ellipse:
+                DrawEllipse(annot, box, r, g, b);
+                break;
+
+            case PdfAnnotationKind.Line:
+                DrawLeader(annot, a.Leader, r, g, b, arrow: false);
+                break;
+
+            case PdfAnnotationKind.Arrow:
+                DrawLeader(annot, a.Leader, r, g, b, arrow: true);
+                break;
+
+            case PdfAnnotationKind.Image:
+                DrawImage(doc, annot, a, box, imageDecoder);
+                break;
         }
+    }
+
+    private static void DrawImage(
+        FpdfDocumentT doc, FpdfAnnotationT annot, PdfAnnotation a, PdfRect box, IImageDecoder? decoder)
+    {
+        if (decoder is null || a.ImageData is null || a.ImageData.Length == 0
+            || box.Width < 1 || box.Height < 1)
+        {
+            return;
+        }
+
+        (int w, int h, int stride, byte[] bgra) = decoder.DecodeToBgra(a.ImageData);
+        if (w <= 0 || h <= 0 || bgra.Length < stride * h)
+        {
+            return;
+        }
+
+        GCHandle pin = GCHandle.Alloc(bgra, GCHandleType.Pinned);
+        try
+        {
+            FpdfBitmapT bitmap = fpdfview.FPDFBitmapCreateEx(
+                w, h, (int)PdfiumBitmapFormat.Bgra, pin.AddrOfPinnedObject(), stride);
+            FpdfPageobjectT image = fpdf_edit.FPDFPageObjNewImageObj(doc);
+            fpdf_edit.FPDFImageObjSetBitmap(null, 0, image, bitmap);
+            // Scale the unit image to the box; PDFium's image space has its origin bottom-left.
+            fpdf_edit.FPDFImageObjSetMatrix(
+                image, box.Width, 0, 0, box.Height, box.Left, box.Bottom);
+            fpdf_annot.FPDFAnnotAppendObject(annot, image);
+            fpdfview.FPDFBitmapDestroy(bitmap);
+        }
+        finally
+        {
+            pin.Free();
+        }
+    }
+
+    private static void DrawEllipse(FpdfAnnotationT annot, PdfRect box, uint r, uint g, uint b)
+    {
+        const double kappa = 0.5522847498;
+        double cx = (box.Left + box.Right) / 2, cy = (box.Top + box.Bottom) / 2;
+        double rx = (box.Right - box.Left) / 2, ry = (box.Top - box.Bottom) / 2;
+        double ox = rx * kappa, oy = ry * kappa;
+
+        FpdfPageobjectT path = fpdf_edit.FPDFPageObjCreateNewPath((float)(cx - rx), (float)cy);
+        fpdf_edit.FPDFPathBezierTo(path, (float)(cx - rx), (float)(cy + oy), (float)(cx - ox), (float)(cy + ry), (float)cx, (float)(cy + ry));
+        fpdf_edit.FPDFPathBezierTo(path, (float)(cx + ox), (float)(cy + ry), (float)(cx + rx), (float)(cy + oy), (float)(cx + rx), (float)cy);
+        fpdf_edit.FPDFPathBezierTo(path, (float)(cx + rx), (float)(cy - oy), (float)(cx + ox), (float)(cy - ry), (float)cx, (float)(cy - ry));
+        fpdf_edit.FPDFPathBezierTo(path, (float)(cx - ox), (float)(cy - ry), (float)(cx - rx), (float)(cy - oy), (float)(cx - rx), (float)cy);
+        fpdf_edit.FPDFPathClose(path);
+        StrokePath(annot, path, r, g, b, 1.5f);
     }
 
     private static void StrokeRect(FpdfAnnotationT annot, PdfRect box, uint r, uint g, uint b, float width)
@@ -49,7 +121,8 @@ internal static class PdfStampAppearance
         StrokePath(annot, path, r, g, b, width);
     }
 
-    private static void DrawLeader(FpdfAnnotationT annot, IReadOnlyList<PdfPoint> leader, uint r, uint g, uint b)
+    private static void DrawLeader(
+        FpdfAnnotationT annot, IReadOnlyList<PdfPoint> leader, uint r, uint g, uint b, bool arrow)
     {
         if (leader.Count < 2)
         {
@@ -67,7 +140,7 @@ internal static class PdfStampAppearance
         PdfPoint next = leader[1];
         double dx = next.X - tip.X, dy = next.Y - tip.Y;
         double len = Math.Sqrt((dx * dx) + (dy * dy));
-        if (len > 0.01)
+        if (arrow && len > 0.01)
         {
             dx /= len;
             dy /= len;
