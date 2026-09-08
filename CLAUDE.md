@@ -163,6 +163,12 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   (`TryHitShapeBox` also matches `Comment`, `MoveShape` offsets `Quads[0]`), click-to-select
   (accent glow), double-click to edit. The small edit-glyph `ShowMarker` button is now only for
   a *noted highlight*.
+- **Hover preview**: the pin (and the noted-highlight button) carry a rich `ToolTip` (the
+  `NoteTip` style in `PdfPaneView.xaml`) showing `NoteMeta` (author · date, from
+  `PdfPaneViewModel.FormatNoteMeta`), `NoteText` and reply count — read a note without the
+  editor. The pin is `IsHitTestVisible` for this; the `Preview*` mouse handlers on `PageList`
+  still own select / drag / double-click. The `ToolTip` style pins its `DataContext` to
+  `PlacementTarget.DataContext` (the `AnnotationVisual`).
 - Ink = PDF subtype 15. `PdfInkInterop` marshals the `FS_POINTF[]` for
   `FPDFAnnotAddInkStroke` / `FPDFAnnotGetInkListPath` by hand — PDFiumCore only exposes a
   single-`FS_POINTF_` wrapper and its pointer factory (`__CreateInstance`) is `internal`, so
