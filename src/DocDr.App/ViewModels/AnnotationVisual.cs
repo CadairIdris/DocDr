@@ -133,9 +133,7 @@ public sealed record AnnotationVisual(
 
     public string ReplyLabel => ReplyCount == 1 ? "1 reply" : $"{ReplyCount} replies";
 
-    /// <summary>A selected annotation gets an inline trash button.</summary>
-    public bool ShowDeleteButton => IsSelected && Kind is PdfAnnotationKind.Highlight or PdfAnnotationKind.Ink
-        or PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud or PdfAnnotationKind.Comment
-        or PdfAnnotationKind.Image or PdfAnnotationKind.Rectangle or PdfAnnotationKind.Ellipse
-        or PdfAnnotationKind.Line or PdfAnnotationKind.Arrow;
+    /// <summary>The inline trash button — only for the kinds the floating format toolbar doesn't
+    /// cover (it has its own delete). Ink and images have no format bar.</summary>
+    public bool ShowDeleteButton => IsSelected && Kind is PdfAnnotationKind.Ink or PdfAnnotationKind.Image;
 }
