@@ -323,10 +323,16 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   only when `PageList.IsMouseOver`. `HorizontalWheelScale` (1.0) carries the sign — flip it if a
   pad scrolls the wrong way. All three drive `_scrollViewer.ScrollTo*Offset`.
 
-- One background worker rasterises pages newest-request-first. **The worker `catch`es every
-  per-request exception and keeps looping** — an uncaught throw there kills the worker and
-  *every* page then renders blank forever (this was a real bug: extreme zoom → a
-  `new byte[stride*height]` of hundreds of MB → `OutOfMemoryException` → dead worker).
+- One `BackgroundRenderQueue` worker rasterises pages. **Thumbnail-sized requests (≤ 320 px)
+  go first**, oldest-first (the strip fills top-down); larger page renders keep newest-first
+  (the page just scrolled to). `Clear()` (zoom / doc swap) drops only page requests — thumbnail
+  requests never go stale. Without the thumbnail priority a fast page-scroll starved the strip.
+- **The worker `catch`es every per-request exception and keeps looping** — an uncaught throw
+  there kills the worker and *every* page then renders blank forever (this was a real bug:
+  extreme zoom → a `new byte[stride*height]` of hundreds of MB → `OutOfMemoryException` → dead worker).
+- `CachingPageRenderer` (the raw-BGRA LRU below the queue) is capped at **128 MB** — page
+  bitmaps are ~4-6 MB each at 150 % DPI, so 128 MB keeps ~20 hot; more just inflates the
+  working set on a long standard. Keyed by `(document, page, w, h)`; `Purge(doc)` on tab close.
 - `PdfPaneViewModel.MaxRenderEdge` (4096) caps a page bitmap's long side; WPF upscales it into
   the (larger) layout box, so only very high zoom goes soft. `CappedRenderSize` is used for both
   the enqueue size and the `OnPageRendered` stale check, so they agree.
