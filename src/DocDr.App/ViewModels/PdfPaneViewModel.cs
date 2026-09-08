@@ -158,6 +158,9 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     private int _currentPage;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(MatchSummary))]
+    [NotifyCanExecuteChangedFor(nameof(NextMatchCommand))]
+    [NotifyCanExecuteChangedFor(nameof(PreviousMatchCommand))]
     private string _searchText = string.Empty;
 
     [ObservableProperty]
@@ -609,23 +612,37 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
     }
 
-    [RelayCommand(CanExecute = nameof(HasMatches))]
-    private void NextMatch()
+    [RelayCommand(CanExecute = nameof(CanNavigateMatches))]
+    private async Task NextMatch()
     {
-        if (_hits.Count > 0)
+        // Pressing Prev/Next with a typed-but-not-yet-run term should search, not do nothing.
+        if (_hits.Count == 0)
         {
-            MoveToHit((_activeHit + 1) % _hits.Count);
+            await SearchAsync();
+            return;
         }
+
+        MoveToHit((_activeHit + 1) % _hits.Count);
     }
 
-    [RelayCommand(CanExecute = nameof(HasMatches))]
-    private void PreviousMatch()
+    [RelayCommand(CanExecute = nameof(CanNavigateMatches))]
+    private async Task PreviousMatch()
     {
-        if (_hits.Count > 0)
+        if (_hits.Count == 0)
         {
-            MoveToHit((_activeHit - 1 + _hits.Count) % _hits.Count);
+            await SearchAsync();
+            if (_hits.Count > 0)
+            {
+                MoveToHit(_hits.Count - 1);
+            }
+
+            return;
         }
+
+        MoveToHit((_activeHit - 1 + _hits.Count) % _hits.Count);
     }
+
+    private bool CanNavigateMatches() => _hits.Count > 0 || !string.IsNullOrWhiteSpace(SearchText);
 
     [RelayCommand]
     private void ClearSearch()
@@ -636,8 +653,6 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         ResetSearchState();
         OnPropertyChanged(nameof(MatchSummary));
     }
-
-    private bool HasMatches() => _hits.Count > 0;
 
     private void ResetSearchState()
     {
