@@ -304,24 +304,15 @@ public partial class PdfPaneView : UserControl
         }
     }
 
-    private int TopVisiblePageIndex()
-    {
-        if (_pane!.Mode is ViewMode.SinglePage or ViewMode.Continuous && VisiblePageRange() is { } r)
-        {
-            return r.First;
-        }
-
-        double offset = _scrollViewer!.VerticalOffset;
-        return _pane.Mode == ViewMode.Grid
-            ? _pane.GetRowAtOffset(offset) * Math.Max(1, _pane.GridColumns)
-            : _pane.GetPageAtOffset(offset);
-    }
+    private int TopVisiblePageIndex() =>
+        VisiblePageRange()?.First ?? (_pane!.CurrentPage - 1);
 
     /// <summary>
     /// The span of pages whose realised containers actually intersect the viewport, read straight
-    /// from WPF's layout. The app's own <c>LayoutHeight</c>-sum model (<c>GetPageAtOffset</c>) drifts
-    /// from the virtualising panel's pixel-extent estimate right after a zoom — trusting it there
-    /// realises (and renders) the wrong pages, leaving what's actually on screen blank.
+    /// from WPF's layout — the single source of truth for what's on screen in every scrolling mode
+    /// (Continuous, SinglePage, Grid). Works off the realised container list, so it never drifts
+    /// from the virtualising panel the way a <c>LayoutHeight</c>-sum estimate does right after a
+    /// zoom. In Grid mode the containers are rows; their slots' page indices are unioned in.
     /// </summary>
     private (int First, int Last)? VisiblePageRange()
     {
@@ -336,10 +327,26 @@ public partial class PdfPaneView : UserControl
 
         foreach (object item in PageList.Items)
         {
-            if (generator.ContainerFromItem(item) is not FrameworkElement { IsVisible: true } container
-                || container.DataContext is not PageSlotViewModel slot)
+            if (generator.ContainerFromItem(item) is not FrameworkElement { IsVisible: true } container)
             {
                 continue;
+            }
+
+            double fallbackHeight;
+            int lo, hi;
+            switch (container.DataContext)
+            {
+                case PageSlotViewModel slot:
+                    fallbackHeight = slot.LayoutHeight;
+                    lo = hi = slot.PageIndex;
+                    break;
+                case PageRowViewModel { Slots.Count: > 0 } row:
+                    fallbackHeight = row.RowHeight;
+                    lo = row.Slots[0].PageIndex;
+                    hi = row.Slots[^1].PageIndex;
+                    break;
+                default:
+                    continue;
             }
 
             double top;
@@ -352,14 +359,14 @@ public partial class PdfPaneView : UserControl
                 continue; // not in the same visual tree yet
             }
 
-            double height = container.ActualHeight > 0 ? container.ActualHeight : slot.LayoutHeight;
+            double height = container.ActualHeight > 0 ? container.ActualHeight : fallbackHeight;
             if (top + height <= 0 || top >= viewport)
             {
                 continue; // fully above or below the viewport
             }
 
-            first = Math.Min(first, slot.PageIndex);
-            last = Math.Max(last, slot.PageIndex);
+            first = Math.Min(first, lo);
+            last = Math.Max(last, hi);
         }
 
         return last < 0 ? null : (first, last);
@@ -378,29 +385,17 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
-        if (_pane.Mode is ViewMode.SinglePage or ViewMode.Continuous)
+        // Continuous / SinglePage / Grid all read the realised containers. When nothing is
+        // realised yet (one frame at startup or just after a jump) fall back to the current page
+        // so a container gets realised — the next pass then reads it.
+        if (VisiblePageRange() is { } r)
         {
-            if (VisiblePageRange() is { } r)
-            {
-                _pane.UpdateVisibleRange(r.First, r.Last);
-            }
-            else if (_pane.Mode == ViewMode.SinglePage)
-            {
-                _pane.UpdateVisibleRange(_pane.CurrentPage - 1, _pane.CurrentPage - 1);
-            }
-            else
-            {
-                double t = _scrollViewer.VerticalOffset;
-                _pane.UpdateVisibleRange(
-                    _pane.GetPageAtOffset(t), _pane.GetPageAtOffset(t + Math.Max(1, _scrollViewer.ViewportHeight)));
-            }
-
-            return;
+            _pane.UpdateVisibleRange(r.First, r.Last);
         }
-
-        double top = _scrollViewer.VerticalOffset;
-        double bottom = top + Math.Max(1, _scrollViewer.ViewportHeight);
-        _pane.UpdateVisibleRows(_pane.GetRowAtOffset(top), _pane.GetRowAtOffset(bottom));
+        else
+        {
+            _pane.UpdateVisibleRange(_pane.CurrentPage - 1, _pane.CurrentPage - 1);
+        }
     }
 
     private void OnScrollToPageRequested(int pageIndex)
@@ -416,8 +411,8 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
-        // A plain ScrollToVerticalOffset(GetPageOffset(N)) drifts — the panel virtualises and
-        // DPI-snaps each realised page a hair taller than our layout estimate, so the error
+        // A plain ScrollToVerticalOffset(sum-of-LayoutHeights) drifts — the panel virtualises and
+        // DPI-snaps each realised page a hair taller than a layout estimate, so the error
         // compounds and a jump deep into a long document lands a page or more short.
         // ScrollIntoView realises the target container; then top-align it from its real
         // on-screen position, refining as neighbours realise.

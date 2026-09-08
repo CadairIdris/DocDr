@@ -345,14 +345,19 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 - `PdfPaneViewModel.MaxRenderEdge` (4096) caps a page bitmap's long side; WPF upscales it into
   the (larger) layout box, so only very high zoom goes soft. `CappedRenderSize` is used for both
   the enqueue size and the `OnPageRendered` stale check, so they agree.
-- **Visible-range detection reads WPF's realised containers, not the app's height model.**
-  `PdfPaneView.VisiblePageRange()` walks `PageList.Items` → `ContainerFromItem` → the containers
-  that actually intersect the viewport (`TransformToVisual(scrollViewer)`), and `RefreshVisibleRange`
-  / `TopVisiblePageIndex` use that for SinglePage + Continuous. The app's own `GetPageAtOffset`
-  (a `LayoutHeight`-sum) drifts from the virtualising panel's pixel-extent *estimate* for a
-  layout pass or two right after a zoom — trusting it there realised (and rendered) the wrong
-  pages, leaving what was actually on screen blank. `GetPageAtOffset` is now only a fallback for
-  the frame before any container is realised (and still drives Grid rows).
+- **Visible-range detection reads WPF's realised containers only — there is no parallel height
+  model.** `PdfPaneView.VisiblePageRange()` walks `PageList.Items` → `ContainerFromItem` → the
+  containers that actually intersect the viewport (`TransformToVisual(scrollViewer)` + `ActualHeight`),
+  and it's the single source of truth for `RefreshVisibleRange` / `TopVisiblePageIndex` in **every**
+  scrolling mode — Continuous, SinglePage and Grid (in Grid the containers are `PageRowViewModel`s;
+  their slots' page indices are unioned in). When nothing is realised yet (one frame at startup /
+  just after a jump) the fallback is `UpdateVisibleRange(CurrentPage-1, CurrentPage-1)` — realise
+  the current page, the next layout pass reads it. The old `LayoutHeight`-sum offset methods
+  (`GetPageAtOffset` / `GetRowAtOffset` / `GetPageOffset` / …) are gone — they drifted from the
+  virtualising panel's pixel-extent estimate for a pass or two after a zoom and rendered the wrong
+  pages. `PageSlotViewModel.LayoutHeight` / `PageRowViewModel.RowHeight` remain — they're the
+  per-item template dimensions WPF measures against, not an offset model. Page jumps
+  (`OnScrollToPageRequested`) use `ScrollIntoView` + real container Y, never an offset sum.
 - `UpdateVisibleRange` clamps the realised span to `MaxRealizedPages` (16) as a backstop against
   a bad reading queuing hundreds of large renders, **and frees `PageSlotViewModel.Image` for
   slots more than `ImageKeepMargin` (6) pages outside that span** — the bitmap is otherwise held
