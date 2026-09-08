@@ -26,6 +26,7 @@ public sealed partial class DocumentPropertiesViewModel : ObservableObject
         Created = OrDash(PdfDate.ForDisplay(info.CreationDate));
         Modified = OrDash(PdfDate.ForDisplay(info.ModificationDate));
         PageCountText = document.PageCount.ToString();
+        Features = BuildFeatureLine(document);
         FilePath = document.FilePath ?? "(unsaved)";
         FileSizeText = document.FilePath is { } p && File.Exists(p)
             ? $"{new FileInfo(p).Length / 1024.0:N0} KB"
@@ -46,6 +47,30 @@ public sealed partial class DocumentPropertiesViewModel : ObservableObject
     public string PageCountText { get; }
     public string FilePath { get; }
     public string FileSizeText { get; }
+
+    /// <summary>"Tagged · Encrypted · Page labels" — the structural traits worth surfacing.</summary>
+    public string Features { get; }
+
+    private static string BuildFeatureLine(PdfDocument document)
+    {
+        var parts = new System.Collections.Generic.List<string>();
+        if (document.IsTagged)
+        {
+            parts.Add("Tagged (accessible)");
+        }
+
+        if (document.IsEncrypted)
+        {
+            parts.Add("Encrypted");
+        }
+
+        if (document.HasPageLabels)
+        {
+            parts.Add("Custom page labels");
+        }
+
+        return parts.Count > 0 ? string.Join("  ·  ", parts) : "—";
+    }
 
     /// <summary>Set by the window so the commands can close it.</summary>
     public Action<bool>? CloseRequested { get; set; }

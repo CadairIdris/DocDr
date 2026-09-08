@@ -106,6 +106,10 @@ public sealed class PdfDocument : IDisposable
     /// Saving or stripping watermarks rewrites it without encryption.</summary>
     public bool IsEncrypted => Locked(() => fpdfview.FPDF_GetSecurityHandlerRevision(Handle) >= 0);
 
+    /// <summary>The PDF declares a logical structure tree (<c>/MarkInfo /Marked true</c>) — its
+    /// headings, lists and reading order can be read semantically rather than guessed.</summary>
+    public bool IsTagged => Locked(() => fpdf_catalog.FPDFCatalogIsTagged(Handle) != 0);
+
     public bool CanUndo => _undo.Count > 0;
 
     public bool CanRedo => _redo.Count > 0;

@@ -54,6 +54,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Title" Style="{StaticResource FieldLabel}" />
@@ -82,8 +83,11 @@
             <TextBlock Grid.Row="8" Grid.Column="0" Text="Modified" Style="{StaticResource FieldLabel}" />
             <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding Modified}" Style="{StaticResource ReadOnlyValue}" />
 
-            <TextBlock Grid.Row="9" Grid.Column="0" Text="File" Style="{StaticResource FieldLabel}" />
-            <StackPanel Grid.Row="9" Grid.Column="1" Margin="0,4">
+            <TextBlock Grid.Row="9" Grid.Column="0" Text="Format" Style="{StaticResource FieldLabel}" />
+            <TextBlock Grid.Row="9" Grid.Column="1" Text="{Binding Features}" Style="{StaticResource ReadOnlyValue}" />
+
+            <TextBlock Grid.Row="10" Grid.Column="0" Text="File" Style="{StaticResource FieldLabel}" />
+            <StackPanel Grid.Row="10" Grid.Column="1" Margin="0,4">
                 <TextBlock Text="{Binding FilePath}" Style="{StaticResource ReadOnlyValue}" ToolTip="{Binding FilePath}" />
                 <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11">
                     <Run Text="{Binding PageCountText, Mode=OneWay}" /><Run Text=" pages · " /><Run Text="{Binding FileSizeText, Mode=OneWay}" />
