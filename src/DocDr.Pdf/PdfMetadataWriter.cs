@@ -88,7 +88,7 @@ internal static partial class PdfMetadataWriter
     }
 
     /// <summary>An ASCII-safe PDF string token: a literal <c>(...)</c> for printable ASCII, else a UTF-16BE hex string.</summary>
-    private static string PdfString(string value)
+    internal static string PdfString(string value)
     {
         bool asciiPrintable = value.All(c => c is >= ' ' and <= '~');
         if (asciiPrintable)
