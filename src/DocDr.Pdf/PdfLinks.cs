@@ -26,7 +26,115 @@ public static class PdfLinks
     {
         ArgumentNullException.ThrowIfNull(document);
         document.ValidatePageIndex(pageIndex);
-        return document.Locked(() => ReadLocked(document.Handle, pageIndex));
+        return document.Locked(() =>
+        {
+            IReadOnlyList<PdfLink> annotationLinks = ReadLocked(document.Handle, pageIndex);
+            IReadOnlyList<PdfLink> webLinks;
+            try
+            {
+                webLinks = ReadWebLinksLocked(document, pageIndex);
+            }
+            catch (PdfException)
+            {
+                webLinks = []; // no text layer on this page
+            }
+
+            if (webLinks.Count == 0)
+            {
+                return annotationLinks;
+            }
+
+            // Keep every annotation link; add only web links that don't sit on top of one.
+            var merged = new List<PdfLink>(annotationLinks);
+            foreach (PdfLink web in webLinks)
+            {
+                if (!annotationLinks.Any(a => Overlaps(a.Rect, web.Rect)))
+                {
+                    merged.Add(web);
+                }
+            }
+
+            return (IReadOnlyList<PdfLink>)merged;
+        });
+    }
+
+    private static bool Overlaps(PdfRect a, PdfRect b)
+    {
+        double ax0 = Math.Min(a.Left, a.Right), ax1 = Math.Max(a.Left, a.Right);
+        double ay0 = Math.Min(a.Top, a.Bottom), ay1 = Math.Max(a.Top, a.Bottom);
+        double bx0 = Math.Min(b.Left, b.Right), bx1 = Math.Max(b.Left, b.Right);
+        double by0 = Math.Min(b.Top, b.Bottom), by1 = Math.Max(b.Top, b.Bottom);
+        return ax0 < bx1 && bx0 < ax1 && ay0 < by1 && by0 < ay1;
+    }
+
+    /// <summary>
+    /// Bare URLs / emails printed in the page text with no <c>/Link</c> annotation, found by
+    /// PDFium's web-link detector (<c>FPDFLink_*WebLinks</c>). One <see cref="PdfLink"/> per
+    /// on-page rectangle (a link that wraps a line has several).
+    /// </summary>
+    internal static IReadOnlyList<PdfLink> ReadWebLinksLocked(PdfDocument document, int pageIndex)
+    {
+        return PdfTextExtractor.WithTextPage(document, pageIndex, textPage =>
+        {
+            FpdfPagelinkT? pageLink = fpdf_text.FPDFLinkLoadWebLinks(textPage);
+            if (pageLink is null || pageLink.__Instance == IntPtr.Zero)
+            {
+                return (IReadOnlyList<PdfLink>)[];
+            }
+
+            try
+            {
+                var result = new List<PdfLink>();
+                int count = fpdf_text.FPDFLinkCountWebLinks(pageLink);
+                for (int i = 0; i < count; i++)
+                {
+                    string? uri = ReadWebLinkUri(pageLink, i);
+                    if (uri is null)
+                    {
+                        continue;
+                    }
+
+                    int rects = fpdf_text.FPDFLinkCountRects(pageLink, i);
+                    for (int r = 0; r < rects; r++)
+                    {
+                        double left = 0, top = 0, right = 0, bottom = 0;
+                        fpdf_text.FPDFLinkGetRect(pageLink, i, r, ref left, ref top, ref right, ref bottom);
+                        var box = new PdfRect(left, Math.Max(top, bottom), right, Math.Min(top, bottom));
+                        if (box.Width >= 1 && box.Height >= 1)
+                        {
+                            result.Add(new PdfLink(box, null, uri));
+                        }
+                    }
+                }
+
+                return (IReadOnlyList<PdfLink>)result;
+            }
+            finally
+            {
+                fpdf_text.FPDFLinkCloseWebLinks(pageLink);
+            }
+        });
+    }
+
+    private static string? ReadWebLinkUri(FpdfPagelinkT pageLink, int index)
+    {
+        ushort probe = 0;
+        int units = fpdf_text.FPDFLinkGetURL(pageLink, index, ref probe, 0);
+        if (units <= 1)
+        {
+            return null;
+        }
+
+        var buffer = new ushort[units];
+        fpdf_text.FPDFLinkGetURL(pageLink, index, ref buffer[0], units);
+        string uri = PdfTextExtractor.Utf16(buffer, units - 1).TrimEnd('\0').Trim();
+
+        // PDFium already restricts these to http/https/mailto/ftp-style; be defensive anyway.
+        return uri.Length >= 4 && (uri.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            || uri.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)
+            || uri.StartsWith("ftp", StringComparison.OrdinalIgnoreCase))
+            ? uri
+            : null;
     }
 
     /// <summary>Caller already holds the document lock and the page belongs to <paramref name="handle"/>.</summary>
