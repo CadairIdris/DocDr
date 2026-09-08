@@ -13,14 +13,15 @@ namespace DocDr.App.ViewModels;
 /// <summary>One node of the detected clause tree (a numbered section of a design code).</summary>
 public sealed partial class ClauseNodeViewModel : ObservableObject
 {
-    public ClauseNodeViewModel(PdfClause clause, int depth)
+    public ClauseNodeViewModel(PdfClause clause, int depth, Func<int, string> pageLabel)
     {
         Number = clause.Number;
         Title = clause.Title;
         Display = clause.Display;
         PageIndex = clause.PageIndex;
+        PageLabel = pageLabel(clause.PageIndex);
         Children = new ObservableCollection<ClauseNodeViewModel>(
-            clause.Children.Select(c => new ClauseNodeViewModel(c, depth + 1)));
+            clause.Children.Select(c => new ClauseNodeViewModel(c, depth + 1, pageLabel)));
         _isExpanded = depth < 1; // chapters open, subclauses collapsed
     }
 
@@ -32,7 +33,7 @@ public sealed partial class ClauseNodeViewModel : ObservableObject
 
     public int PageIndex { get; }
 
-    public string PageLabel => (PageIndex + 1).ToString();
+    public string PageLabel { get; }
 
     public ObservableCollection<ClauseNodeViewModel> Children { get; }
 
@@ -96,7 +97,7 @@ public sealed partial class ClausesViewModel : ObservableObject
                 PdfCodeStructure result = task.Status == TaskStatus.RanToCompletion ? task.Result : PdfCodeStructure.Empty;
                 foreach (PdfClause clause in result.Clauses)
                 {
-                    Roots.Add(new ClauseNodeViewModel(clause, 0));
+                    Roots.Add(new ClauseNodeViewModel(clause, 0, p => PageDisplay.Label(document, p)));
                 }
 
                 _hasScanned = true;
@@ -123,7 +124,7 @@ public sealed partial class ClausesViewModel : ObservableObject
         if (node is not null)
         {
             Citations.CopyToClipboard(
-                Citations.ForClause(_sourceName, node.Number, node.Title, node.PageIndex + 1));
+                Citations.ForClause(_sourceName, node.Number, node.Title, node.PageLabel));
         }
     }
 

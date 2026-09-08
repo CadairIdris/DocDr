@@ -34,16 +34,18 @@ internal static class TestPdfBuilder
         string? watermark = null,
         int watermarkOnFirstNPages = int.MaxValue,
         IReadOnlyList<Link>? links = null,
-        double cropInset = 0)
+        double cropInset = 0,
+        int romanFrontPages = 0)
     {
-        byte[] bytes = Build(pageLines, info, bookmarks ?? [], watermark, watermarkOnFirstNPages, links ?? [], cropInset);
+        byte[] bytes = Build(pageLines, info, bookmarks ?? [], watermark, watermarkOnFirstNPages, links ?? [], cropInset, romanFrontPages);
         File.WriteAllBytes(path, bytes);
         return path;
     }
 
     private static byte[] Build(
         IReadOnlyList<string> pageLines, PdfInfo? info, IReadOnlyList<Bookmark> bookmarks,
-        string? watermark, int watermarkOnFirstNPages, IReadOnlyList<Link> links, double cropInset)
+        string? watermark, int watermarkOnFirstNPages, IReadOnlyList<Link> links, double cropInset,
+        int romanFrontPages)
     {
         int pageCount = pageLines.Count;
         var buffer = new MemoryStream();
@@ -81,10 +83,13 @@ internal static class TestPdfBuilder
         Write("%PDF-1.7\n");
         buffer.Write([0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A]); // binary marker comment
 
+        string pageLabels = romanFrontPages > 0
+            ? $" /PageLabels << /Nums [ 0 << /S /r >> {romanFrontPages} << /S /D >> ] >>"
+            : string.Empty;
         BeginObject(1);
         Write(outlinesObj is null
-            ? "<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
-            : $"<< /Type /Catalog /Pages 2 0 R /Outlines {outlinesObj} 0 R >>\nendobj\n");
+            ? $"<< /Type /Catalog /Pages 2 0 R{pageLabels} >>\nendobj\n"
+            : $"<< /Type /Catalog /Pages 2 0 R /Outlines {outlinesObj} 0 R{pageLabels} >>\nendobj\n");
 
         BeginObject(2);
         var kids = new StringBuilder();

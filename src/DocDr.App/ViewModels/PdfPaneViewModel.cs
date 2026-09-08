@@ -181,7 +181,19 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     public string ZoomPercentText => $"{Math.Round(Zoom * 100)}%";
 
-    public string PageCountText => $"/ {PageCount}";
+    public string PageCountText
+    {
+        get
+        {
+            if (PageCount > 0 && CurrentPage >= 1 && CurrentPage <= PageCount
+                && _document.GetPageLabel(CurrentPage - 1) is { } label)
+            {
+                return $"{label} / {PageCount}";
+            }
+
+            return $"/ {PageCount}";
+        }
+    }
 
     public string MatchSummary => TotalMatches > 0
         ? $"{CurrentMatchNumber} / {TotalMatches}"
@@ -397,6 +409,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     partial void OnCurrentPageChanged(int value)
     {
+        if (_document.HasPageLabels)
+        {
+            OnPropertyChanged(nameof(PageCountText));
+        }
+
         if (IsPaged)
         {
             PagesView.Refresh();
@@ -2571,7 +2588,9 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
 
         string citation = Citations.Format(
-            CitationSource(), CurrentClauseNumber(PendingSelectionPage), PendingSelectionPage + 1, _pendingText);
+            CitationSource(), CurrentClauseNumber(PendingSelectionPage),
+            _document.GetPageLabel(PendingSelectionPage) ?? (PendingSelectionPage + 1).ToString(),
+            _pendingText);
         ClearTextSelection();
         Citations.CopyToClipboard(citation);
     }

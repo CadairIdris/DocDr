@@ -9,13 +9,13 @@ using DocDr.Pdf;
 namespace DocDr.App.ViewModels;
 
 /// <summary>One row in the navigation panel's Annotations list.</summary>
-public sealed class AnnotationRowViewModel(int pageIndex, PdfAnnotation annotation)
+public sealed class AnnotationRowViewModel(int pageIndex, PdfAnnotation annotation, string pageLabel)
 {
     public Guid Id { get; } = annotation.Id;
 
     public int PageIndex { get; } = pageIndex;
 
-    public string PageLabel => $"p. {PageIndex + 1}";
+    public string PageLabel { get; } = $"p. {pageLabel}";
 
     /// <summary>A friendly kind label, always shown.</summary>
     public string Kind => AnnotationKinds.Label(annotation.Kind);
@@ -72,9 +72,10 @@ public sealed partial class AnnotationListViewModel : ObservableObject
         Rows.Clear();
         for (int page = 0; page < document.PageCount; page++)
         {
+            string label = PageDisplay.Label(document, page);
             foreach (PdfAnnotation annotation in document.GetAnnotations(page))
             {
-                Rows.Add(new AnnotationRowViewModel(page, annotation));
+                Rows.Add(new AnnotationRowViewModel(page, annotation, label));
             }
         }
 

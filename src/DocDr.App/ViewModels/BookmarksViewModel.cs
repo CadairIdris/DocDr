@@ -11,12 +11,13 @@ namespace DocDr.App.ViewModels;
 /// <summary>One node of the document outline shown in the bookmarks tree.</summary>
 public sealed partial class BookmarkNodeViewModel : ObservableObject
 {
-    public BookmarkNodeViewModel(PdfBookmark bookmark, int depth)
+    public BookmarkNodeViewModel(PdfBookmark bookmark, int depth, Func<int, string> pageLabel)
     {
         _title = string.IsNullOrWhiteSpace(bookmark.Title) ? "(untitled)" : bookmark.Title;
         PageIndex = bookmark.PageIndex;
+        PageLabel = bookmark.PageIndex is int p ? pageLabel(p) : string.Empty;
         Children = new ObservableCollection<BookmarkNodeViewModel>(
-            bookmark.Children.Select(c => new BookmarkNodeViewModel(c, depth + 1)));
+            bookmark.Children.Select(c => new BookmarkNodeViewModel(c, depth + 1, pageLabel)));
         _isExpanded = depth < 1; // top level open, deeper levels collapsed
     }
 
@@ -25,7 +26,7 @@ public sealed partial class BookmarkNodeViewModel : ObservableObject
 
     public int? PageIndex { get; }
 
-    public string PageLabel => PageIndex is int p ? (p + 1).ToString() : string.Empty;
+    public string PageLabel { get; }
 
     public bool HasTarget => PageIndex is not null;
 
@@ -47,6 +48,8 @@ public sealed partial class BookmarkNodeViewModel : ObservableObject
 /// <summary>The document outline for a tab: jump-to-page, plus inline rename / delete.</summary>
 public sealed partial class BookmarksViewModel : ObservableObject
 {
+    private Func<int, string> _pageLabel = PageDisplay.Ordinal;
+
     public BookmarksViewModel(IReadOnlyList<PdfBookmark> bookmarks)
     {
         Roots = [];
@@ -58,12 +61,13 @@ public sealed partial class BookmarksViewModel : ObservableObject
     public bool HasBookmarks => Roots.Count > 0;
 
     /// <summary>Rebuild the tree from a new outline (generated, or pages inserted / deleted).</summary>
-    public void Reload(IReadOnlyList<PdfBookmark> bookmarks)
+    public void Reload(IReadOnlyList<PdfBookmark> bookmarks, Func<int, string>? pageLabel = null)
     {
+        _pageLabel = pageLabel ?? _pageLabel;
         Roots.Clear();
         foreach (PdfBookmark bookmark in bookmarks)
         {
-            Roots.Add(new BookmarkNodeViewModel(bookmark, 0));
+            Roots.Add(new BookmarkNodeViewModel(bookmark, 0, _pageLabel));
         }
 
         OnPropertyChanged(nameof(HasBookmarks));

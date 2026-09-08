@@ -43,7 +43,8 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Thumbnails.PageActivated += pageIndex => LeftPane.GoToPage(pageIndex + 1);
         Thumbnails.EditRequested += OnThumbnailEditRequested;
 
-        Bookmarks = new BookmarksViewModel(bookmarks);
+        Bookmarks = new BookmarksViewModel([]);
+        Bookmarks.Reload(bookmarks, PageLabelFor);
         Bookmarks.BookmarkActivated += pageIndex => LeftPane.GoToPage(pageIndex + 1);
         Bookmarks.OutlineEdited += OnBookmarksEdited;
         Bookmarks.PropertyChanged += (_, ev) =>
@@ -219,6 +220,9 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
     /// <summary>Raised when the user picks a new "Custom" colour — <see cref="MainViewModel"/> persists it.</summary>
     public event Action<uint>? CustomColorChanged;
+
+    /// <summary>The user-facing name for a 0-based page — its printed label if the document has one, else the ordinal.</summary>
+    public string PageLabelFor(int pageIndex) => PageDisplay.Label(Document, pageIndex);
 
     private void OnCustomColorPicked(uint argb) => ApplyCustomColor(argb);
 
@@ -677,7 +681,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         LeftPane.ReloadPages(sizes);
         RightPane.ReloadPages(sizes);
         Thumbnails.Reload(sizes);
-        Bookmarks.Reload(Document.GetOutline());
+        Bookmarks.Reload(Document.GetOutline(), PageLabelFor);
         Clauses.Load(Document);
         Annotations.Reload(Document);
         Thumbnails.SetCurrentPage(LeftPane.CurrentPage);
@@ -708,7 +712,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     {
         if (!_applyingOutlineEdit)
         {
-            Bookmarks.Reload(Document.GetOutline());
+            Bookmarks.Reload(Document.GetOutline(), PageLabelFor);
         }
 
         OnPropertyChanged(nameof(Title));

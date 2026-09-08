@@ -47,6 +47,7 @@ public sealed class PdfDocument : IDisposable
     private int _nextSourceId = OriginalSourceId + 1;
     private IReadOnlyList<PdfSize>? _pageSizes;
     private IReadOnlyList<PdfPoint>? _cropOrigins;
+    private IReadOnlyList<string?>? _pageLabels;
     private bool _disposed;
 
     private PdfDocumentInfo _info = PdfDocumentInfo.Empty;
@@ -464,6 +465,63 @@ public sealed class PdfDocument : IDisposable
         return GetCropOrigins()[pageIndex];
     }
 
+    /// <summary>
+    /// The page's printed label ("iv", "A-3", "B-12") from the document's <c>/PageLabels</c> number
+    /// tree, or <c>null</c> when there is no tree or the label is just the plain ordinal. Never
+    /// changes for a given source; a structural edit clears the cache and merged docs have no tree.
+    /// </summary>
+    public string? GetPageLabel(int pageIndex)
+    {
+        ValidatePageIndex(pageIndex);
+        return GetPageLabels()[pageIndex];
+    }
+
+    /// <summary>True when at least one page carries a non-ordinal <c>/PageLabels</c> label.</summary>
+    public bool HasPageLabels => GetPageLabels().Any(l => l is not null);
+
+    private IReadOnlyList<string?> GetPageLabels()
+    {
+        if (_pageLabels is not null)
+        {
+            return _pageLabels;
+        }
+
+        return _pageLabels = Locked(() =>
+        {
+            var labels = new string?[PageCount];
+            for (int i = 0; i < PageCount; i++)
+            {
+                string? label = ReadPageLabel(Handle, i);
+                labels[i] = label is not null && label != (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    ? label
+                    : null;
+            }
+
+            return (IReadOnlyList<string?>)labels;
+        });
+    }
+
+    private static string? ReadPageLabel(FpdfDocumentT handle, int pageIndex)
+    {
+        uint byteLength = fpdf_doc.FPDF_GetPageLabel(handle, pageIndex, IntPtr.Zero, 0);
+        if (byteLength <= 2)
+        {
+            return null;
+        }
+
+        IntPtr buffer = Marshal.AllocHGlobal((int)byteLength);
+        try
+        {
+            fpdf_doc.FPDF_GetPageLabel(handle, pageIndex, buffer, byteLength);
+            string? label = Marshal.PtrToStringUni(buffer)?.TrimEnd('\0');
+            return string.IsNullOrWhiteSpace(label) ? null : label;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
     private static PdfPoint ReadCropOrigin(FpdfDocumentT handle, int pageIndex)
     {
         FpdfPageT? page = fpdfview.FPDF_LoadPage(handle, pageIndex);
@@ -808,6 +866,7 @@ public sealed class PdfDocument : IDisposable
 
         _pageSizes = null;
         _cropOrigins = null;
+        _pageLabels = null;
         SetDirty(true);
         Changed?.Invoke(this, EventArgs.Empty);
     }
@@ -987,6 +1046,7 @@ public sealed class PdfDocument : IDisposable
 
         _pageSizes = null;
         _cropOrigins = null;
+        _pageLabels = null;
         SetDirty(true);
         Changed?.Invoke(this, EventArgs.Empty);
 
@@ -1084,6 +1144,7 @@ public sealed class PdfDocument : IDisposable
     {
         _pageSizes = null;
         _cropOrigins = null;
+        _pageLabels = null;
         SetDirty(true);
         Changed?.Invoke(this, EventArgs.Empty);
     }
@@ -1100,6 +1161,7 @@ public sealed class PdfDocument : IDisposable
         {
             _pageSizes = null;
             _cropOrigins = null;
+            _pageLabels = null;
             Changed?.Invoke(this, EventArgs.Empty);
         }
 

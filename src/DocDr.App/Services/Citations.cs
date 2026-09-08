@@ -10,11 +10,11 @@ public static class Citations
     /// "<i>quote</i>" — <c>Source, cl. 6.2.5, p. 88</c>. <paramref name="clauseNumber"/> and
     /// <paramref name="quote"/> are optional; a bare source + page is still a valid citation.
     /// </summary>
-    public static string Format(string source, string? clauseNumber, int pageNumber, string? quote)
+    public static string Format(string source, string? clauseNumber, string pageLabel, string? quote)
     {
         string reference = string.IsNullOrEmpty(clauseNumber)
-            ? $"{source}, p. {pageNumber}"
-            : $"{source}, cl. {clauseNumber}, p. {pageNumber}";
+            ? $"{source}, p. {pageLabel}"
+            : $"{source}, cl. {clauseNumber}, p. {pageLabel}";
 
         return string.IsNullOrWhiteSpace(quote)
             ? reference
@@ -22,13 +22,13 @@ public static class Citations
     }
 
     /// <summary><c>Source, cl. 6.5 (Concrete cover), p. 88</c>.</summary>
-    public static string ForClause(string source, string number, string? title, int pageNumber)
+    public static string ForClause(string source, string number, string? title, string pageLabel)
     {
         string head = number.Length is 1 or 2 && number.All(char.IsAsciiLetterUpper)
             ? $"{source}, Annex {number}"
             : $"{source}, cl. {number}";
         string named = string.IsNullOrWhiteSpace(title) ? head : $"{head} ({title.Trim()})";
-        return $"{named}, p. {pageNumber}";
+        return $"{named}, p. {pageLabel}";
     }
 
     public static void CopyToClipboard(string text)
