@@ -339,7 +339,9 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   pages, leaving what was actually on screen blank. `GetPageAtOffset` is now only a fallback for
   the frame before any container is realised (and still drives Grid rows).
 - `UpdateVisibleRange` clamps the realised span to `MaxRealizedPages` (16) as a backstop against
-  a bad reading queuing hundreds of large renders.
+  a bad reading queuing hundreds of large renders, **and frees `PageSlotViewModel.Image` for
+  slots more than `ImageKeepMargin` (6) pages outside that span** — the bitmap is otherwise held
+  for the session and a long standard retains every page it has shown (~4 MB each → GBs).
 
 ## Printing (`PrintService`, Stage 1)
 
