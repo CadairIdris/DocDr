@@ -73,9 +73,16 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   `Load`).
 - **Outline model**: `PdfDocument._outline` (`IReadOnlyList<PdfBookmark>?`). `GetOutline()` returns
   it if set else `PdfBookmarks.Read(this)`; **the App uses `Document.GetOutline()`, not
-  `PdfBookmarks.Read`, everywhere**. `SetOutline(tree)` sets it, `SetDirty`, raises `Changed`;
+  `PdfBookmarks.Read`, everywhere**. `SetOutline(tree)` sets it, `SetDirty`, raises the dedicated
+  **`OutlineChanged`** event (lighter than `Changed` — only the bookmarks panel refreshes);
   **not on the undo stack** (like metadata). A structural edit after `SetOutline` leaves the
   model outline in place but its page indices go stale — regenerate.
+- **Rename / delete** (bookmarks panel, right-click / F2 / Del): `BookmarkNodeViewModel.Title` is
+  an `[ObservableProperty]`, `ToBookmark()` rebuilds a `PdfBookmark`; `BookmarksViewModel` raises
+  `OutlineEdited(newTree)` → `DocumentTabViewModel.OnBookmarksEdited` calls `Document.SetOutline`
+  behind an `_applyingOutlineEdit` guard so `OnOutlineChanged` skips the panel reload (the VM
+  already holds the edited tree). Inline edit = a `TextBox` toggled by `IsEditing`, committed on
+  `LostFocus`/Enter, reverted on Esc (`BookmarksPanelView` code-behind).
 - **`PdfOutlineWriter.Append(bytes, outline)`** — called only from `SaveToBytes` (not
   `SerialiseCurrentHandle`, which also feeds the watermark/OCR adopt path). Incremental-update
   append modelled on `PdfMetadataWriter` (which now exposes `internal PdfString`): reads the last
