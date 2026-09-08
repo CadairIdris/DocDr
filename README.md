@@ -25,6 +25,16 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   (`{file}, cl. 6.5 (Concrete cover), p. 88`); or select text on a page and click **Cite**
   in the popup to copy the quoted passage with its source, nearest clause, and page.
 
+### Stage 6 — OCR (done)
+
+- **OCR…** (toolbar): for a scanned PDF with no text layer, DocDr renders each text-less page
+  at 300 DPI, recognises it with Tesseract 5 (bundled English model), and bakes the words back
+  in as an **invisible text layer** — so search, text selection, clause detection, citation and
+  chunk export all start working on the scan. Pages that already have text are left alone.
+- A progress dialog shows the page count and can be cancelled; cancelling keeps the pages done
+  so far (re-run to finish the rest). Like watermark removal this edits page content and is not
+  undoable — the original file is safe until you save. ~2 s per page.
+
 ### RAG chunk export (Stage 5 — partial)
 
 - **Export chunks…** (toolbar) splits the document's text into overlapping, retrieval-sized
@@ -36,7 +46,7 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   section heading so the embedding carries where the passage sits.
 - Running headers / footers (lines that repeat across most pages), bare page numbers and
   contents-page leaders are stripped; wrapped lines are joined and words de-hyphenated across
-  line breaks. Pages with no text layer are reported and skipped (OCR is a later stage).
+  line breaks. Pages with no text layer are reported and skipped — run **OCR…** first.
 
 ### Dark mode
 
@@ -133,7 +143,7 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 - Zoom (25–800%, Fit Width, Fit Page, 100%, **Ctrl+wheel / trackpad pinch**, anchored on the
   cursor) and page navigation.
 
-Not yet (later stages): folder browser, SQLite catalog + duplicate finder, OCR.
+Not yet (later stages): folder browser, SQLite catalog + duplicate finder.
 
 ## Layout
 
