@@ -52,6 +52,11 @@ public partial class PdfPaneView : UserControl
         _hwndSource = null;
         PageList.LayoutUpdated -= OnPageListLayoutUpdated;
         FormatBarPopup.IsOpen = false;
+        if (Window.GetWindow(this) is { } window)
+        {
+            window.Deactivated -= OnWindowDeactivated;
+            window.Activated -= OnWindowActivated;
+        }
     }
 
     private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -112,6 +117,15 @@ public partial class PdfPaneView : UserControl
             _hwndSource = source;
             _hwndSource.AddHook(HorizontalWheelHook);
         }
+
+        // A StaysOpen popup would otherwise sit topmost over other apps when the window is inactive.
+        if (Window.GetWindow(this) is { } window)
+        {
+            window.Deactivated -= OnWindowDeactivated;
+            window.Deactivated += OnWindowDeactivated;
+            window.Activated -= OnWindowActivated;
+            window.Activated += OnWindowActivated;
+        }
     }
 
     private void OnPanePropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -136,6 +150,16 @@ public partial class PdfPaneView : UserControl
     private void OnPageListLayoutUpdated(object? sender, System.EventArgs e)
     {
         if (_pane?.SelectedFormat is not null || FormatBarPopup.IsOpen)
+        {
+            PositionFormatBar();
+        }
+    }
+
+    private void OnWindowDeactivated(object? sender, System.EventArgs e) => FormatBarPopup.IsOpen = false;
+
+    private void OnWindowActivated(object? sender, System.EventArgs e)
+    {
+        if (_pane?.SelectedFormat is not null)
         {
             PositionFormatBar();
         }
