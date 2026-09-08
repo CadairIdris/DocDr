@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/DocDr.App/DocDr.App.csproj" />
+    <Project Path="src/DocDr.Ocr/DocDr.Ocr.csproj" />
     <Project Path="src/DocDr.Pdf/DocDr.Pdf.csproj" />
   </Folder>
   <Folder Name="/tests/">

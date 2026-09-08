@@ -627,7 +627,7 @@ public sealed class PdfDocument : IDisposable
     /// <summary>Replace every source and the live handle with a freshly loaded copy of <paramref name="bytes"/>.
     /// Caller holds <see cref="Locked(Action)"/>. The annotation model is index-aligned with the
     /// (unchanged) page order, so it is kept as-is.</summary>
-    private void AdoptStrippedBytes(byte[] bytes)
+    private void AdoptStrippedBytes(byte[] bytes, string? failureMessage = null)
     {
         var pin = GCHandle.Alloc(bytes, GCHandleType.Pinned);
         FpdfDocumentT? fresh = fpdfview.FPDF_LoadMemDocument64(
@@ -637,7 +637,7 @@ public sealed class PdfDocument : IDisposable
             pin.Free();
             throw new PdfException(
                 (PdfiumError)fpdfview.FPDF_GetLastError(),
-                "Could not reopen the document after removing watermarks.");
+                failureMessage ?? "Could not reopen the document after removing watermarks.");
         }
 
         int pageCount = fpdfview.FPDF_GetPageCount(fresh);
@@ -678,6 +678,106 @@ public sealed class PdfDocument : IDisposable
         _pages = pages;
         _undo.Clear();
         _redo.Clear();
+    }
+
+    // --- OCR --------------------------------------------------------------------------------
+
+    /// <summary>Page indices that currently carry no extractable text — the OCR candidates.</summary>
+    public IReadOnlyList<int> PagesWithoutText()
+    {
+        var result = new List<int>();
+        for (int i = 0; i < _pages.Count; i++)
+        {
+            if (string.IsNullOrWhiteSpace(PdfTextExtractor.GetPageText(this, i)))
+            {
+                result.Add(i);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Recognise text on every page that has none and bake it in as an invisible layer, so search,
+    /// selection, clause detection and extraction all work on a scanned document. Each candidate
+    /// page is rasterised at ~300 DPI, run through <paramref name="engine"/>, and the words written
+    /// as render-mode-3 text scaled to their image boxes. Like <see cref="RemoveWatermarks"/> this
+    /// edits page content, is <b>not undoable</b>, and clears the undo history. Returns a zero
+    /// result if every page already has text.
+    /// </summary>
+    public OcrResult AddOcrTextLayer(
+        IOcrEngine engine,
+        IProgress<OcrProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+
+        int total = PageCount;
+        IReadOnlyList<int> candidates = PagesWithoutText();
+        if (candidates.Count == 0)
+        {
+            return new OcrResult(0, total, 0);
+        }
+
+        var renderer = new PageRenderer();
+        int wordsAdded = 0;
+        int pagesProcessed = 0;
+
+        Locked(() =>
+        {
+            FpdfFontT font = fpdf_edit.FPDFTextLoadStandardFont(Handle, "Helvetica");
+            try
+            {
+                foreach (int pageIndex in candidates)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    PdfSize size = GetPageSize(pageIndex);
+                    PdfPoint crop = GetCropOrigin(pageIndex);
+                    (int pxW, int pxH) = PdfOcr.PixelSize(size);
+
+                    RenderedPage rendered = renderer.Render(this, pageIndex, pxW, pxH, cancellationToken);
+                    IReadOnlyList<OcrWord> words = engine.Recognise(rendered, cancellationToken);
+
+                    int written = 0;
+                    FpdfPageT? page = fpdfview.FPDF_LoadPage(Handle, pageIndex);
+                    if (page is not null && page.__Instance != IntPtr.Zero)
+                    {
+                        try
+                        {
+                            written = PdfOcr.WritePageTextLayer(
+                                Handle, page, font, words, size, crop,
+                                rendered.PixelWidth, rendered.PixelHeight);
+                        }
+                        finally
+                        {
+                            fpdfview.FPDF_ClosePage(page);
+                        }
+                    }
+
+                    wordsAdded += written;
+                    pagesProcessed++;
+                    progress?.Report(new OcrProgress(pageIndex + 1, total, written));
+                }
+
+                byte[] bytes = SerialiseCurrentHandle();
+                AdoptStrippedBytes(bytes, "Could not reopen the document after adding the OCR text layer.");
+            }
+            finally
+            {
+                if (font is not null && font.__Instance != IntPtr.Zero)
+                {
+                    fpdf_edit.FPDFFontClose(font);
+                }
+            }
+        });
+
+        _pageSizes = null;
+        _cropOrigins = null;
+        SetDirty(true);
+        Changed?.Invoke(this, EventArgs.Empty);
+
+        return new OcrResult(pagesProcessed, total - candidates.Count, wordsAdded);
     }
 
     public void Undo()

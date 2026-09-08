@@ -43,6 +43,10 @@ public static class PdfTextWrap
         return w;
     }
 
+    /// <summary>Advance width of <paramref name="text"/> in points at <paramref name="fontSize"/>,
+    /// using the Helvetica AFM table.</summary>
+    public static double MeasureHelvetica(string text, double fontSize) => LineWidth(text, fontSize);
+
     /// <summary>Greedy word wrap of <paramref name="text"/> into lines no wider than
     /// <paramref name="maxWidth"/> points (honouring existing line breaks).</summary>
     public static IReadOnlyList<string> Wrap(string text, double maxWidth, double fontSize)

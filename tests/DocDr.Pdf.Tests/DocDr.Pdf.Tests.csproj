@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DocDr.Pdf\DocDr.Pdf.csproj" />
+    <ProjectReference Include="..\..\src\DocDr.Ocr\DocDr.Ocr.csproj" />
   </ItemGroup>
 
   <ItemGroup>
