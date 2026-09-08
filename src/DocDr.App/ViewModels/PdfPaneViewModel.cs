@@ -110,6 +110,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         _searchCts?.Cancel();
         _searchCts = null;
         _charBoxCache.Clear();
+        _charBoxOrder.Clear();
         _linkCache.Clear();
         _crossRefCache.Clear();
         ClearTextSelection();
@@ -2465,15 +2466,70 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         slot.SelectionRects = rects;
     }
 
+    /// <summary>Keep char boxes for at most this many pages — one page's worth is ~200 KB on a
+    /// dense standard, and hover hit-testing would otherwise cache every page the pointer crosses.</summary>
+    private const int MaxCharBoxPages = 8;
+
+    private readonly LinkedList<int> _charBoxOrder = new();
+
     private IReadOnlyList<PdfCharBox> CharBoxes(int pageIndex)
     {
-        if (!_charBoxCache.TryGetValue(pageIndex, out IReadOnlyList<PdfCharBox>? boxes))
+        if (_charBoxCache.TryGetValue(pageIndex, out IReadOnlyList<PdfCharBox>? boxes))
         {
-            boxes = PdfTextExtractor.GetCharBoxes(_document, pageIndex);
-            _charBoxCache[pageIndex] = boxes;
+            _charBoxOrder.Remove(pageIndex);
+            _charBoxOrder.AddLast(pageIndex);
+            return boxes;
+        }
+
+        boxes = PdfTextExtractor.GetCharBoxes(_document, pageIndex);
+        _charBoxCache[pageIndex] = boxes;
+        _charBoxOrder.AddLast(pageIndex);
+        while (_charBoxOrder.Count > MaxCharBoxPages && _charBoxOrder.First is { } oldest)
+        {
+            _charBoxCache.Remove(oldest.Value);
+            _charBoxOrder.RemoveFirst();
         }
 
         return boxes;
+    }
+
+    /// <summary>True when <paramref name="pt"/> (unrotated page space) sits on or just beside a
+    /// glyph — used to show the text I-beam cursor on hover.</summary>
+    public bool IsOverText(int pageIndex, PdfPoint pt)
+    {
+        if (pageIndex < 0 || pageIndex >= _document.PageCount)
+        {
+            return false;
+        }
+
+        IReadOnlyList<PdfCharBox> boxes;
+        try
+        {
+            boxes = CharBoxes(pageIndex);
+        }
+        catch (PdfException)
+        {
+            return false;
+        }
+
+        const double pad = 1.5; // points of slack so the gaps between glyphs still count
+        foreach (PdfCharBox c in boxes)
+        {
+            PdfRect b = c.Box;
+            if (b.Width <= 0 && b.Height <= 0)
+            {
+                continue; // a space / control char has no box
+            }
+
+            double l = Math.Min(b.Left, b.Right) - pad, r = Math.Max(b.Left, b.Right) + pad;
+            double bot = Math.Min(b.Top, b.Bottom) - pad, top = Math.Max(b.Top, b.Bottom) + pad;
+            if (pt.X >= l && pt.X <= r && pt.Y >= bot && pt.Y <= top)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private int NearestCharIndex(int pageIndex, PdfPoint pt)
@@ -3004,11 +3060,12 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         slot.Image = image;
     }
 
-    // A page is never rasterised larger than this on its long edge. Beyond it the extra pixels
-    // are imperceptible on any real display, and the buffer (long*short*4 bytes) gets big enough
-    // to fail its allocation at extreme zoom — which used to kill the render worker. WPF upscales
-    // the capped bitmap into the (larger) layout box; only wildly zoomed-in text goes soft.
-    private const int MaxRenderEdge = 4096;
+    // A page is never rasterised larger than this on its long edge. Beyond it the buffer
+    // (long*short*4 bytes) gets big enough to risk its allocation at extreme zoom (the worker
+    // catches that and skips the page). WPF upscales the capped bitmap into the (larger) layout
+    // box, so text goes soft past ~2x zoom on a 150% display; the render cache bypasses entries
+    // this large so one doesn't evict the whole cache.
+    private const int MaxRenderEdge = 4800;
 
     // Renders are produced at the slot's on-screen size (zoom, grid tiling and DPI already folded
     // in) then capped, so a stale render from a previous layout is easy to detect.

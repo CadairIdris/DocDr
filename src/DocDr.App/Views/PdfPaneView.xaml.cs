@@ -796,6 +796,7 @@ public partial class PdfPaneView : UserControl
 
         if (_pane is null || _selectionSlot is null || e.LeftButton != MouseButtonState.Pressed)
         {
+            UpdateHoverCursor(e);
             return;
         }
 
@@ -833,6 +834,40 @@ public partial class PdfPaneView : UserControl
         else if (_selecting)
         {
             _pane.ExtendTextSelection(pagePoint);
+        }
+    }
+
+    private bool _hoverIBeam;
+
+    /// <summary>Show the text I-beam while hovering over selectable text (no tool armed), like a
+    /// text editor. The XAML style's cursor triggers still win when a tool is active.</summary>
+    private void UpdateHoverCursor(MouseEventArgs e)
+    {
+        bool toolArmed = _pane is null
+            || _pane.CommentToolActive || _pane.HighlighterToolActive
+            || _pane.ShapeTool != ShapeTool.None || _pane.TableSelectActive;
+
+        bool overText = false;
+        if (!toolArmed && FindSlot(e.OriginalSource as DependencyObject) is { } hit)
+        {
+            Point local = e.GetPosition(hit.Element);
+            PdfPoint pagePoint = _pane!.DevicePointToPage(hit.Slot.PageIndex, local.X, local.Y);
+            overText = _pane.IsOverText(hit.Slot.PageIndex, pagePoint);
+        }
+
+        if (overText == _hoverIBeam)
+        {
+            return;
+        }
+
+        _hoverIBeam = overText;
+        if (overText)
+        {
+            PageList.Cursor = Cursors.IBeam;
+        }
+        else
+        {
+            PageList.ClearValue(CursorProperty); // let the style triggers take over again
         }
     }
 

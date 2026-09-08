@@ -21,11 +21,16 @@ public sealed class CachingPageRenderer : IPageRenderer
     private readonly Dictionary<Key, LinkedListNode<(Key Key, RenderedPage Page)>> _index = new();
     private long _bytes;
 
+    private readonly long _maxEntryBytes;
+
     public CachingPageRenderer(IPageRenderer inner, int maxEntries = 60, long maxBytes = 256L * 1024 * 1024)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _maxEntries = Math.Max(1, maxEntries);
         _maxBytes = Math.Max(1, maxBytes);
+        // A single render bigger than a third of the budget (a page at extreme zoom) is used
+        // once and dropped — caching it would just evict a run of normal, reusable pages.
+        _maxEntryBytes = Math.Max(1, _maxBytes / 3);
     }
 
     public RenderedPage Render(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, CancellationToken cancellationToken = default)
@@ -43,6 +48,11 @@ public sealed class CachingPageRenderer : IPageRenderer
         }
 
         RenderedPage rendered = _inner.Render(document, pageIndex, pixelWidth, pixelHeight, cancellationToken);
+
+        if (rendered.ByteCount > _maxEntryBytes)
+        {
+            return rendered; // too big to cache — the caller (page slot) holds it
+        }
 
         lock (_gate)
         {
