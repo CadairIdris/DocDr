@@ -68,6 +68,12 @@ public sealed class CachingPageRenderer : IPageRenderer
         }
     }
 
+    /// <summary>Current entry count and total bytes held — for diagnostics.</summary>
+    public (int Entries, long Bytes) Stats
+    {
+        get { lock (_gate) { return (_index.Count, _bytes); } }
+    }
+
     /// <summary>Drop every cached page belonging to <paramref name="document"/> (called on tab close).</summary>
     public void Purge(PdfDocument document)
     {

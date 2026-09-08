@@ -21,6 +21,16 @@
              VirtualizingPanel.ScrollUnit="Pixel"
              ScrollViewer.ScrollChanged="ThumbList_ScrollChanged"
              SelectionChanged="ThumbList_SelectionChanged">
+        <ListBox.ItemContainerStyle>
+            <!-- Set the alignments explicitly: the default style binds them via
+                 RelativeSource FindAncestor, which fails (harmlessly, but noisily) while a
+                 container is being recycled during a fast scroll. -->
+            <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Top" />
+                <Setter Property="Padding" Value="0" />
+            </Style>
+        </ListBox.ItemContainerStyle>
         <ListBox.ContextMenu>
             <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
                 <MenuItem Header="Rotate right" Command="{Binding ContextEditCommand}" CommandParameter="RotateRight" />

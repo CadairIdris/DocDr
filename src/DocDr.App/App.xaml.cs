@@ -37,7 +37,9 @@ public partial class App : Application
 
         PdfiumLibrary.EnsureInitialized();
 
-        var cache = new CachingPageRenderer(new PageRenderer());
+        // Page bitmaps are raw BGRA (~4-6 MB each at 150 % DPI). 128 MB still keeps ~20 A4 pages
+        // hot for instant re-scroll; more just inflates the working set on a long standard.
+        var cache = new CachingPageRenderer(new PageRenderer(), maxEntries: 48, maxBytes: 128L * 1024 * 1024);
         var imageService = new PageImageService(cache);
         var renderQueue = new BackgroundRenderQueue(imageService, Dispatcher);
 
@@ -46,6 +48,33 @@ public partial class App : Application
         var window = new MainWindow { DataContext = _mainViewModel };
         MainWindow = window;
         window.Show();
+
+        if (Environment.GetEnvironmentVariable("DOCDR_MEMLOG") is { Length: > 0 } memLog)
+        {
+            var proc = Process.GetCurrentProcess();
+            var timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(2) };
+            timer.Tick += (_, _) =>
+            {
+                proc.Refresh();
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                (int entries, long bytes) = cache.Stats;
+                int slotImages = 0, tabs = 0, thumbs = 0;
+                foreach (DocumentTabViewModel tab in _mainViewModel.Tabs)
+                {
+                    tabs++;
+                    foreach (var p in tab.LeftPane.Pages) if (p.Image is not null) slotImages++;
+                    foreach (var p in tab.RightPane.Pages) if (p.Image is not null) slotImages++;
+                    foreach (var t in tab.Thumbnails.Thumbnails) if (t.Image is not null) thumbs++;
+                }
+
+                File.AppendAllText(memLog,
+                    $"[{DateTime.Now:HH:mm:ss}] WS={proc.WorkingSet64 / 1048576}MB  " +
+                    $"GC={GC.GetTotalMemory(false) / 1048576}MB  managedHeap={GC.GetTotalMemory(true) / 1048576}MB  " +
+                    $"cache={entries}e/{bytes / 1048576}MB  tabs={tabs} slotImages={slotImages} thumbImages={thumbs}\n");
+            };
+            timer.Start();
+        }
 
         foreach (string arg in e.Args)
         {
