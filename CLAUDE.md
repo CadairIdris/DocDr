@@ -333,6 +333,15 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 - `CachingPageRenderer` (the raw-BGRA LRU below the queue) is capped at **128 MB** — page
   bitmaps are ~4-6 MB each at 150 % DPI, so 128 MB keeps ~20 hot; more just inflates the
   working set on a long standard. Keyed by `(document, page, w, h)`; `Purge(doc)` on tab close.
+  A single render bigger than a third of the budget (a page at extreme zoom) **bypasses the
+  cache** — caching it would evict a run of reusable normal pages; the slot still holds it.
+- `MaxRenderEdge` is **4800** (was 4096): crisp to ~2× zoom on a 150 % display before WPF
+  upscales the capped bitmap. Extreme zoom is still soft — a tiled render would fix that.
+- **Text I-beam on hover:** `PdfPaneView.UpdateHoverCursor` (from `PageList_MouseMove` when no
+  button is down) hit-tests `PdfPaneViewModel.IsOverText` (the page's char boxes) and sets
+  `PageList.Cursor = IBeam`, or `ClearValue` so the style's tool-cursor triggers win. The
+  char-box cache (`_charBoxCache` + `_charBoxOrder`) is an 8-page LRU so hover doesn't retain
+  every page the pointer crosses.
 - `PdfPaneViewModel.MaxRenderEdge` (4096) caps a page bitmap's long side; WPF upscales it into
   the (larger) layout box, so only very high zoom goes soft. `CappedRenderSize` is used for both
   the enqueue size and the `OnPageRendered` stale check, so they agree.
