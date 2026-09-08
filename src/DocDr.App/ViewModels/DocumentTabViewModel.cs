@@ -800,8 +800,10 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
     private void OnAnnotationActivated(int pageIndex, Guid id)
     {
+        // Select on the left pane only — the nav list drives that pane, and selecting on both
+        // would raise a format toolbar from each.
         LeftPane.SelectedAnnotationId = id;
-        RightPane.SelectedAnnotationId = id;
+        RightPane.SelectedAnnotationId = null;
         LeftPane.GoToPage(pageIndex + 1);
     }
 

@@ -168,7 +168,9 @@ public partial class PdfPaneView : UserControl
     /// <summary>Anchor the floating format toolbar just above the selected annotation, or hide it.</summary>
     private void PositionFormatBar()
     {
-        if (_pane?.SelectedFormat is null || _scrollViewer is null || _pane.SelectedFormatPage < 0
+        // Only the visible pane shows the bar — otherwise a nav-panel selection (which selects on
+        // both panes) puts a second toolbar up from the collapsed right pane's popup.
+        if (!IsVisible || _pane?.SelectedFormat is null || _scrollViewer is null || _pane.SelectedFormatPage < 0
             || PageList.ItemContainerGenerator.ContainerFromItem(PageItem(_pane.SelectedFormatPage))
                 is not FrameworkElement container
             || FindDescendantSlot(container) is not { } slot)
