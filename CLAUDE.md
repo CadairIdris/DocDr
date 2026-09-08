@@ -89,6 +89,10 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   page counter, Cancel). Work on `Task.Run`; `Progress<OcrProgress>` marshals the counter;
   `ContinueWith` on the UI scheduler closes the dialog and reports. `Document.Changed` drives
   the reload. `OcrProgressWindow.OnClosing` blocks Esc/X until the run signals `Finish()`.
+- Because `AddOcrTextLayer` calls `SetDirty` / `Changed` from the background task,
+  `DocumentTabViewModel`'s `OnDocumentChanged` / `OnDocumentDirtyChanged` / `OnAnnotationsChanged`
+  hop to the dispatcher (`RunOnUi`) before touching bound commands — `RelayCommand.NotifyCanExecuteChanged`
+  reads a `Button` DP and throws cross-thread otherwise.
 
 ## Annotations (`PdfDocument`, Stage 3)
 
