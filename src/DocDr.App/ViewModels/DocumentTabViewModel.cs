@@ -585,7 +585,22 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
     // --- Reacting to document changes -------------------------------------------------
 
-    private void OnDocumentChanged(object? sender, EventArgs e)
+    /// <summary>Run <paramref name="action"/> on the UI thread — document events can now be
+    /// raised from a background thread (e.g. the OCR run).</summary>
+    private static void RunOnUi(Action action)
+    {
+        System.Windows.Threading.Dispatcher? dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            action();
+        }
+        else
+        {
+            dispatcher.Invoke(action);
+        }
+    }
+
+    private void OnDocumentChanged(object? sender, EventArgs e) => RunOnUi(() =>
     {
         _cache.Purge(Document);
         IReadOnlyList<PdfSize> sizes = Document.GetPageSizes();
@@ -601,15 +616,15 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(HasAnnotations));
         RaiseEditState();
-    }
+    });
 
-    private void OnAnnotationsChanged(object? sender, AnnotationsChangedEventArgs e)
+    private void OnAnnotationsChanged(object? sender, AnnotationsChangedEventArgs e) => RunOnUi(() =>
     {
         LeftPane.BuildAnnotationOverlays();
         RightPane.BuildAnnotationOverlays();
         Annotations.Reload(Document);
         OnPropertyChanged(nameof(HasAnnotations));
-    }
+    });
 
     private async void OnTableRegionSelected(int pageIndex, PdfRect region)
     {
@@ -656,11 +671,11 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         LeftPane.GoToPage(pageIndex + 1);
     }
 
-    private void OnDocumentDirtyChanged(object? sender, EventArgs e)
+    private void OnDocumentDirtyChanged(object? sender, EventArgs e) => RunOnUi(() =>
     {
         OnPropertyChanged(nameof(Title));
         RaiseEditState();
-    }
+    });
 
     private void RaiseEditState()
     {
