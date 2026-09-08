@@ -246,6 +246,10 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     // right after a zoom would mark the whole document visible and queue hundreds of large renders.
     private const int MaxRealizedPages = 16;
 
+    /// <summary>Pages this far outside the realised window keep their rendered bitmap; beyond it the
+    /// bitmap is freed so a long document doesn't retain every page it has ever shown.</summary>
+    private const int ImageKeepMargin = 6;
+
     public void UpdateVisibleRange(int firstVisible, int lastVisible)
     {
         if (firstVisible > lastVisible)
@@ -260,6 +264,12 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             last = Math.Min(PageCount - 1, first + MaxRealizedPages - 1);
         }
 
+        // Keep rendered bitmaps for a band a bit wider than the realised window so scrolling
+        // back a page or two doesn't re-render; free everything beyond it. Without this a slot's
+        // ~4 MB bitmap lives for the whole session and a long standard leaks hundreds of MB.
+        int keepFrom = Math.Max(0, first - ImageKeepMargin);
+        int keepTo = Math.Min(PageCount - 1, last + ImageKeepMargin);
+
         for (int i = 0; i < Pages.Count; i++)
         {
             bool visible = i >= first && i <= last;
@@ -267,6 +277,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             if (visible)
             {
                 RequestRender(Pages[i]);
+            }
+            else if ((i < keepFrom || i > keepTo) && Pages[i].Image is not null)
+            {
+                Pages[i].Image = null;
+                Pages[i].RenderedPixelWidth = 0;
             }
         }
 
