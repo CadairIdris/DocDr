@@ -91,16 +91,55 @@ public partial class ThumbnailStripView : UserControl
 
     private void RequestVisible()
     {
-        if (_vm is null || _scrollViewer is null || !IsVisible)
+        if (_vm is null || _scrollViewer is null || !IsVisible || ThumbList.Items.Count == 0)
         {
+            return;
+        }
+
+        // Prefer WPF's realised containers — a fixed ApproxItemHeight (or even the panel's own
+        // extent estimate) drifts tens of items off after a jump deep into a long strip, so the
+        // wrong thumbnails get requested and the visible ones stay blank (same failure the page
+        // pane's VisiblePageRange fixed).
+        if (RealisedRange() is { } r)
+        {
+            _vm.RequestRange(r.First - 2, r.Last + 2);
             return;
         }
 
         double top = _scrollViewer.VerticalOffset;
         double viewport = System.Math.Max(1, _scrollViewer.ViewportHeight);
-        int first = (int)(top / ApproxItemHeight) - 2;
-        int last = (int)((top + viewport) / ApproxItemHeight) + 2;
-        _vm.RequestRange(first, last);
+        double itemHeight = _scrollViewer.ExtentHeight > 0
+            ? _scrollViewer.ExtentHeight / ThumbList.Items.Count
+            : ApproxItemHeight;
+        _vm.RequestRange((int)(top / itemHeight) - 2, (int)((top + viewport) / itemHeight) + 2);
+    }
+
+    /// <summary>The index span of thumbnail containers that actually intersect the viewport, or null
+    /// if none are realised yet.</summary>
+    private (int First, int Last)? RealisedRange()
+    {
+        double viewport = System.Math.Max(1, _scrollViewer!.ViewportHeight);
+        int first = int.MaxValue, last = -1;
+
+        for (int i = 0; i < ThumbList.Items.Count; i++)
+        {
+            if (ThumbList.ItemContainerGenerator.ContainerFromIndex(i) is not FrameworkElement { IsVisible: true } c)
+            {
+                continue;
+            }
+
+            double y;
+            try { y = c.TransformToVisual(_scrollViewer).Transform(new System.Windows.Point(0, 0)).Y; }
+            catch (System.InvalidOperationException) { continue; }
+
+            if (y + c.ActualHeight >= 0 && y <= viewport)
+            {
+                first = System.Math.Min(first, i);
+                last = System.Math.Max(last, i);
+            }
+        }
+
+        return last >= 0 ? (first, last) : null;
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject root)
