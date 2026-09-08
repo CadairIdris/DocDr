@@ -32,6 +32,22 @@ public partial class BookmarksPanelView : UserControl
         }
     }
 
+    private void RenameMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (Tree.SelectedItem is BookmarkNodeViewModel node)
+        {
+            node.IsEditing = true;
+        }
+    }
+
+    private void DeleteMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (Tree.SelectedItem is BookmarkNodeViewModel node)
+        {
+            ViewModel?.DeleteNodeCommand.Execute(node);
+        }
+    }
+
     private void Tree_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (Tree.SelectedItem is not BookmarkNodeViewModel node || node.IsEditing || ViewModel is null)

@@ -83,15 +83,6 @@ public sealed partial class BookmarksViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
-    private void BeginRename(BookmarkNodeViewModel? node)
-    {
-        if (node is not null)
-        {
-            node.IsEditing = true;
-        }
-    }
-
     /// <summary>Called by the view when an inline edit ends. Persists only if the title changed.</summary>
     public void CommitRename(BookmarkNodeViewModel node, bool changed)
     {

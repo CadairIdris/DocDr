@@ -17,13 +17,9 @@
                   PreviewKeyDown="Tree_PreviewKeyDown"
                   Visibility="{Binding HasBookmarks, Converter={StaticResource BoolToVisibility}}">
             <TreeView.ContextMenu>
-                <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                    <MenuItem Header="Rename" InputGestureText="F2"
-                              Command="{Binding BeginRenameCommand}"
-                              CommandParameter="{Binding SelectedItem, ElementName=Tree}" />
-                    <MenuItem Header="Delete" InputGestureText="Del"
-                              Command="{Binding DeleteNodeCommand}"
-                              CommandParameter="{Binding SelectedItem, ElementName=Tree}" />
+                <ContextMenu>
+                    <MenuItem Header="Rename" InputGestureText="F2" Click="RenameMenuItem_Click" />
+                    <MenuItem Header="Delete" InputGestureText="Del" Click="DeleteMenuItem_Click" />
                 </ContextMenu>
             </TreeView.ContextMenu>
             <TreeView.ItemContainerStyle>
