@@ -126,4 +126,19 @@ public sealed class PdfClausesTests
 
         Assert.Empty(PdfClauses.Read(doc));
     }
+
+    [Fact]
+    public void Read_drops_a_page_crammed_with_headings_a_contents_page()
+    {
+        using var ws = new TempWorkspace();
+        var runs = new List<TestPdfBuilder.Run>();
+        for (int i = 1; i <= 16; i++)
+        {
+            runs.Add(new TestPdfBuilder.Run($"6.{i} Design requirement", 72, 740 - (i * 40)));
+        }
+
+        using var doc = PdfDocument.Load(TestPdfBuilder.WriteRuns(ws.Path("toc.pdf"), runs));
+
+        Assert.Empty(PdfClauses.Read(doc));
+    }
 }

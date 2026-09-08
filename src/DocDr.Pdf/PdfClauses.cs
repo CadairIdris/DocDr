@@ -54,6 +54,9 @@ public sealed record PdfCodeStructure(
 /// </summary>
 public static partial class PdfClauses
 {
+    /// <summary>More heading matches than this on one page means it's a contents / index page.</summary>
+    private const int MaxHeadingsPerPage = 12;
+
     // "6", "6.4", "6.4.3.2" then whitespace then a capital-led title.
     [GeneratedRegex(@"^(\d{1,2}(?:\.\d{1,3}){0,5})\s+(\p{Lu}[^\n]{1,120}?)\s*$")]
     private static partial Regex NumericHeading();
@@ -112,6 +115,7 @@ public static partial class PdfClauses
 
             // NoiseLine + TocLeader + the structural checks carry the filtering — no positional skip
             // (a heading can be the first or last line on its page).
+            var onThisPage = new List<PdfClause>();
             foreach (string raw in lines)
             {
                 string line = raw.Trim();
@@ -129,8 +133,16 @@ public static partial class PdfClauses
 
                 if (TryHeading(line, page) is { } clause)
                 {
-                    flat.Add(clause);
+                    onThisPage.Add(clause);
                 }
+            }
+
+            // A real body page carries a handful of headings; a contents / index / list-of-tables
+            // page that dodged the leader check carries dozens — drop the whole page so its entries
+            // don't win the first-sighting race against the actual clause bodies later on.
+            if (onThisPage.Count <= MaxHeadingsPerPage)
+            {
+                flat.AddRange(onThisPage);
             }
         }
 
