@@ -20,7 +20,12 @@ public sealed class PdfDocument : IDisposable
     private const int MaxHistory = 30;
     private const int OriginalSourceId = 0;
 
-    private readonly record struct PageRef(int SourceId, int SourcePageIndex, int Rotation);
+    private readonly record struct PageRef(int SourceId, int SourcePageIndex, int Rotation)
+    {
+        /// <summary>Absolute CropBox (source-page MediaBox coords) applied after a trim, or null
+        /// for the source page's own box. Re-applied on every <see cref="Rebuild"/>, like rotation.</summary>
+        public PdfRect? CropBox { get; init; }
+    }
 
     private readonly record struct HistoryStep(
         IReadOnlyList<PageRef> Pages,
@@ -1115,17 +1120,21 @@ public sealed class PdfDocument : IDisposable
         IReadOnlyList<PageRef> target = step.Pages;
         bool sameStructure = _pages.Count == target.Count;
         bool sameRotation = sameStructure;
+        bool sameCrop = sameStructure;
         for (int i = 0; sameStructure && i < target.Count; i++)
         {
             sameStructure = _pages[i].SourceId == target[i].SourceId
                             && _pages[i].SourcePageIndex == target[i].SourcePageIndex;
             sameRotation = sameRotation && sameStructure && _pages[i].Rotation == target[i].Rotation;
+            sameCrop = sameCrop && sameStructure && Nullable.Equals(_pages[i].CropBox, target[i].CropBox);
         }
 
         _pages = target.ToList();
         _annotations = step.Annotations.Select(list => list.ToList()).ToList();
 
-        if (!sameStructure)
+        // A crop change can't be undone in place (FPDFPage_SetCropBox only sets) — rebuild from
+        // source, which re-applies the restored crops.
+        if (!sameStructure || !sameCrop)
         {
             Rebuild();
             return true;
@@ -1196,6 +1205,173 @@ public sealed class PdfDocument : IDisposable
         }
     }
 
+    private static void ApplyCropBox(FpdfDocumentT doc, int pageIndex, PdfRect crop)
+    {
+        FpdfPageT? page = fpdfview.FPDF_LoadPage(doc, pageIndex);
+        if (page is null || page.__Instance == IntPtr.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            double left = Math.Min(crop.Left, crop.Right), right = Math.Max(crop.Left, crop.Right);
+            double bottom = Math.Min(crop.Top, crop.Bottom), top = Math.Max(crop.Top, crop.Bottom);
+            fpdf_transformpage.FPDFPageSetCropBox(page, (float)left, (float)bottom, (float)right, (float)top);
+        }
+        finally
+        {
+            fpdfview.FPDF_ClosePage(page);
+        }
+    }
+
+    /// <summary>
+    /// Set each given page's CropBox to its visible content bounds plus <paramref name="marginPt"/>
+    /// points of white space. Renders the page to find the content — one <see cref="IProgress{T}"/>
+    /// tick per page. A single undo step; survives a later structural edit (re-applied by
+    /// <see cref="Rebuild"/>). Pages that already fit their content tightly are skipped.
+    /// </summary>
+    /// <returns>The number of pages whose CropBox was actually changed.</returns>
+    public int TrimMargins(
+        IReadOnlyList<int> pageIndexes, double marginPt = 6,
+        IProgress<int>? progress = null, CancellationToken cancellationToken = default)
+    {
+        int[] indices = Normalize(pageIndexes);
+        if (indices.Length == 0)
+        {
+            return 0;
+        }
+
+        var renderer = new PageRenderer();
+        var newCrops = new Dictionary<int, PdfRect>();
+        for (int k = 0; k < indices.Length; k++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int i = indices[k];
+            if (DetectTrimmedCropBox(renderer, i, marginPt) is { } crop)
+            {
+                newCrops[i] = crop;
+            }
+
+            progress?.Report(k + 1);
+        }
+
+        if (newCrops.Count == 0)
+        {
+            return 0;
+        }
+
+        Locked(() =>
+        {
+            PushUndo();
+
+            // Never mutate a source page's box (undo can't restore it — FPDFPage_SetCropBox only
+            // sets). Rebuild so the live handle is a private copy first.
+            if (ReferenceEquals(_handle, _sources[OriginalSourceId].Handle))
+            {
+                Rebuild();
+            }
+
+            foreach ((int i, PdfRect crop) in newCrops)
+            {
+                _pages[i] = _pages[i] with { CropBox = crop };
+                ApplyCropBox(Handle, i, crop);
+            }
+        });
+
+        AfterEdit();
+        return newCrops.Count;
+    }
+
+    private PdfRect? DetectTrimmedCropBox(PageRenderer renderer, int pageIndex, double marginPt)
+    {
+        const double dpi = 120.0;
+        double scale = dpi / 72.0;
+        PdfSize displayed = GetPageSize(pageIndex); // rotated, current-crop size
+        int pw = Math.Max(1, (int)Math.Round(displayed.Width * scale));
+        int ph = Math.Max(1, (int)Math.Round(displayed.Height * scale));
+
+        RenderedPage img;
+        try
+        {
+            img = renderer.Render(this, pageIndex, pw, ph);
+        }
+        catch (PdfException)
+        {
+            return null;
+        }
+
+        if (!TryFindContentBox(img, out int dx0, out int dy0, out int dx1, out int dy1))
+        {
+            return null; // blank page — leave it alone
+        }
+
+        PdfSize unrotated = GetUnrotatedPageSize(pageIndex);
+        PdfRotation rotation = GetPageRotation(pageIndex);
+        PdfPoint crop = GetCropOrigin(pageIndex);
+
+        // Map the device bbox corners back to unrotated MediaBox-relative page points.
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        foreach ((int px, int py) in new[] { (dx0, dy0), (dx1, dy0), (dx1, dy1), (dx0, dy1) })
+        {
+            PdfPoint p = PdfCoordinates.DeviceToPage(px, py, unrotated, rotation, scale, crop);
+            minX = Math.Min(minX, p.X);
+            maxX = Math.Max(maxX, p.X);
+            minY = Math.Min(minY, p.Y);
+            maxY = Math.Max(maxY, p.Y);
+        }
+
+        double pageLeft = crop.X, pageBottom = crop.Y;
+        double pageRight = crop.X + unrotated.Width, pageTop = crop.Y + unrotated.Height;
+
+        double left = Math.Clamp(minX - marginPt, pageLeft, pageRight);
+        double right = Math.Clamp(maxX + marginPt, pageLeft, pageRight);
+        double bottom = Math.Clamp(minY - marginPt, pageBottom, pageTop);
+        double top = Math.Clamp(maxY + marginPt, pageBottom, pageTop);
+
+        if (right - left < 1 || top - bottom < 1)
+        {
+            return null;
+        }
+
+        // Already tight (content fills > 97% both ways) — nothing to gain.
+        if ((right - left) > 0.97 * unrotated.Width && (top - bottom) > 0.97 * unrotated.Height)
+        {
+            return null;
+        }
+
+        return new PdfRect(left, top, right, bottom);
+    }
+
+    private static bool TryFindContentBox(RenderedPage img, out int x0, out int y0, out int x1, out int y1)
+    {
+        const int white = 245; // any channel below this counts as content
+        x0 = img.PixelWidth;
+        y0 = img.PixelHeight;
+        x1 = -1;
+        y1 = -1;
+        byte[] px = img.Pixels;
+        int stride = img.Stride;
+
+        for (int y = 0; y < img.PixelHeight; y++)
+        {
+            int row = y * stride;
+            for (int x = 0; x < img.PixelWidth; x++)
+            {
+                int o = row + (x * 4);
+                if (px[o] < white || px[o + 1] < white || px[o + 2] < white)
+                {
+                    if (x < x0) x0 = x;
+                    if (x > x1) x1 = x;
+                    if (y < y0) y0 = y;
+                    if (y > y1) y1 = y;
+                }
+            }
+        }
+
+        return x1 >= x0 && y1 >= y0;
+    }
+
     private void Rebuild()
     {
         FpdfDocumentT fresh = fpdf_edit.FPDF_CreateNewDocument();
@@ -1228,6 +1404,11 @@ public sealed class PdfDocument : IDisposable
                 if (_pages[k].Rotation != 0)
                 {
                     SetRotation(fresh, k, _pages[k].Rotation);
+                }
+
+                if (_pages[k].CropBox is { } crop)
+                {
+                    ApplyCropBox(fresh, k, crop);
                 }
             }
         }

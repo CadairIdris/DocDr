@@ -530,6 +530,39 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
+    [RelayCommand]
+    private async Task TrimMargins()
+    {
+        int pages = Document.PageCount;
+        if (pages > 40 && MessageBox.Show(
+                $"Trim the margins on all {pages} pages? Each page is cropped to its visible content. This can be undone.",
+                "DocDr", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        var all = Enumerable.Range(0, pages).ToArray();
+        System.Windows.Input.Mouse.OverrideCursor = System.Windows.Input.Cursors.Wait;
+        try
+        {
+            int trimmed = await Task.Run(() => Document.TrimMargins(all)).ConfigureAwait(true);
+            if (trimmed == 0)
+            {
+                MessageBox.Show("Nothing to trim — every page already fits its content.", "DocDr",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+        catch (PdfException ex)
+        {
+            MessageBox.Show($"Could not trim margins: {ex.Message}", "DocDr",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            System.Windows.Input.Mouse.OverrideCursor = null;
+        }
+    }
+
     /// <summary>True while the document has no outline — the "Generate bookmarks" affordance shows.</summary>
     public bool CanGenerateBookmarks => !Bookmarks.HasBookmarks;
 

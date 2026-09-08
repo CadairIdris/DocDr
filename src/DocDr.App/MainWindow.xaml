@@ -62,6 +62,10 @@
                         Command="{Binding SelectedTab.OcrDocumentCommand}"
                         IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Recognise text"
                         ToolTip="Recognise text on scanned pages and add a searchable layer" />
+                <Button Content="Trim margins" Padding="8,3" Margin="4,0,0,0"
+                        Command="{Binding SelectedTab.TrimMarginsCommand}"
+                        IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Trim margins"
+                        ToolTip="Crop every page to its visible content plus a small margin" />
                 <Separator />
                 <ToggleButton Content="Split view" Padding="8,3" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"
