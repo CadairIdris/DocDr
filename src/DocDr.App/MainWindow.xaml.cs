@@ -68,11 +68,26 @@ public partial class MainWindow : Window
 
     private void InkColor_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement { Tag: string key } && _viewModel?.SelectedTab is { } tab)
+        if (sender is not FrameworkElement { Tag: string key } || _viewModel?.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        if (key == AnnotationColors.Custom)
+        {
+            if (Views.ColorPickerWindow.Pick(AnnotationColors.CustomColorArgb, this) is not { } picked)
+            {
+                return;
+            }
+
+            tab.ApplyCustomColor(picked);
+        }
+        else
         {
             tab.InkColorKey = key;
-            tab.HighlighterToolActive = true;
         }
+
+        tab.HighlighterToolActive = true;
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)

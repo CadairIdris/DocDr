@@ -153,6 +153,46 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   yellow (`0xFFFFD54F`). `PdfShapeCodec.Shape` carries a `uint? Color` (null when 0); `Decode`
   uses `shape.Color ?? colorArgb`.
 
+## Per-annotation format toolbar (`AnnotationFormatViewModel`)
+
+- **Selecting a shape / line / text box / cloud / highlight / note raises a floating format bar**
+  (`PdfPaneView.xaml` `FormatBarPopup`, one per pane, `Placement=Relative` to `PageList`,
+  positioned by `PdfPaneView.xaml.cs` `PositionFormatBar` — reuses `FindDescendantSlot` +
+  `TransformToVisual` like the paste/link overlays; repositions on `ScrollChanged` + a guarded
+  `LayoutUpdated`). Ink / image get no bar.
+- `PdfPaneViewModel.SelectedFormat` (`AnnotationFormatViewModel?`) is rebuilt at the end of every
+  `BuildAnnotationOverlays` from the selected annotation (`RefreshSelectedFormat`, cleared while a
+  drag is in progress); `SelectedFormatChanged` tells the view to reposition. `SelectedFormatPage`
+  + `SelectedFormatAnchor` (top-centre of the annotation's device bounds) place the bar.
+- The bar's two-way props / commands call `PdfPaneViewModel.ApplyFormat(id, a => a with {…})`
+  → `UpdateAnnotation` (so every style change is undoable). `ShowStrokeColor / ShowLineWidth /
+  ShowDashed / ShowFill / ShowTextColor / ShowBorderToggle / ShowFontSize` gate the controls by
+  kind. Font-size steps go through `ResizeTextBoxForFont` (re-fits the box + re-attaches a callout leader).
+- **Styling fields on `PdfAnnotation`** (all default to "off", round-trip in `/DocDrShape` via
+  new nullable `Shape` members): `LineWidth` (0 → `DefaultLineWidth` 1.5; `EffectiveLineWidth`),
+  `FillArgb` (rect/ellipse tint, alpha `0x40` by convention), `Dashed`, `Borderless`
+  (text box / callout — skip the box stroke), `TextColorArgb` (text box / callout text; null = black).
+- **`FPDFPageObjSetDashArray` does NOT render on a stamp-appearance path in this PDFium build** —
+  `PdfStampAppearance.DashPolyline` draws the gaps geometrically (rect → 5-pt polyline, ellipse →
+  96-pt sample, line → its 2 points; arrowhead stays solid). `StrokePath(…, bool stroke, uint? fill)`
+  does fill (`FPDFPathSetDrawMode` winding) ± stroke.
+- **Line / arrow end points are draggable** when selected: `AnnotationVisual.EndpointHandles` (two
+  circles), `PdfPaneViewModel.TryHitLineEndpoint` → `Begin/Preview/End/CancelLineEndpointMove` +
+  `MoveLineEndpoint` (mirrors the callout `_leaderTipId` plumbing; wired in `PdfPaneView.xaml.cs`
+  before `TryHitLeaderTip`). `MoveShape` still moves the whole line.
+- **Custom colour**: `AnnotationColors.Keys` = the 5 presets + `"Custom"`; `PresetKeys` excludes it.
+  `AnnotationColors.CustomColorArgb` (static, app-wide) is seeded from `AppSettings.LastCustomColor`
+  in `MainViewModel` and updated by `DocumentTabViewModel.ApplyCustomColor` (which refreshes the
+  `InkColorKeys` list so the "Custom" swatch re-renders, selects it, and raises `CustomColorChanged`
+  → `MainViewModel` persists). `ColorPickerWindow` (RGB sliders + hex + presets, no WinForms) is
+  the picker — reached from the toolbar rail's "Custom" swatch (`MainWindow.xaml.cs`), the format
+  bar (`PdfPaneViewModel.PickCustomColor`, which yields via `Dispatcher.Invoke(Background)` first so
+  the popup click unwinds), and the text-selection popup.
+- **Text box / callout lost their colour + size controls in `AnnotationEditorWindow`** — that
+  modal is now text-only for them (`ShowColors => IsHighlight`); everything visual is on the bar.
+  `EditAnnotation` early-returns for rect/ellipse/line/arrow/cloud (no note). Nav-panel + delete-button
+  labels come from `AnnotationKinds.Label`.
+
 ## OCR (`PdfOcr` / `DocDr.Ocr`, Stage 6)
 
 - **`DocDr.Ocr`** is a separate `net9.0` (x64-only) project so the Tesseract dependency stays out

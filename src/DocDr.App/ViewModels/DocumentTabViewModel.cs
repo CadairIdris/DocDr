@@ -68,6 +68,8 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
         LeftPane.PropertyChanged += OnLeftPanePropertyChanged;
         RightPane.PropertyChanged += OnRightPanePropertyChanged;
+        LeftPane.CustomColorPicked += OnCustomColorPicked;
+        RightPane.CustomColorPicked += OnCustomColorPicked;
         Document.Changed += OnDocumentChanged;
         Document.DirtyChanged += OnDocumentDirtyChanged;
         Document.AnnotationsChanged += OnAnnotationsChanged;
@@ -210,8 +212,24 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         RightPane.InkColorKey = value;
     }
 
-    /// <summary>The highlighter palette for the toolbar swatches.</summary>
-    public System.Collections.Generic.IReadOnlyList<string> InkColorKeys => AnnotationColors.Keys;
+    /// <summary>The highlighter / shape palette for the toolbar swatches (a fresh list on each custom
+    /// pick so the "Custom" swatch re-renders in the new colour).</summary>
+    [ObservableProperty]
+    private System.Collections.Generic.IReadOnlyList<string> _inkColorKeys = [.. AnnotationColors.Keys];
+
+    /// <summary>Raised when the user picks a new "Custom" colour — <see cref="MainViewModel"/> persists it.</summary>
+    public event Action<uint>? CustomColorChanged;
+
+    private void OnCustomColorPicked(uint argb) => ApplyCustomColor(argb);
+
+    /// <summary>Adopt a new "Custom" swatch colour: update the shared value, refresh the rail, select it, persist.</summary>
+    public void ApplyCustomColor(uint argb)
+    {
+        AnnotationColors.CustomColorArgb = argb;
+        InkColorKeys = [.. AnnotationColors.Keys];
+        InkColorKey = AnnotationColors.Custom;
+        CustomColorChanged?.Invoke(argb);
+    }
 
     /// <summary>Whether the Annotations navigation tab is offered (the document has any).</summary>
     public bool HasAnnotations => Document.HasAnnotations;
@@ -799,6 +817,8 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     {
         LeftPane.PropertyChanged -= OnLeftPanePropertyChanged;
         RightPane.PropertyChanged -= OnRightPanePropertyChanged;
+        LeftPane.CustomColorPicked -= OnCustomColorPicked;
+        RightPane.CustomColorPicked -= OnCustomColorPicked;
         Document.Changed -= OnDocumentChanged;
         Document.DirtyChanged -= OnDocumentDirtyChanged;
         Document.AnnotationsChanged -= OnAnnotationsChanged;

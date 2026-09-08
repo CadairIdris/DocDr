@@ -69,6 +69,12 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 - **Shapes**: rectangle, ellipse, line and arrow tools alongside the existing callout / cloud /
   text-box tools — drag to place, then move / resize / recolour. Everything is saved into the PDF
   so other viewers see the finished collage.
+- **Format toolbar**: select any shape, line, text box, cloud, highlight or note and a small
+  floating bar appears with the controls that kind supports — outline colour, line thickness,
+  dashed on/off, fill colour, and for text boxes the text colour (black by default or matching the
+  outline), a border toggle and a font-size stepper. Lines and arrows drag by their end points.
+- **Custom colour**: a sixth "Custom…" swatch on the colour rail (and in the format bar) opens a
+  picker; the exact colour is remembered and saved into the PDF.
 
 ### Dark mode
 

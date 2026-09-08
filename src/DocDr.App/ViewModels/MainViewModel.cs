@@ -30,6 +30,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _renderQueue = renderQueue;
         _cache = cache;
         _settings = settings;
+        AnnotationColors.CustomColorArgb = settings.LastCustomColor;
         Tabs.CollectionChanged += OnTabsChanged;
         RebuildRecentFiles();
     }
@@ -194,6 +195,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             UniqueTitle(title), document, document.GetPageSizes(), document.GetOutline(),
             _renderQueue, _cache);
         tab.CloseRequested += (_, _) => CloseTab(tab);
+        tab.CustomColorChanged += argb =>
+        {
+            _settings.LastCustomColor = argb;
+            _settings.Save();
+        };
         Tabs.Add(tab);
         SelectedTab = tab;
         StatusText = $"{document.PageCount} page(s) — {Tabs.Count} tab(s) open.";

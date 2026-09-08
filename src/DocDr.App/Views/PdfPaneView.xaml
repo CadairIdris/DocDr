@@ -278,9 +278,12 @@
                                             </Style.Triggers>
                                         </Style>
                                     </Canvas.Style>
-                                    <Polyline Points="{Binding Leader}" Stroke="{Binding ShapeBrush}" StrokeThickness="1.5"
+                                    <Polyline Points="{Binding Leader}" Stroke="{Binding ShapeBrush}"
+                                              StrokeThickness="{Binding ShapeStrokeThickness}"
+                                              StrokeDashArray="{Binding ShapeDash}"
                                               StrokeLineJoin="Round" />
-                                    <Polyline Points="{Binding LeaderArrow}" Stroke="{Binding ShapeBrush}" StrokeThickness="1.5"
+                                    <Polyline Points="{Binding LeaderArrow}" Stroke="{Binding ShapeBrush}"
+                                              StrokeThickness="{Binding ShapeStrokeThickness}"
                                               StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
                                 </Canvas>
 
@@ -290,14 +293,18 @@
                                        Source="{Binding Image}" Stretch="Fill" IsHitTestVisible="False"
                                        Visibility="{Binding IsImage, Converter={StaticResource BoolToVisibility}}" />
 
-                                <!-- Rectangle / ellipse outline. -->
+                                <!-- Rectangle / ellipse outline + fill. -->
                                 <Rectangle Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
                                            Width="{Binding Box.Width}" Height="{Binding Box.Height}"
-                                           Stroke="{Binding ShapeBrush}" StrokeThickness="1.5" IsHitTestVisible="False"
+                                           Stroke="{Binding ShapeBrush}" StrokeThickness="{Binding ShapeStrokeThickness}"
+                                           StrokeDashArray="{Binding ShapeDash}" Fill="{Binding ShapeFillBrush}"
+                                           IsHitTestVisible="False"
                                            Visibility="{Binding IsRectangle, Converter={StaticResource BoolToVisibility}}" />
                                 <Ellipse Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
                                          Width="{Binding Box.Width}" Height="{Binding Box.Height}"
-                                         Stroke="{Binding ShapeBrush}" StrokeThickness="1.5" IsHitTestVisible="False"
+                                         Stroke="{Binding ShapeBrush}" StrokeThickness="{Binding ShapeStrokeThickness}"
+                                         StrokeDashArray="{Binding ShapeDash}" Fill="{Binding ShapeFillBrush}"
+                                         IsHitTestVisible="False"
                                          Visibility="{Binding IsEllipse, Converter={StaticResource BoolToVisibility}}" />
 
                                 <!-- Selection border for a box-shaped annotation (image / rectangle / ellipse). -->
@@ -313,7 +320,7 @@
                                 <!-- Text box / callout box. -->
                                 <Border Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
                                         Width="{Binding Box.Width}" Height="{Binding Box.Height}"
-                                        BorderBrush="{Binding ShapeBrush}" BorderThickness="1.5"
+                                        BorderBrush="{Binding ShapeBrush}" BorderThickness="{Binding BorderThicknessValue}"
                                         Background="Transparent" Cursor="SizeAll" ClipToBounds="True" Padding="3,2"
                                         IsHitTestVisible="False"
                                         Visibility="{Binding IsTextBox, Converter={StaticResource BoolToVisibility}}">
@@ -332,7 +339,7 @@
                                     </Border.Style>
                                     <TextBlock Text="{Binding BoxText}" TextWrapping="Wrap"
                                                Width="{Binding BoxTextWidth}" HorizontalAlignment="Left"
-                                               Foreground="{Binding ShapeBrush}" FontSize="{Binding BoxFontSize}" />
+                                               Foreground="{Binding TextBrush}" FontSize="{Binding BoxFontSize}" />
                                 </Border>
 
                                 <!-- Sticky-note pin (drag to move, click to select, double-click to edit).
@@ -418,13 +425,32 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
 
-                                <!-- Delete affordance for a selected highlight. -->
+                                <!-- Draggable end-point handles for a selected line / arrow. -->
+                                <ItemsControl ItemsSource="{Binding EndpointHandles}" IsHitTestVisible="False">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemContainerStyle>
+                                        <Style TargetType="ContentPresenter">
+                                            <Setter Property="Canvas.Left" Value="{Binding X}" />
+                                            <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                                        </Style>
+                                    </ItemsControl.ItemContainerStyle>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Ellipse Width="{Binding Width}" Height="{Binding Height}"
+                                                     Fill="{DynamicResource AccentBrush}" Stroke="White" StrokeThickness="1.5" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- Delete affordance for a selected annotation. -->
                                 <Button Canvas.Left="{Binding Marker.X}" Canvas.Top="{Binding Marker.Y}"
                                         Width="{Binding Marker.Width}" Height="{Binding Marker.Height}"
                                         Padding="0" MinWidth="0" MinHeight="0" Cursor="Hand"
                                         Background="{DynamicResource OverlayCardBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                                        ToolTip="Delete highlight"
+                                        ToolTip="{Binding DeleteTooltip}"
                                         Visibility="{Binding ShowDeleteButton, Converter={StaticResource BoolToVisibility}}"
                                         Command="{Binding DataContext.DeleteAnnotationCommand, RelativeSource={RelativeSource AncestorType={x:Type views:PdfPaneView}}}"
                                         CommandParameter="{Binding Id}">
@@ -691,6 +717,111 @@
                             ToolTip="Copy a citation (source, clause, page) for this passage"
                             Command="{Binding CiteSelectionCommand}"
                             Click="PopupAction_Click" />
+                </StackPanel>
+            </Border>
+        </Popup>
+
+        <!-- Floating format toolbar for the selected shape / line / text-box annotation. -->
+        <Popup x:Name="FormatBarPopup" Grid.Row="1" AllowsTransparency="True" StaysOpen="True"
+               Placement="Relative" PlacementTarget="{Binding ElementName=PageList}"
+               DataContext="{Binding SelectedFormat}">
+            <Border x:Name="FormatBarHost" Background="{DynamicResource OverlayCardBrush}" CornerRadius="6"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="5,4">
+                <Border.Resources>
+                    <Style x:Key="BarSwatch" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                        <Setter Property="Width" Value="18" />
+                        <Setter Property="Height" Value="18" />
+                        <Setter Property="Margin" Value="1,0" />
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Cursor" Value="Hand" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+                        <Setter Property="BorderThickness" Value="1" />
+                    </Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
+                        <Setter Property="VerticalAlignment" Value="Center" />
+                        <Setter Property="FontSize" Value="11" />
+                    </Style>
+                </Border.Resources>
+                <StackPanel Orientation="Horizontal">
+                    <!-- Outline / stroke colour -->
+                    <ItemsControl ItemsSource="{Binding Swatches}" VerticalAlignment="Center"
+                                  Visibility="{Binding ShowStrokeColor, Converter={StaticResource BoolToVisibility}}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Style="{StaticResource BarSwatch}" ToolTip="{Binding}"
+                                        Background="{Binding Converter={StaticResource HighlightSwatch}}"
+                                        Command="{Binding DataContext.PickStrokeCommand,
+                                                  RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                        CommandParameter="{Binding}" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Line width -->
+                    <StackPanel Orientation="Horizontal" Margin="8,0,0,0"
+                                Visibility="{Binding ShowLineWidth, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="Width" Margin="0,0,4,0" />
+                        <ComboBox MinWidth="52" ItemsSource="{Binding LineWidths}"
+                                  SelectedItem="{Binding LineWidth, Mode=TwoWay}"
+                                  Style="{StaticResource {x:Type ComboBox}}" />
+                    </StackPanel>
+
+                    <!-- Dashed -->
+                    <ToggleButton Content="Dashed" Margin="8,0,0,0" Padding="6,2" Cursor="Hand"
+                                  IsChecked="{Binding Dashed, Mode=TwoWay}"
+                                  Visibility="{Binding ShowDashed, Converter={StaticResource BoolToVisibility}}" />
+
+                    <!-- Fill -->
+                    <StackPanel Orientation="Horizontal" Margin="8,0,0,0"
+                                Visibility="{Binding ShowFill, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="Fill" Margin="0,0,4,0" />
+                        <ItemsControl ItemsSource="{Binding Swatches}" VerticalAlignment="Center">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Style="{StaticResource BarSwatch}" ToolTip="{Binding}"
+                                            Background="{Binding Converter={StaticResource HighlightSwatch}}"
+                                            Command="{Binding DataContext.PickFillCommand,
+                                                      RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                            CommandParameter="{Binding}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Button Content="None" Padding="6,2" Margin="3,0,0,0" Cursor="Hand"
+                                Command="{Binding ClearFillCommand}" />
+                    </StackPanel>
+
+                    <!-- Text colour + border (text box / callout) -->
+                    <StackPanel Orientation="Horizontal" Margin="8,0,0,0"
+                                Visibility="{Binding ShowTextColor, Converter={StaticResource BoolToVisibility}}">
+                        <CheckBox Content="Text matches outline" VerticalAlignment="Center"
+                                  IsChecked="{Binding MatchTextToOutline, Mode=TwoWay}" />
+                    </StackPanel>
+                    <ToggleButton Content="Border" Margin="8,0,0,0" Padding="6,2" Cursor="Hand"
+                                  IsChecked="{Binding HasBorder, Mode=TwoWay}"
+                                  Visibility="{Binding ShowBorderToggle, Converter={StaticResource BoolToVisibility}}" />
+
+                    <!-- Font size stepper -->
+                    <StackPanel Orientation="Horizontal" Margin="8,0,0,0"
+                                Visibility="{Binding ShowFontSize, Converter={StaticResource BoolToVisibility}}">
+                        <Button Content="–" Padding="6,1" Cursor="Hand" Command="{Binding StepFontSizeCommand}" CommandParameter="-" />
+                        <TextBlock Text="{Binding FontSizeLabel}" Margin="5,0" MinWidth="34" TextAlignment="Center" />
+                        <Button Content="+" Padding="6,1" Cursor="Hand" Command="{Binding StepFontSizeCommand}" CommandParameter="+" />
+                    </StackPanel>
+
+                    <Border Width="1" Margin="8,1" Background="{DynamicResource BorderBrush}" />
+                    <Button Padding="6,2" Cursor="Hand" ToolTip="Delete this annotation" Command="{Binding DeleteCommand}">
+                        <Path Data="M3,4 H13 M6.5,4 V2.5 H9.5 V4 M4.5,4 L5,13 H11 L11.5,4"
+                              Stretch="Uniform" Width="12" Height="12"
+                              Stroke="{DynamicResource PrimaryTextBrush}" StrokeThickness="1.1"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                    </Button>
                 </StackPanel>
             </Border>
         </Popup>

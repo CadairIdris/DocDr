@@ -20,7 +20,18 @@ internal static class PdfShapeCodec
     };
 
     private sealed record Shape(
-        string Kind, double[] Box, double[][]? Leader, double FontSize, bool? AutoSize, uint? Color);
+        string Kind, double[] Box, double[][]? Leader, double FontSize, bool? AutoSize, uint? Color)
+    {
+        public double? LineWidth { get; init; }
+
+        public uint? Fill { get; init; }
+
+        public bool? Dashed { get; init; }
+
+        public bool? Borderless { get; init; }
+
+        public uint? TextColor { get; init; }
+    }
 
     public static string Encode(PdfAnnotation a)
     {
@@ -34,7 +45,14 @@ internal static class PdfShapeCodec
             leader,
             a.FontSize,
             a.AutoSize ? null : false,
-            a.ColorArgb == 0 ? null : a.ColorArgb);
+            a.ColorArgb == 0 ? null : a.ColorArgb)
+        {
+            LineWidth = a.LineWidth > 0 ? a.LineWidth : null,
+            Fill = a.FillArgb,
+            Dashed = a.Dashed ? true : null,
+            Borderless = a.Borderless ? true : null,
+            TextColor = a.TextColorArgb,
+        };
 
         return JsonSerializer.Serialize(shape, Options);
     }
@@ -83,6 +101,11 @@ internal static class PdfShapeCodec
             Strokes = strokes,
             FontSize = shape.FontSize > 0 ? shape.FontSize : PdfAnnotation.DefaultFontSize,
             AutoSize = shape.AutoSize ?? true,
+            LineWidth = shape.LineWidth is > 0 ? shape.LineWidth.Value : 0,
+            FillArgb = shape.Fill,
+            Dashed = shape.Dashed ?? false,
+            Borderless = shape.Borderless ?? false,
+            TextColorArgb = shape.TextColor,
             Replies = replies,
         };
     }

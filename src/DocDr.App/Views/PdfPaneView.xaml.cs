@@ -23,6 +23,7 @@ public partial class PdfPaneView : UserControl
     private bool _movingShape;
     private bool _resizing;
     private bool _leaderTipMoving;
+    private bool _lineEndpointMoving;
     private PdfPoint _moveAnchor;
     private Point _pointerDown;
     private bool _panning;
@@ -49,6 +50,8 @@ public partial class PdfPaneView : UserControl
     {
         _hwndSource?.RemoveHook(HorizontalWheelHook);
         _hwndSource = null;
+        PageList.LayoutUpdated -= OnPageListLayoutUpdated;
+        FormatBarPopup.IsOpen = false;
     }
 
     private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -68,6 +71,7 @@ public partial class PdfPaneView : UserControl
             _pane.ScrollToPageRequested -= OnScrollToPageRequested;
             _pane.PropertyChanged -= OnPanePropertyChanged;
             _pane.PagesReloaded -= OnPagesReloaded;
+            _pane.SelectedFormatChanged -= OnSelectedFormatChanged;
         }
 
         _pane = e.NewValue as PdfPaneViewModel;
@@ -80,6 +84,7 @@ public partial class PdfPaneView : UserControl
         _pane.ScrollToPageRequested += OnScrollToPageRequested;
         _pane.PropertyChanged += OnPanePropertyChanged;
         _pane.PagesReloaded += OnPagesReloaded;
+        _pane.SelectedFormatChanged += OnSelectedFormatChanged;
 
         // WPF's TabControl reuses this single PdfPaneView across every tab, swapping the
         // DataContext underneath it — so a plain event hook isn't enough. Re-establish
@@ -97,6 +102,8 @@ public partial class PdfPaneView : UserControl
         _scrollViewer = FindScrollViewer(PageList);
         ApplyViewMode();
         ScheduleReinitialize();
+        PageList.LayoutUpdated -= OnPageListLayoutUpdated;
+        PageList.LayoutUpdated += OnPageListLayoutUpdated;
 
         // WPF has no routed event for the horizontal wheel — a precision-touchpad two-finger
         // sideways swipe arrives only as the Win32 WM_MOUSEHWHEEL. Hook it at the window.
@@ -121,6 +128,63 @@ public partial class PdfPaneView : UserControl
     {
         ApplyViewMode();
         ScheduleReinitialize();
+    }
+
+    private void OnSelectedFormatChanged(object? sender, System.EventArgs e) =>
+        Dispatcher.BeginInvoke(PositionFormatBar, System.Windows.Threading.DispatcherPriority.Loaded);
+
+    private void OnPageListLayoutUpdated(object? sender, System.EventArgs e)
+    {
+        if (_pane?.SelectedFormat is not null || FormatBarPopup.IsOpen)
+        {
+            PositionFormatBar();
+        }
+    }
+
+    /// <summary>Anchor the floating format toolbar just above the selected annotation, or hide it.</summary>
+    private void PositionFormatBar()
+    {
+        if (_pane?.SelectedFormat is null || _scrollViewer is null || _pane.SelectedFormatPage < 0
+            || PageList.ItemContainerGenerator.ContainerFromItem(PageItem(_pane.SelectedFormatPage))
+                is not FrameworkElement container
+            || FindDescendantSlot(container) is not { } slot)
+        {
+            FormatBarPopup.IsOpen = false;
+            return;
+        }
+
+        Point inSv;
+        try
+        {
+            inSv = slot.TransformToVisual(_scrollViewer).Transform(_pane.SelectedFormatAnchor);
+        }
+        catch (InvalidOperationException)
+        {
+            FormatBarPopup.IsOpen = false;
+            return;
+        }
+
+        FormatBarHost.UpdateLayout();
+        double barW = FormatBarHost.ActualWidth > 0 ? FormatBarHost.ActualWidth : 320;
+        double barH = FormatBarHost.ActualHeight > 0 ? FormatBarHost.ActualHeight : 40;
+
+        // Hide when the anchor is well outside the viewport.
+        if (inSv.Y < -barH || inSv.Y > _scrollViewer.ViewportHeight + 40)
+        {
+            FormatBarPopup.IsOpen = false;
+            return;
+        }
+
+        double x = Math.Clamp(inSv.X - (barW / 2), 4, Math.Max(4, _scrollViewer.ViewportWidth - barW - 4));
+        double y = inSv.Y - 8 - barH;
+        if (y < 4)
+        {
+            y = inSv.Y + 26; // no room above — drop below the anchor
+        }
+
+        FormatBarPopup.HorizontalOffset = x;
+        FormatBarPopup.VerticalOffset = y;
+        FormatBarPopup.IsOpen = true;
     }
 
     /// <summary>Point the list at the right collection + template for the pane's current mode.</summary>
@@ -206,6 +270,7 @@ public partial class PdfPaneView : UserControl
         }
 
         RefreshVisibleRange();
+        PositionFormatBar();
 
         if (!_programmaticScroll && !_pane.IsPaged)
         {
@@ -544,6 +609,19 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        // A selected line / arrow's end-point handle: drag to re-point that end.
+        if (_pane.TryHitLineEndpoint(target.Slot.PageIndex, pagePoint) is { } endpoint)
+        {
+            _lineEndpointMoving = true;
+            _selectionSlot = target.Element;
+            _selectionPageIndex = target.Slot.PageIndex;
+            _moveAnchor = pagePoint;
+            _pane.BeginLineEndpointMove(endpoint.Id, endpoint.End);
+            PageList.CaptureMouse();
+            e.Handled = true;
+            return;
+        }
+
         // The selected callout's arrow-tip handle: drag to re-point it.
         if (_pane.TryHitLeaderTip(target.Slot.PageIndex, pagePoint) is System.Guid leaderId)
         {
@@ -724,6 +802,10 @@ public partial class PdfPaneView : UserControl
         {
             _pane.PreviewLeaderTipMove(pagePoint.X - _moveAnchor.X, pagePoint.Y - _moveAnchor.Y);
         }
+        else if (_lineEndpointMoving)
+        {
+            _pane.PreviewLineEndpointMove(pagePoint.X - _moveAnchor.X, pagePoint.Y - _moveAnchor.Y);
+        }
         else if (_selecting)
         {
             _pane.ExtendTextSelection(pagePoint);
@@ -791,6 +873,16 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        if (_lineEndpointMoving)
+        {
+            _lineEndpointMoving = false;
+            PageList.ReleaseMouseCapture();
+            Point up = e.GetPosition(_selectionSlot);
+            PdfPoint p = _pane.DevicePointToPage(_selectionPageIndex, up.X, up.Y);
+            _pane.EndLineEndpointMove(p.X - _moveAnchor.X, p.Y - _moveAnchor.Y);
+            return;
+        }
+
         if (!_selecting)
         {
             return;
@@ -849,6 +941,13 @@ public partial class PdfPaneView : UserControl
                 _leaderTipMoving = false;
                 PageList.ReleaseMouseCapture();
                 _pane.CancelLeaderTipMove();
+                e.Handled = true;
+            }
+            else if (_lineEndpointMoving)
+            {
+                _lineEndpointMoving = false;
+                PageList.ReleaseMouseCapture();
+                _pane.CancelLineEndpointMove();
                 e.Handled = true;
             }
             else if (_pane.ShapeTool != ShapeTool.None)

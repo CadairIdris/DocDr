@@ -83,6 +83,23 @@ public sealed record PdfAnnotation(
     /// <summary>Whether a text box / callout box still auto-fits its text (cleared once the user resizes it).</summary>
     public bool AutoSize { get; init; } = true;
 
+    /// <summary>Outline width in points for the stroked stamp kinds (rectangle, ellipse, line, arrow,
+    /// callout, cloud, text-box border). <c>0</c> means "use the default" (<see cref="DefaultLineWidth"/>).</summary>
+    public double LineWidth { get; init; }
+
+    /// <summary>Fill colour (ARGB) for a <see cref="PdfAnnotationKind.Rectangle"/> / <see cref="PdfAnnotationKind.Ellipse"/>;
+    /// <c>null</c> for no fill.</summary>
+    public uint? FillArgb { get; init; }
+
+    /// <summary>Whether the outline is drawn dashed (rectangle, ellipse, line, arrow).</summary>
+    public bool Dashed { get; init; }
+
+    /// <summary>Text box / callout: suppress the box outline (a borderless label).</summary>
+    public bool Borderless { get; init; }
+
+    /// <summary>Text colour (ARGB) for a text box / callout; <c>null</c> means black.</summary>
+    public uint? TextColorArgb { get; init; }
+
     /// <summary>Replies to this comment, oldest first. Empty for a thread with no replies yet.</summary>
     public IReadOnlyList<PdfReply> Replies { get; init; } = [];
 
@@ -188,6 +205,12 @@ public sealed record PdfAnnotation(
 
     /// <summary>The default text size for a new text box / callout, in points.</summary>
     public const double DefaultFontSize = 11;
+
+    /// <summary>The default outline width, in points, when <see cref="LineWidth"/> is <c>0</c>.</summary>
+    public const double DefaultLineWidth = 1.5;
+
+    /// <summary>The outline width to actually draw with (never <c>0</c>).</summary>
+    public double EffectiveLineWidth => LineWidth > 0 ? LineWidth : DefaultLineWidth;
 
     public static PdfAnnotation NewTextBox(
         PdfRect box, string? text, uint colorArgb, double fontSize = DefaultFontSize, string? author = null)

@@ -1,0 +1,65 @@
+<Window x:Class="DocDr.App.Views.ColorPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Pick a colour" SizeToContent="WidthAndHeight" ResizeMode="NoResize"
+        Icon="/DocDr.App;component/Assets/DocDr.ico"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <Window.Resources>
+        <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}" />
+        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}" />
+        <Style TargetType="Slider" BasedOn="{StaticResource {x:Type Slider}}" />
+    </Window.Resources>
+    <StackPanel Margin="16" Width="300">
+        <Border x:Name="Preview" Height="46" CornerRadius="4" Margin="0,0,0,12"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" />
+
+        <ItemsControl x:Name="Presets" Margin="0,0,0,12">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Button Width="24" Height="20" Margin="2" Padding="0" Cursor="Hand"
+                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                            Background="{Binding}" Click="Preset_Click" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition /><RowDefinition /><RowDefinition />
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="R" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <Slider x:Name="R" Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="255"
+                    ValueChanged="Channel_Changed" />
+            <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding Value, ElementName=R, StringFormat=N0}"
+                       VerticalAlignment="Center" Margin="8,0,0,0" MinWidth="28" TextAlignment="Right" />
+            <TextBlock Grid.Row="1" Text="G" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <Slider x:Name="G" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="255"
+                    ValueChanged="Channel_Changed" />
+            <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding Value, ElementName=G, StringFormat=N0}"
+                       VerticalAlignment="Center" Margin="8,0,0,0" MinWidth="28" TextAlignment="Right" />
+            <TextBlock Grid.Row="2" Text="B" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <Slider x:Name="B" Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="255"
+                    ValueChanged="Channel_Changed" />
+            <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding Value, ElementName=B, StringFormat=N0}"
+                       VerticalAlignment="Center" Margin="8,0,0,0" MinWidth="28" TextAlignment="Right" />
+        </Grid>
+
+        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+            <TextBlock Text="Hex" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <TextBox x:Name="Hex" Width="90" MaxLength="7" KeyDown="Hex_KeyDown" LostFocus="Hex_Commit" />
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Cancel" MinWidth="72" Padding="8,4" Margin="0,0,8,0" IsCancel="True" Click="Cancel_Click" />
+            <Button Content="OK" MinWidth="72" Padding="8,4" IsDefault="True" Click="Ok_Click" />
+        </StackPanel>
+    </StackPanel>
+</Window>

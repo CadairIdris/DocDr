@@ -41,16 +41,6 @@
                 </ListBox.ItemTemplate>
             </ListBox>
 
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,10"
-                        Visibility="{Binding IsShape, Converter={StaticResource BoolToVisibility}}">
-                <TextBlock Text="Text size" VerticalAlignment="Center" Margin="0,0,8,0"
-                           Foreground="{DynamicResource SecondaryTextBrush}" />
-                <ComboBox MinWidth="64" ItemsSource="{Binding FontSizes}" HorizontalContentAlignment="Left"
-                          SelectedItem="{Binding FontSizeText, Mode=TwoWay}" ToolTip="Text size in points" />
-                <TextBlock Text="pt" VerticalAlignment="Center" Margin="5,0,0,0"
-                           Foreground="{DynamicResource SecondaryTextBrush}" />
-            </StackPanel>
-
             <TextBox Text="{Binding Contents, UpdateSourceTrigger=PropertyChanged}"
                      AcceptsReturn="True" TextWrapping="Wrap" MinHeight="90" MaxHeight="220"
                      VerticalScrollBarVisibility="Auto" x:Name="ContentsBox" />

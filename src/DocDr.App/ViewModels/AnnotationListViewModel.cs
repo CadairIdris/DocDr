@@ -18,16 +18,7 @@ public sealed class AnnotationRowViewModel(int pageIndex, PdfAnnotation annotati
     public string PageLabel => $"p. {PageIndex + 1}";
 
     /// <summary>A friendly kind label, always shown.</summary>
-    public string Kind => annotation.Kind switch
-    {
-        PdfAnnotationKind.Highlight => "Highlight",
-        PdfAnnotationKind.Comment => "Note",
-        PdfAnnotationKind.Ink => "Freehand drawing",
-        PdfAnnotationKind.Cloud => "Revision cloud",
-        PdfAnnotationKind.TextBox => "Text box",
-        PdfAnnotationKind.Callout => "Callout",
-        _ => "Annotation",
-    };
+    public string Kind => AnnotationKinds.Label(annotation.Kind);
 
     public Brush Swatch { get; } = new SolidColorBrush(AnnotationColors.ToColor(annotation.ColorArgb));
 

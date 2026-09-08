@@ -84,10 +84,11 @@ public sealed partial class AnnotationEditorViewModel : ObservableObject
 
     public bool IsHighlight => Kind == PdfAnnotationKind.Highlight;
 
-    public bool IsShape => Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout;
+    /// <summary>Whether this is a text box / callout — a text-only editor (colour / size / border are on the format bar).</summary>
+    public bool IsTextShape => Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout;
 
-    /// <summary>Show the colour swatches for highlights and the text-shape kinds.</summary>
-    public bool ShowColors => IsHighlight || IsShape;
+    /// <summary>Colour swatches show for highlights only; shapes / text boxes use the floating format toolbar.</summary>
+    public bool ShowColors => IsHighlight;
 
     /// <summary>Only comments and noted highlights carry a conversation — a text box / callout does not.</summary>
     public bool AllowReplies => Kind is PdfAnnotationKind.Comment or PdfAnnotationKind.Highlight;
@@ -102,9 +103,7 @@ public sealed partial class AnnotationEditorViewModel : ObservableObject
         _ => "Note",
     };
 
-    public IReadOnlyList<string> Colors { get; } = AnnotationColors.Keys;
-
-    public IReadOnlyList<string> FontSizes { get; } = ["8", "9", "10", "11", "12", "14", "16", "18", "24"];
+    public IReadOnlyList<string> Colors { get; } = AnnotationColors.PresetKeys;
 
     [ObservableProperty]
     private string _fontSizeText;

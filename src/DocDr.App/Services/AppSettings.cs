@@ -32,6 +32,9 @@ public sealed class AppSettings
 
     public bool LastPageLandscape { get; set; }
 
+    /// <summary>The user's last-picked custom annotation colour (ARGB), for the "Custom" swatch.</summary>
+    public uint LastCustomColor { get; set; } = 0xFF3F51B5;
+
     /// <summary>Absolute paths of recently opened documents, most recent first.</summary>
     public List<string> RecentFiles { get; set; } = [];
 

@@ -748,9 +748,13 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _highlighterToolActive;
 
-    /// <summary>Palette key the highlighter pen uses.</summary>
+    /// <summary>Palette key the highlighter pen uses ("Yellow" … or "Custom").</summary>
     [ObservableProperty]
     private string _inkColorKey = AnnotationColors.Default;
+
+    /// <summary>The ARGB for the current palette key, resolving "Custom" against the shared value.</summary>
+    public uint CurrentAnnotationColorArgb =>
+        AnnotationColors.ToArgb(InkColorKey, AnnotationColors.CustomColorArgb);
 
     /// <summary>Highlighter stroke width, in PDF points.</summary>
     private const double InkStrokeWidthPoints = 12.0;
@@ -761,6 +765,22 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     /// <summary>Id of the annotation to draw as selected (e.g. picked from the annotations list).</summary>
     [ObservableProperty]
     private System.Guid? _selectedAnnotationId;
+
+    /// <summary>Format-toolbar model for the current selection, or null when the bar shouldn't show.</summary>
+    [ObservableProperty]
+    private AnnotationFormatViewModel? _selectedFormat;
+
+    /// <summary>Page the format toolbar anchors to, or -1.</summary>
+    public int SelectedFormatPage { get; private set; } = -1;
+
+    /// <summary>Top-centre of the selected annotation in that page slot's DIP space (the bar hangs above it).</summary>
+    public Point SelectedFormatAnchor { get; private set; }
+
+    /// <summary>Raised when the format toolbar's target or anchor changes; the view repositions it.</summary>
+    public event System.EventHandler? SelectedFormatChanged;
+
+    /// <summary>Raised when the user picks a colour from the "Custom…" swatch (new ARGB) — the tab persists it.</summary>
+    public event System.Action<uint>? CustomColorPicked;
 
     /// <summary>Page a finished text selection is on, or -1. The view watches this to raise the popup.</summary>
     public int PendingSelectionPage { get; private set; } = -1;
@@ -787,6 +807,91 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     }
 
     partial void OnSelectedAnnotationIdChanged(System.Guid? value) => BuildAnnotationOverlays();
+
+    /// <summary>Kinds whose selection raises the floating format toolbar (not ink / image — no styling there).</summary>
+    private static bool HasFormatBar(PdfAnnotationKind kind) => kind is not (PdfAnnotationKind.Ink or PdfAnnotationKind.Image);
+
+    /// <summary>Rebuild <see cref="SelectedFormat"/> + its anchor from the current selection. Called at the
+    /// end of <see cref="BuildAnnotationOverlays"/> (and so on every selection / annotation change).</summary>
+    private void RefreshSelectedFormat()
+    {
+        bool dragging = _movingShapeId is not null || _resizingShapeId is not null
+            || _leaderTipId is not null || _lineEndpointId is not null;
+
+        if (!AnnotationsVisible || dragging || SelectedAnnotationId is not System.Guid id)
+        {
+            SetFormat(null, -1, default);
+            return;
+        }
+
+        (int page, PdfAnnotation? found) = FindAnnotation(id);
+        if (found is not { } a || !HasFormatBar(a.Kind) || page < 0 || page >= Pages.Count)
+        {
+            SetFormat(null, -1, default);
+            return;
+        }
+
+        PageSlotViewModel slot = Pages[page];
+        double scale = SlotScale(slot);
+        DeviceRect d = PdfCoordinates.PageToDevice(
+            a.Bounds, _document.GetUnrotatedPageSize(page), _document.GetPageRotation(page),
+            scale, _document.GetCropOrigin(page));
+        SetFormat(new AnnotationFormatViewModel(this, a), page, new Point(d.X + (d.Width / 2), d.Y));
+    }
+
+    private void SetFormat(AnnotationFormatViewModel? vm, int page, Point anchor)
+    {
+        SelectedFormat = vm;
+        SelectedFormatPage = page;
+        SelectedFormatAnchor = anchor;
+        SelectedFormatChanged?.Invoke(this, System.EventArgs.Empty);
+    }
+
+    /// <summary>Apply a styling edit to one annotation (used by the format toolbar).</summary>
+    public void ApplyFormat(System.Guid id, System.Func<PdfAnnotation, PdfAnnotation> mutate)
+    {
+        (int page, PdfAnnotation? found) = FindAnnotation(id);
+        if (found is { } a)
+        {
+            _document.UpdateAnnotation(page, mutate(a) with { Modified = System.DateTimeOffset.Now });
+        }
+    }
+
+    /// <summary>Open the colour picker seeded with <paramref name="fallback"/>; returns the picked ARGB or null.</summary>
+    public uint? PickCustomColor(uint fallback)
+    {
+        // Let the triggering popup click unwind so the modal activates properly (see OpenEditor note).
+        Application.Current?.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
+        uint? picked = ColorPickerWindow.Pick(fallback, Application.Current?.MainWindow);
+        if (picked is { } c)
+        {
+            AnnotationColors.CustomColorArgb = c;
+            CustomColorPicked?.Invoke(c);
+        }
+
+        return picked;
+    }
+
+    /// <summary>Re-fit a text box / callout after its font size changed from the format toolbar.</summary>
+    public void ResizeTextBoxForFont(System.Guid id, double fontSize)
+    {
+        (int page, PdfAnnotation? found) = FindAnnotation(id);
+        if (found is not { } a || a.Kind is not (PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout))
+        {
+            return;
+        }
+
+        string? text = a.Contents;
+        PdfRect box = a.AutoSize ? FitTextBox(a.Box, text, fontSize) : GrowToFitText(a.Box, text, fontSize);
+        PdfAnnotation updated = a with { FontSize = fontSize, Quads = [box], Modified = System.DateTimeOffset.Now };
+        if (a.Kind == PdfAnnotationKind.Callout && a.Leader.Count >= 1)
+        {
+            PdfPoint tip = a.Leader[0];
+            updated = updated with { Strokes = [new[] { tip, BoxAttachPoint(box, tip) }] };
+        }
+
+        _document.UpdateAnnotation(page, updated);
+    }
 
     /// <summary>
     /// Select the topmost highlight band or ink stroke under <paramref name="pt"/> (unrotated
@@ -903,6 +1008,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     stored.Id == _movingShapeId ? MoveShape(stored, _moveOffsetPage.Dx, _moveOffsetPage.Dy)
                     : stored.Id == _resizingShapeId ? ResizeShape(stored, _resizeHandle, _resizeDeltaPage.Dx, _resizeDeltaPage.Dy)
                     : stored.Id == _leaderTipId ? MoveLeaderTip(stored, _leaderTipDeltaPage.Dx, _leaderTipDeltaPage.Dy)
+                    : stored.Id == _lineEndpointId ? MoveLineEndpoint(stored, _lineEndpointIndex, _lineEndpointDeltaPage.Dx, _lineEndpointDeltaPage.Dy)
                     : stored;
 
                 var rects = new List<Rect>();
@@ -938,6 +1044,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                 var leader = new PointCollection();
                 var leaderArrow = new PointCollection();
                 var handles = new List<Rect>();
+                var endpointHandles = new List<Rect>();
                 Rect leaderTipHandle = default;
                 Geometry? cloud = null;
 
@@ -965,6 +1072,13 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     if (leader.Count >= 1)
                     {
                         marker = new Rect(Math.Max(0, leader[0].X - 6), Math.Max(0, leader[0].Y - 26), 18, 18);
+                    }
+
+                    if (annotation.Id == SelectedAnnotationId && leader.Count >= 2)
+                    {
+                        const double es = 11;
+                        endpointHandles.Add(new Rect(leader[0].X - (es / 2), leader[0].Y - (es / 2), es, es));
+                        endpointHandles.Add(new Rect(leader[1].X - (es / 2), leader[1].Y - (es / 2), es, es));
                     }
                 }
                 else if (annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout
@@ -1021,16 +1135,27 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     }
                 }
 
+                Brush? fillBrush = annotation.FillArgb is { } fa
+                    ? new SolidColorBrush(AnnotationColors.ToColor(fa)) { Opacity = ((fa >> 24) & 0xFF) / 255.0 }
+                    : null;
+
                 visuals.Add(new AnnotationVisual(annotation.Id, annotation.Kind, rects, marker,
                     AnnotationColors.ToColor(annotation.ColorArgb), annotation.HasNote,
                     annotation.Id == SelectedAnnotationId)
                 {
                     Strokes = strokes,
                     StrokeThickness = Math.Max(1, annotation.StrokeWidth * scale),
+                    ShapeStrokeThickness = Math.Max(0.5, annotation.EffectiveLineWidth * scale),
+                    ShapeDash = annotation.Dashed ? [3.0, 2.5] : null,
+                    ShapeFillBrush = fillBrush,
+                    TextBrush = new SolidColorBrush(annotation.TextColorArgb is { } tc
+                        ? AnnotationColors.ToColor(tc) : Colors.Black),
+                    ShowBorder = !annotation.Borderless,
                     Box = box,
                     Leader = leader,
                     LeaderArrow = leaderArrow,
                     ResizeHandles = handles,
+                    EndpointHandles = endpointHandles,
                     LeaderTipHandle = leaderTipHandle,
                     CloudGeometry = cloud,
                     BoxText = annotation.Contents ?? string.Empty,
@@ -1044,6 +1169,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
             slot.Annotations = visuals;
         }
+
+        RefreshSelectedFormat();
     }
 
     private double SlotScale(PageSlotViewModel slot) =>
@@ -1347,7 +1474,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
 
         _document.AddAnnotation(page, PdfAnnotation.NewInk(
-            [stroke], AnnotationColors.ToArgb(InkColorKey), InkStrokeWidthPoints, Author));
+            [stroke], CurrentAnnotationColorArgb, InkStrokeWidthPoints, Author));
     }
 
     private void UpdateInkPreview()
@@ -1498,7 +1625,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         }
 
         ShapeTool = ShapeTool.None; // one-shot
-        uint shapeColour = AnnotationColors.ToArgb(InkColorKey);
+        uint shapeColour = CurrentAnnotationColorArgb;
 
         if (tool is ShapeTool.Line or ShapeTool.Arrow)
         {
@@ -1538,18 +1665,19 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         {
             // Drag from the thing you're pointing at (a = tip) to where the note goes (b).
             PdfPoint tip = a, boxCorner = b;
-            uint calloutColor = AnnotationColors.ToArgb(InkColorKey);
-            OpenEditor(PdfAnnotationKind.Callout, string.Empty, AnnotationColors.FromArgb(calloutColor),
+            uint calloutColor = CurrentAnnotationColorArgb;
+            OpenEditor(PdfAnnotationKind.Callout, string.Empty, null,
                 canDelete: false, Author, System.DateTimeOffset.Now, null, result =>
                 {
                     if (result.Outcome == AnnotationEditorOutcome.Save)
                     {
                         string? text = string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents;
                         PdfRect cBox = FitTextBox(DefaultBoxAt(boxCorner, 190, 60), text, result.FontSize);
-                        _document.AddAnnotation(page, PdfAnnotation.NewCallout(
+                        PdfAnnotation callout = PdfAnnotation.NewCallout(
                             cBox, [tip, BoxAttachPoint(cBox, tip)], text,
-                            AnnotationColors.ToArgb(result.ColorKey), result.FontSize, Author)
-                            with { Replies = result.Replies });
+                            calloutColor, result.FontSize, Author) with { Replies = result.Replies };
+                        _document.AddAnnotation(page, callout);
+                        SelectedAnnotationId = callout.Id;
                     }
                 });
             return;
@@ -1566,23 +1694,24 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
         if (tool == ShapeTool.Cloud)
         {
-            _document.AddAnnotation(page, PdfAnnotation.NewCloud(box, AnnotationColors.ToArgb(InkColorKey), Author));
+            _document.AddAnnotation(page, PdfAnnotation.NewCloud(box, CurrentAnnotationColorArgb, Author));
             return;
         }
 
-        // Text box: place it, then open the editor for the text/colour.
+        // Text box: place it, then open the editor for its text (styling is on the format bar).
         PdfRect draggedBox = box;
-        uint color = AnnotationColors.ToArgb(InkColorKey);
-        OpenEditor(PdfAnnotationKind.TextBox, string.Empty, AnnotationColors.FromArgb(color), canDelete: false,
+        uint color = CurrentAnnotationColorArgb;
+        OpenEditor(PdfAnnotationKind.TextBox, string.Empty, null, canDelete: false,
             Author, System.DateTimeOffset.Now, null, result =>
             {
                 if (result.Outcome == AnnotationEditorOutcome.Save)
                 {
                     string? text = string.IsNullOrWhiteSpace(result.Contents) ? null : result.Contents;
-                    _document.AddAnnotation(page, PdfAnnotation.NewTextBox(
-                        FitTextBox(draggedBox, text, result.FontSize), text,
-                        AnnotationColors.ToArgb(result.ColorKey), result.FontSize, Author)
-                        with { Replies = result.Replies });
+                    PdfAnnotation textBox = PdfAnnotation.NewTextBox(
+                        FitTextBox(draggedBox, text, result.FontSize), text, color, result.FontSize, Author)
+                        with { Replies = result.Replies };
+                    _document.AddAnnotation(page, textBox);
+                    SelectedAnnotationId = textBox.Id;
                 }
             });
     }
@@ -1621,7 +1750,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         {
             double fontSize = PdfAnnotation.DefaultFontSize;
             PdfRect box = FitTextBox(DefaultBoxAt(new PdfPoint(centre.X - 110, centre.Y + 40), 220, 80), text, fontSize);
-            PdfAnnotation textBox = PdfAnnotation.NewTextBox(box, text, AnnotationColors.ToArgb(InkColorKey), fontSize, Author);
+            PdfAnnotation textBox = PdfAnnotation.NewTextBox(box, text, CurrentAnnotationColorArgb, fontSize, Author);
             _document.AddAnnotation(pageIndex, textBox);
             SelectedAnnotationId = textBox.Id;
             AnnotationsVisible = true;
@@ -2097,6 +2226,97 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         return a with { Strokes = [new[] { tip, BoxAttachPoint(a.Box, tip) }] };
     }
 
+    // --- Dragging a line / arrow end point --------------------------------------------
+
+    private System.Guid? _lineEndpointId;
+    private int _lineEndpointIndex;
+    private (double Dx, double Dy) _lineEndpointDeltaPage;
+
+    /// <summary>If <paramref name="pt"/> lands on an end point of the selected line / arrow, its id + which end (0/1).</summary>
+    public (System.Guid Id, int End)? TryHitLineEndpoint(int pageIndex, PdfPoint pt)
+    {
+        if (!AnnotationsVisible || SelectedAnnotationId is not System.Guid sel)
+        {
+            return null;
+        }
+
+        PdfAnnotation? a = _document.GetAnnotations(pageIndex).FirstOrDefault(x => x.Id == sel);
+        if (a is null || a.Kind is not (PdfAnnotationKind.Line or PdfAnnotationKind.Arrow) || a.Leader.Count < 2)
+        {
+            return null;
+        }
+
+        double tol = 12 / Math.Max(0.05, SlotScale(Pages[pageIndex]));
+        for (int i = 0; i < 2; i++)
+        {
+            if (Math.Abs(pt.X - a.Leader[i].X) <= tol && Math.Abs(pt.Y - a.Leader[i].Y) <= tol)
+            {
+                return (a.Id, i);
+            }
+        }
+
+        return null;
+    }
+
+    public void BeginLineEndpointMove(System.Guid id, int end)
+    {
+        _lineEndpointId = id;
+        _lineEndpointIndex = end;
+        _lineEndpointDeltaPage = (0, 0);
+        SelectedAnnotationId = id;
+    }
+
+    public void PreviewLineEndpointMove(double dxPage, double dyPage)
+    {
+        if (_lineEndpointId is null)
+        {
+            return;
+        }
+
+        _lineEndpointDeltaPage = (dxPage, dyPage);
+        BuildAnnotationOverlays();
+    }
+
+    public void EndLineEndpointMove(double dxPage, double dyPage)
+    {
+        System.Guid? id = _lineEndpointId;
+        int end = _lineEndpointIndex;
+        _lineEndpointId = null;
+        _lineEndpointDeltaPage = (0, 0);
+        if (id is null)
+        {
+            return;
+        }
+
+        (int page, PdfAnnotation? found) = FindAnnotation(id.Value);
+        if (found is not { } a || (Math.Abs(dxPage) < 1 && Math.Abs(dyPage) < 1))
+        {
+            BuildAnnotationOverlays();
+            return;
+        }
+
+        _document.UpdateAnnotation(page, MoveLineEndpoint(a, end, dxPage, dyPage) with { Modified = System.DateTimeOffset.Now });
+    }
+
+    public void CancelLineEndpointMove()
+    {
+        _lineEndpointId = null;
+        _lineEndpointDeltaPage = (0, 0);
+        BuildAnnotationOverlays();
+    }
+
+    private static PdfAnnotation MoveLineEndpoint(PdfAnnotation a, int end, double dx, double dy)
+    {
+        if (a.Leader.Count < 2 || end is < 0 or > 1)
+        {
+            return a;
+        }
+
+        PdfPoint[] pts = a.Leader.ToArray();
+        pts[end] = new PdfPoint(pts[end].X + dx, pts[end].Y + dy);
+        return a with { Strokes = [pts] };
+    }
+
     public void CancelShape()
     {
         _shapePage = -1;
@@ -2333,8 +2553,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             return;
         }
 
+        uint argb = colorKey == AnnotationColors.Custom
+            ? (PickCustomColor(AnnotationColors.CustomColorArgb) ?? AnnotationColors.CustomColorArgb)
+            : AnnotationColors.ToArgb(colorKey);
         _document.AddAnnotation(PendingSelectionPage,
-            PdfAnnotation.NewHighlight(_pendingQuads, AnnotationColors.ToArgb(colorKey), null, Author));
+            PdfAnnotation.NewHighlight(_pendingQuads, argb, null, Author));
         ClearTextSelection();
     }
 
@@ -2428,8 +2651,14 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
             return;
         }
 
-        bool colored = annotation.Kind is PdfAnnotationKind.Highlight
-            or PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout;
+        // Shapes / lines have no note — they're edited via the floating format toolbar.
+        if (annotation.Kind is not (PdfAnnotationKind.Highlight or PdfAnnotationKind.Comment
+            or PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout))
+        {
+            return;
+        }
+
+        bool colored = annotation.Kind is PdfAnnotationKind.Highlight;
         string? colorKey = colored ? AnnotationColors.FromArgb(annotation.ColorArgb) : null;
 
         OpenEditor(annotation.Kind, annotation.Contents, colorKey, canDelete: true,

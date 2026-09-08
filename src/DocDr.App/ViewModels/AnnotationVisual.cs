@@ -38,6 +38,29 @@ public sealed record AnnotationVisual(
     /// <summary>Resize-handle squares (DIP space) at a selected shape box's corners; empty otherwise.</summary>
     public IReadOnlyList<Rect> ResizeHandles { get; init; } = [];
 
+    /// <summary>Draggable circles (DIP space) at a selected line / arrow's two end points; empty otherwise.</summary>
+    public IReadOnlyList<Rect> EndpointHandles { get; init; } = [];
+
+    /// <summary>Outline width in DIP for a rectangle / ellipse / line / arrow / cloud / text-box border.</summary>
+    public double ShapeStrokeThickness { get; init; } = 1.5;
+
+    /// <summary>Dash pattern for a dashed outline; null = solid.</summary>
+    public DoubleCollection? ShapeDash { get; init; }
+
+    /// <summary>Fill brush for a rectangle / ellipse; null = no fill.</summary>
+    public Brush? ShapeFillBrush { get; init; }
+
+    /// <summary>Text colour for a text box / callout (black by default).</summary>
+    public Brush TextBrush { get; init; } = Brushes.Black;
+
+    /// <summary>Whether a text box / callout draws its box outline.</summary>
+    public bool ShowBorder { get; init; } = true;
+
+    public double BorderThicknessValue => ShowBorder ? 1.5 : 0;
+
+    /// <summary>"Delete rectangle" / "Delete arrow" / … for the selected-annotation trash button.</summary>
+    public string DeleteTooltip => "Delete " + AnnotationKinds.Label(Kind).ToLowerInvariant();
+
     /// <summary>Drag handle (DIP space) at a selected callout's arrow tip; a zero rect when there isn't one.</summary>
     public Rect LeaderTipHandle { get; init; }
 
