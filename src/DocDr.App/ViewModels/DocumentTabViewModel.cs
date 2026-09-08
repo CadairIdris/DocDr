@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DocDr.App.Services;
 using DocDr.App.Views;
+using DocDr.Ocr;
 using DocDr.Pdf;
 using Microsoft.Win32;
 
@@ -423,6 +424,64 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
                         MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
+        }, System.Windows.Threading.DispatcherPriority.Input);
+    }
+
+    [RelayCommand]
+    private void OcrDocument()
+    {
+        IReadOnlyList<int> blank;
+        try
+        {
+            blank = Document.PagesWithoutText();
+        }
+        catch (PdfException ex)
+        {
+            MessageBox.Show($"Could not scan the document: {ex.Message}", "DocDr",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        if (blank.Count == 0)
+        {
+            MessageBox.Show(
+                "Every page already has a text layer — nothing to OCR.",
+                "DocDr", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        // Defer past the current click so the modal window activates (see the CLAUDE.md note).
+        Application.Current?.Dispatcher.BeginInvoke(() =>
+        {
+            var viewModel = new OcrProgressViewModel(blank.Count);
+            var dialog = new OcrProgressWindow(viewModel) { Owner = Application.Current?.MainWindow };
+            var progress = new Progress<OcrProgress>(viewModel.Report);
+            OcrResult? result = null;
+            Exception? failure = null;
+
+            _ = Task.Run(() =>
+                {
+                    using var engine = new TesseractOcrEngine();
+                    result = Document.AddOcrTextLayer(engine, progress, viewModel.Token);
+                })
+                .ContinueWith(t =>
+                {
+                    failure = t.Exception?.GetBaseException();
+                    viewModel.Finish();
+
+                    if (failure is not null and not OperationCanceledException)
+                    {
+                        MessageBox.Show($"OCR failed: {failure.Message}", "DocDr",
+                            MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
+                    else if (result is { PagesProcessed: 0 })
+                    {
+                        MessageBox.Show("No text could be recognised on the scanned pages.", "DocDr",
+                            MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
+                }, TaskScheduler.FromCurrentSynchronizationContext());
+
+            dialog.ShowDialog();
         }, System.Windows.Threading.DispatcherPriority.Input);
     }
 

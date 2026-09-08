@@ -58,6 +58,10 @@
                         Command="{Binding SelectedTab.RemoveWatermarksCommand}"
                         IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Remove watermark"
                         ToolTip="Find and remove content repeated on every page" />
+                <Button Content="OCR…" Padding="8,3" Margin="4,0,0,0"
+                        Command="{Binding SelectedTab.OcrDocumentCommand}"
+                        IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Recognise text"
+                        ToolTip="Recognise text on scanned pages and add a searchable layer" />
                 <Separator />
                 <ToggleButton Content="Split view" Padding="8,3" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"

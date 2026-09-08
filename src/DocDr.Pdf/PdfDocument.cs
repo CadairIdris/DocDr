@@ -703,7 +703,8 @@ public sealed class PdfDocument : IDisposable
     /// page is rasterised at ~300 DPI, run through <paramref name="engine"/>, and the words written
     /// as render-mode-3 text scaled to their image boxes. Like <see cref="RemoveWatermarks"/> this
     /// edits page content, is <b>not undoable</b>, and clears the undo history. Returns a zero
-    /// result if every page already has text.
+    /// result if every page already has text. Cancelling keeps the pages recognised so far
+    /// (re-running picks up the rest).
     /// </summary>
     public OcrResult AddOcrTextLayer(
         IOcrEngine engine,
@@ -730,14 +731,26 @@ public sealed class PdfDocument : IDisposable
             {
                 foreach (int pageIndex in candidates)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
 
                     PdfSize size = GetPageSize(pageIndex);
                     PdfPoint crop = GetCropOrigin(pageIndex);
                     (int pxW, int pxH) = PdfOcr.PixelSize(size);
 
-                    RenderedPage rendered = renderer.Render(this, pageIndex, pxW, pxH, cancellationToken);
-                    IReadOnlyList<OcrWord> words = engine.Recognise(rendered, cancellationToken);
+                    RenderedPage rendered;
+                    IReadOnlyList<OcrWord> words;
+                    try
+                    {
+                        rendered = renderer.Render(this, pageIndex, pxW, pxH, cancellationToken);
+                        words = engine.Recognise(rendered, cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
 
                     int written = 0;
                     FpdfPageT? page = fpdfview.FPDF_LoadPage(Handle, pageIndex);
@@ -760,8 +773,12 @@ public sealed class PdfDocument : IDisposable
                     progress?.Report(new OcrProgress(pageIndex + 1, total, written));
                 }
 
-                byte[] bytes = SerialiseCurrentHandle();
-                AdoptStrippedBytes(bytes, "Could not reopen the document after adding the OCR text layer.");
+                if (pagesProcessed > 0)
+                {
+                    byte[] bytes = SerialiseCurrentHandle();
+                    AdoptStrippedBytes(
+                        bytes, "Could not reopen the document after adding the OCR text layer.");
+                }
             }
             finally
             {
@@ -771,6 +788,11 @@ public sealed class PdfDocument : IDisposable
                 }
             }
         });
+
+        if (pagesProcessed == 0)
+        {
+            return new OcrResult(0, total - candidates.Count, 0);
+        }
 
         _pageSizes = null;
         _cropOrigins = null;

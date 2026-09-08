@@ -62,6 +62,34 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   So Save / SaveAs / strip on a secured PDF all drop the security handler; `PdfDocument.IsEncrypted`
   exposes the state and the watermark review dialog notes it.
 
+## OCR (`PdfOcr` / `DocDr.Ocr`, Stage 6)
+
+- **`DocDr.Ocr`** is a separate `net9.0` (x64-only) project so the Tesseract dependency stays out
+  of `DocDr.Pdf`. `IOcrEngine` / `OcrWord` / `OcrProgress` / `OcrResult` are declared in
+  `DocDr.Pdf` (`PdfOcr.cs`); `TesseractOcrEngine` (the only impl) lives in `DocDr.Ocr` and wraps
+  `TesseractOCR` 5.5.0 (Sicos1977 fork — bundles `leptonica`/`tesseract55` natives per-arch).
+  The model (`tessdata_fast/eng`, ~4 MB) is committed at `src/DocDr.Ocr/tessdata/eng.traineddata`
+  and copied next to the app. `OcrWord` boxes are in **rendered-image pixel space** (top-left
+  origin). One engine instance is not thread-safe — the app makes one per run and disposes it.
+- `TesseractOcrEngine.Recognise` encodes the BGRA `RenderedPage` as an in-memory 24-bit BMP
+  (`BmpWriter` — Leptonica reads BMP from memory; PNG needs an encoder we don't have), then
+  walks `page.Layout` → `Block` → `Paragraph` → `TextLine` → `Word`. `user_defined_dpi` is set
+  to 300 so Tesseract doesn't warn/guess.
+- **`PdfDocument.AddOcrTextLayer(engine, progress, ct)`** — for every page `PagesWithoutText()`
+  reports (empty reading-order text), renders at `PdfOcr.RenderDpi` (300, longest edge capped
+  at 4200 px), recognises, and writes each ≥ `MinConfidence` (40) word as an **invisible
+  (render-mode-3) text object** horizontally scaled to its image box via the Helvetica AFM
+  table (`PdfTextWrap.MeasureHelvetica`), Y-flipped and crop-origin-shifted into MediaBox page
+  space. `FPDFPageGenerateContent` per page, then `SerialiseCurrentHandle` + `AdoptStrippedBytes`
+  (same reload/adopt as watermark strip). **Not undoable, clears undo history.** Cancelling
+  keeps the pages done so far (re-run picks up the rest); a cancel before page 1 mutates
+  nothing. ~2 s/page.
+- App: toolbar **OCR…** button → `DocumentTabViewModel.OcrDocumentCommand`. `MessageBox` if no
+  blank pages, else a modal `OcrProgressWindow` (`OcrProgressViewModel` — determinate bar +
+  page counter, Cancel). Work on `Task.Run`; `Progress<OcrProgress>` marshals the counter;
+  `ContinueWith` on the UI scheduler closes the dialog and reports. `Document.Changed` drives
+  the reload. `OcrProgressWindow.OnClosing` blocks Esc/X until the run signals `Finish()`.
+
 ## Annotations (`PdfDocument`, Stage 3)
 
 - Highlights, notes (`PdfAnnotationKind.Comment`, PDF `/Text` subtype — "Note" in the UI) and
