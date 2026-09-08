@@ -9,5 +9,10 @@ public partial class MergeWindow : Window
     {
         InitializeComponent();
         DataContext = viewModel;
+        viewModel.ScrollToItem += item =>
+        {
+            FilesGrid.ScrollIntoView(item);
+            FilesGrid.SelectedItem = item;
+        };
     }
 }

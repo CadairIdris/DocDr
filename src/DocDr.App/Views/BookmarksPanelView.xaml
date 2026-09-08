@@ -13,12 +13,25 @@
                   BorderThickness="0" Background="Transparent"
                   ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                   VirtualizingPanel.IsVirtualizing="True"
-                  SelectedItemChanged="Tree_SelectedItemChanged">
+                  SelectedItemChanged="Tree_SelectedItemChanged"
+                  PreviewKeyDown="Tree_PreviewKeyDown"
+                  Visibility="{Binding HasBookmarks, Converter={StaticResource BoolToVisibility}}">
+            <TreeView.ContextMenu>
+                <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                    <MenuItem Header="Rename" InputGestureText="F2"
+                              Command="{Binding BeginRenameCommand}"
+                              CommandParameter="{Binding SelectedItem, ElementName=Tree}" />
+                    <MenuItem Header="Delete" InputGestureText="Del"
+                              Command="{Binding DeleteNodeCommand}"
+                              CommandParameter="{Binding SelectedItem, ElementName=Tree}" />
+                </ContextMenu>
+            </TreeView.ContextMenu>
             <TreeView.ItemContainerStyle>
                 <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
                     <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
                     <Setter Property="Padding" Value="2,3" />
                     <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
+                    <EventSetter Event="MouseRightButtonDown" Handler="TreeViewItem_RightButtonDown" />
                 </Style>
             </TreeView.ItemContainerStyle>
             <TreeView.Resources>
@@ -29,7 +42,13 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" Text="{Binding Title}" VerticalAlignment="Center"
-                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}" />
+                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}"
+                                   Visibility="{Binding IsEditing, Converter={StaticResource InverseBoolToVisibility}}" />
+                        <TextBox Grid.Column="0" Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}"
+                                 VerticalAlignment="Center" Margin="-2,0"
+                                 Visibility="{Binding IsEditing, Converter={StaticResource BoolToVisibility}}"
+                                 IsVisibleChanged="RenameBox_IsVisibleChanged" LostFocus="RenameBox_LostFocus"
+                                 PreviewKeyDown="RenameBox_PreviewKeyDown" />
                         <TextBlock Grid.Column="1" Text="{Binding PageLabel}" VerticalAlignment="Center"
                                    Foreground="{DynamicResource SecondaryTextBrush}" FontSize="10" Margin="6,0,2,0" />
                     </Grid>

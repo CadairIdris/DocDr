@@ -39,7 +39,7 @@
                     Command="{Binding AddFilesCommand}" />
         </StackPanel>
 
-        <DataGrid ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}"
+        <DataGrid x:Name="FilesGrid" ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}"
                   AutoGenerateColumns="False" HeadersVisibility="Column" CanUserAddRows="False"
                   CanUserReorderColumns="False" CanUserResizeRows="False" GridLinesVisibility="Horizontal"
                   BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"

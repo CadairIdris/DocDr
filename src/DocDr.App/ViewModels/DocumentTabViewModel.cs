@@ -45,6 +45,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
         Bookmarks = new BookmarksViewModel(bookmarks);
         Bookmarks.BookmarkActivated += pageIndex => LeftPane.GoToPage(pageIndex + 1);
+        Bookmarks.OutlineEdited += OnBookmarksEdited;
         Bookmarks.PropertyChanged += (_, ev) =>
         {
             if (ev.PropertyName == nameof(BookmarksViewModel.HasBookmarks))
@@ -70,6 +71,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Document.Changed += OnDocumentChanged;
         Document.DirtyChanged += OnDocumentDirtyChanged;
         Document.AnnotationsChanged += OnAnnotationsChanged;
+        Document.OutlineChanged += OnOutlineChanged;
 
         Thumbnails.SetCurrentPage(LeftPane.CurrentPage);
     }
@@ -653,6 +655,34 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         RaiseEditState();
     });
 
+    private bool _applyingOutlineEdit;
+
+    // The user renamed / deleted a bookmark: persist the new tree without re-loading the panel
+    // (the BookmarksViewModel already holds the edited tree).
+    private void OnBookmarksEdited(IReadOnlyList<PdfBookmark> tree)
+    {
+        _applyingOutlineEdit = true;
+        try
+        {
+            Document.SetOutline(tree);
+        }
+        finally
+        {
+            _applyingOutlineEdit = false;
+        }
+    }
+
+    private void OnOutlineChanged(object? sender, EventArgs e) => RunOnUi(() =>
+    {
+        if (!_applyingOutlineEdit)
+        {
+            Bookmarks.Reload(Document.GetOutline());
+        }
+
+        OnPropertyChanged(nameof(Title));
+        OnPropertyChanged(nameof(CanGenerateBookmarks));
+    });
+
     private void OnAnnotationsChanged(object? sender, AnnotationsChangedEventArgs e) => RunOnUi(() =>
     {
         LeftPane.BuildAnnotationOverlays();
@@ -758,6 +788,8 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Document.Changed -= OnDocumentChanged;
         Document.DirtyChanged -= OnDocumentDirtyChanged;
         Document.AnnotationsChanged -= OnAnnotationsChanged;
+        Document.OutlineChanged -= OnOutlineChanged;
+        Bookmarks.OutlineEdited -= OnBookmarksEdited;
         Thumbnails.EditRequested -= OnThumbnailEditRequested;
         Annotations.AnnotationActivated -= OnAnnotationActivated;
         Clauses.Scanned -= OnClausesScanned;

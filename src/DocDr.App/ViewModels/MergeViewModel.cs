@@ -74,6 +74,9 @@ public sealed partial class MergeViewModel : ObservableObject
     /// <summary>Set by the host; invoked with the request on OK, or null on cancel.</summary>
     public Action<MergeRequest?>? Confirmed { get; set; }
 
+    /// <summary>Raised after a reorder so the view can keep the moved row visible.</summary>
+    public event Action<MergeItemViewModel>? ScrollToItem;
+
     private async Task LoadDetailsAsync()
     {
         foreach (MergeItemViewModel item in Files.ToArray())
@@ -119,8 +122,11 @@ public sealed partial class MergeViewModel : ObservableObject
             return;
         }
 
-        int i = Files.IndexOf(SelectedFile);
+        MergeItemViewModel moved = SelectedFile;
+        int i = Files.IndexOf(moved);
         Files.Move(i, i + direction);
+        SelectedFile = moved;
+        ScrollToItem?.Invoke(moved);
     }
 
     [RelayCommand(CanExecute = nameof(HasSelection))]

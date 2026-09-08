@@ -109,6 +109,10 @@ public sealed class PdfDocument : IDisposable
     /// <summary>Raised when <see cref="UpdateInfo"/> changes the document metadata.</summary>
     public event EventHandler? MetadataChanged;
 
+    /// <summary>Raised when <see cref="SetOutline"/> replaces the document outline. Lighter than
+    /// <see cref="Changed"/> — only the bookmarks view needs refreshing.</summary>
+    public event EventHandler? OutlineChanged;
+
     /// <summary>
     /// Raised after an annotation is added, edited, removed, or moved by undo/redo or a
     /// structural edit. Lighter than <see cref="Changed"/> — only the overlay needs rebuilding.
@@ -152,7 +156,7 @@ public sealed class PdfDocument : IDisposable
         ArgumentNullException.ThrowIfNull(outline);
         _outline = outline;
         SetDirty(true);
-        Changed?.Invoke(this, EventArgs.Empty);
+        OutlineChanged?.Invoke(this, EventArgs.Empty);
     }
 
     internal FpdfDocumentT Handle =>
