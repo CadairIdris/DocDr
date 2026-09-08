@@ -121,6 +121,38 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   (`ClausesViewModel` background scan → `_crossRefCache`, in-memory only). A merged+saved file
   re-derives them next open.
 
+## Collage authoring (new documents, paste, basic shapes)
+
+- **`PdfDocument.CreateBlank(PdfSize sizePoints)`** — one `FPDF_CreateNewDocument` +
+  `FPDFPageNew(doc, 0, w, h)` + `FPDFPageGenerateContent`, through the same private ctor as
+  `Merge` (`FilePath == null`, `IsDirty`, `_handleHasOriginalInfo = false`). App:
+  `MainViewModel.NewDocumentCommand` → `NewDocumentWindow` / `NewDocumentViewModel` (size combo
+  A4/A3/A2/A1/Custom, mm W/H editable for Custom and pre-filled from the last standard pick via
+  `AppSettings.LastPageSize` etc., Landscape checkbox) → `PageSizes.FromMm` (mm × 72/25.4) →
+  `AddDocumentTab(doc, "Untitled")`. Home-screen "New document…" + toolbar "New…".
+- **Paste** (`PdfPaneView` `Ctrl+V` → `PasteAtVisibleCentre` → `PdfPaneViewModel.PasteFromClipboard`):
+  clipboard image (or a dropped image file) → `PdfAnnotation.NewImage` (px→pt 1:1, capped at 85 %
+  of the page, box centred on the visible-area centre); else clipboard text → `PdfAnnotation.NewTextBox`.
+  The new annotation is selected so it can be dragged immediately.
+- **Image annotations** (`PdfAnnotationKind.Image`, stamp-backed): bytes live in
+  `PdfAnnotation.ImageData` (shared by reference across undo snapshots — a move only makes a new
+  record). `DocDr.Pdf` stays WPF-free via **`IImageDecoder`** (`DecodeToBgra(byte[]) → (w,h,stride,bgra)`);
+  `AppImageDecoder` (WPF `BitmapDecoder` + `FormatConvertedBitmap` to Bgra32) is set on
+  `PdfDocument.ImageDecoder` in `MainViewModel.AddDocumentTab`. `PdfStampAppearance.DrawImage`
+  bakes a real `FPDFPageObjNewImageObj` + `FPDFImageObjSetBitmap` + `FPDFImageObjSetMatrix`
+  (PDFium image space is unit-square × the matrix, bottom-left origin). Exact bytes round-trip
+  through the private `/DocDrImage` base64 key; the appearance renders in any viewer.
+- **Basic shapes** — `Rectangle`, `Ellipse`, `Line`, `Arrow` (`ShapeTool` + `PdfAnnotationKind`,
+  toolbar toggles after Cloud), all stamp-backed. Rectangle/Ellipse carry the box in `Quads[0]`;
+  Line/Arrow keep `[tip, tail]` in `Strokes[0]` and expose it as `Leader` (reuses the callout
+  leader plumbing — `MoveShape` shifts both endpoints together, `TryHitShapeBox` does a
+  segment-distance test). `PdfStampAppearance`: `Ellipse` = 4-bezier path (`kappa`), `Line`/`Arrow`
+  = `DrawLeader(..., arrow:)`.
+- **Shape colour round-trips via `/DocDrShape`, not `FPDFAnnotGetColor`.** `FPDFAnnotGetColor`
+  fails on a reloaded stamp that carries an appearance stream, and `ReadColor` then falls back to
+  yellow (`0xFFFFD54F`). `PdfShapeCodec.Shape` carries a `uint? Color` (null when 0); `Decode`
+  uses `shape.Color ?? colorArgb`.
+
 ## OCR (`PdfOcr` / `DocDr.Ocr`, Stage 6)
 
 - **`DocDr.Ocr`** is a separate `net9.0` (x64-only) project so the Tesseract dependency stays out

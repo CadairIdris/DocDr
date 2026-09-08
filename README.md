@@ -59,6 +59,17 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 - Generated bookmarks are written into the PDF on save, so other viewers see them too. Clause
   and figure cross-references are re-detected every time a document is opened — nothing to save.
 
+### Collage authoring
+
+- **New document…** (home screen / toolbar): a blank page at A4 / A3 / A2 / A1 or a custom mm
+  size, portrait or landscape. Opens untitled in a new tab — Save As to keep it.
+- **Paste** (`Ctrl+V`): a screenshot or copied image lands as a movable, resizable picture in the
+  middle of the visible area; copied text lands as a text box. Paste analysis plots and results
+  tables side by side and annotate them.
+- **Shapes**: rectangle, ellipse, line and arrow tools alongside the existing callout / cloud /
+  text-box tools — drag to place, then move / resize / recolour. Everything is saved into the PDF
+  so other viewers see the finished collage.
+
 ### Dark mode
 
 - **System / Light / Dark** picker in the toolbar, persisted to `%APPDATA%\DocDr\settings.json`.
