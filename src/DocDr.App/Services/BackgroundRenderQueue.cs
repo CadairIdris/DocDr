@@ -58,12 +58,18 @@ public sealed class BackgroundRenderQueue : IDisposable
         _signal.Release();
     }
 
-    /// <summary>Drop every queued-but-not-started request (e.g. on zoom change or document swap).</summary>
+    /// <summary>Drop queued-but-not-started <em>page</em> renders (they go stale on a zoom / document
+    /// swap). Thumbnail requests are kept — they're a fixed size, never stale, and cheap.</summary>
     public void Clear()
     {
         lock (_gate)
         {
-            _pending.Clear();
+            foreach (RenderKey key in _pending
+                         .Where(kv => kv.Value.Request.PixelWidth > ThumbnailPixelWidth)
+                         .Select(kv => kv.Key).ToList())
+            {
+                _pending.Remove(key);
+            }
         }
     }
 
@@ -80,7 +86,7 @@ public sealed class BackgroundRenderQueue : IDisposable
                 return;
             }
 
-            RenderRequest? request = TakeNewest();
+            RenderRequest? request = TakeNext();
             if (request is null)
             {
                 continue;
@@ -109,7 +115,11 @@ public sealed class BackgroundRenderQueue : IDisposable
         }
     }
 
-    private RenderRequest? TakeNewest()
+    /// <summary>A render this narrow or narrower is a thumbnail — cheap, and served before page
+    /// renders so a burst of scroll-driven page requests can't leave the strip blank.</summary>
+    private const int ThumbnailPixelWidth = 320;
+
+    private RenderRequest? TakeNext()
     {
         lock (_gate)
         {
@@ -118,19 +128,36 @@ public sealed class BackgroundRenderQueue : IDisposable
                 return null;
             }
 
-            RenderKey newestKey = default;
-            long newestSeq = long.MinValue;
-            foreach ((RenderKey key, (_, long seq)) in _pending)
+            RenderKey pickKey = default;
+            long bestSeq = 0;
+            bool haveThumb = false;
+            bool have = false;
+
+            foreach ((RenderKey key, (RenderRequest req, long seq)) in _pending)
             {
-                if (seq > newestSeq)
+                bool isThumb = req.PixelWidth <= ThumbnailPixelWidth;
+
+                // Thumbnails first (oldest first, so the strip fills top-to-bottom); among page
+                // renders, newest first (the page the user just scrolled to).
+                bool better = !have || (isThumb, haveThumb) switch
                 {
-                    newestSeq = seq;
-                    newestKey = key;
+                    (true, false) => true,
+                    (true, true) => seq < bestSeq,
+                    (false, true) => false,
+                    (false, false) => seq > bestSeq,
+                };
+
+                if (better)
+                {
+                    pickKey = key;
+                    bestSeq = seq;
+                    haveThumb = isThumb;
+                    have = true;
                 }
             }
 
-            RenderRequest request = _pending[newestKey].Request;
-            _pending.Remove(newestKey);
+            RenderRequest request = _pending[pickKey].Request;
+            _pending.Remove(pickKey);
             return request;
         }
     }
