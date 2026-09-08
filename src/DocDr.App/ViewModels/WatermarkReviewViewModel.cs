@@ -60,6 +60,13 @@ public sealed partial class WatermarkReviewViewModel : ObservableObject
 
     public IReadOnlyList<WatermarkRowViewModel> Rows { get; }
 
+    /// <summary>Shown when the source is encrypted — stripping also drops the security handler.</summary>
+    public string? SecurityNote => _document.IsEncrypted
+        ? "This PDF is secured (a “licensed copy” usually is). Removing a watermark rewrites it without encryption, so the copy/print restrictions go too."
+        : null;
+
+    public bool HasSecurityNote => SecurityNote is not null;
+
     [ObservableProperty]
     private ImageSource? _beforePreview;
 

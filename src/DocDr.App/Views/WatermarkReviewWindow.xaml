@@ -25,6 +25,11 @@
                    Foreground="{DynamicResource SecondaryTextBrush}"
                    Text="Content that repeats across most pages. Tick what to strip, then Remove. This edits page content and can't be undone — save to a new file to keep the original." />
 
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10" FontSize="11"
+                   Foreground="{DynamicResource HintTextBrush}"
+                   Text="{Binding SecurityNote}"
+                   Visibility="{Binding HasSecurityNote, Converter={StaticResource BoolToVisibility}}" />
+
         <Grid DockPanel.Dock="Top" Height="300" Margin="0,0,0,12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />

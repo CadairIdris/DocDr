@@ -89,6 +89,10 @@ public sealed class PdfDocument : IDisposable
     /// <summary>True once any edit has been applied and the document has not been saved since.</summary>
     public bool IsDirty { get; private set; }
 
+    /// <summary>The source PDF carried a standard-security handler (password / permissions).
+    /// Saving or stripping watermarks rewrites it without encryption.</summary>
+    public bool IsEncrypted => Locked(() => fpdfview.FPDF_GetSecurityHandlerRevision(Handle) >= 0);
+
     public bool CanUndo => _undo.Count > 0;
 
     public bool CanRedo => _redo.Count > 0;
@@ -948,7 +952,15 @@ public sealed class PdfDocument : IDisposable
             var fileWrite = new FPDF_FILEWRITE_ { Version = 1, WriteBlock = writeBlock };
             try
             {
-                int ok = fpdf_save.FPDF_SaveAsCopy(Handle, fileWrite, 2 /* FPDF_NO_INCREMENTAL */);
+                // An encrypted source (e.g. a BSI "licensed copy" PDF) keeps its /Encrypt dict and
+                // RC4/AES streams through a plain FPDF_NO_INCREMENTAL save — so the watermark
+                // stripper, which edits the content-stream bytes, would see ciphertext and match
+                // nothing. FPDF_REMOVE_SECURITY (3) makes PDFium rewrite the whole file with no
+                // encryption. There is no owner password to preserve anyway once we're editing.
+                uint flags = fpdfview.FPDF_GetSecurityHandlerRevision(Handle) >= 0
+                    ? 3u  // FPDF_REMOVE_SECURITY
+                    : 2u; // FPDF_NO_INCREMENTAL
+                int ok = fpdf_save.FPDF_SaveAsCopy(Handle, fileWrite, flags);
                 if (ok == 0)
                 {
                     throw new PdfException("PDFium failed to serialise the document.");

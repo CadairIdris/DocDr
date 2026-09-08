@@ -54,6 +54,13 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   `FPDF_LoadMemDocument64`, every old source closed, `_pages` reset to identity, **undo history
   cleared** (not undoable). `_annotations` is kept (page order unchanged). Rewritten stream objects
   need `/Filter /FlateDecode`, not a bare `/FlateDecode`.
+- **Encrypted sources** (BSI "licensed copy" PDFs are `/V 1 /R 2` RC4): `SerialiseCurrentHandle`
+  passes `FPDF_SaveAsCopy` flag **3 (`FPDF_REMOVE_SECURITY`)** when
+  `FPDF_GetSecurityHandlerRevision(Handle) >= 0`, else 2 (`FPDF_NO_INCREMENTAL`). Flag 3 is
+  matched *exactly* by PDFium (`== FPDF_REMOVE_SECURITY`) and forces a full non-incremental
+  rewrite with no encryption — without it the stripper sees ciphertext and matches nothing.
+  So Save / SaveAs / strip on a secured PDF all drop the security handler; `PdfDocument.IsEncrypted`
+  exposes the state and the watermark review dialog notes it.
 
 ## Annotations (`PdfDocument`, Stage 3)
 
