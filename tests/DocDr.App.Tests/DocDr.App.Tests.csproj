@@ -1,10 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
     <IsPackable>false</IsPackable>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,26 +15,18 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="Xunit.StaFact" Version="1.1.11" />
   </ItemGroup>
 
   <ItemGroup>
     <Using Include="Xunit" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\DocDr.Pdf\DocDr.Pdf.csproj" />
-    <ProjectReference Include="..\..\src\DocDr.Ocr\DocDr.Ocr.csproj" />
-    <ProjectReference Include="..\DocDr.TestSupport\DocDr.TestSupport.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Using Include="DocDr.TestSupport" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="fixtures\**\*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <ProjectReference Include="..\..\src\DocDr.App\DocDr.App.csproj" />
+    <ProjectReference Include="..\..\src\DocDr.Pdf\DocDr.Pdf.csproj" />
+    <ProjectReference Include="..\DocDr.TestSupport\DocDr.TestSupport.csproj" />
   </ItemGroup>
 
 </Project>

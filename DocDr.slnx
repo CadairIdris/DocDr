@@ -5,6 +5,8 @@
     <Project Path="src/DocDr.Pdf/DocDr.Pdf.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/DocDr.App.Tests/DocDr.App.Tests.csproj" />
     <Project Path="tests/DocDr.Pdf.Tests/DocDr.Pdf.Tests.csproj" />
+    <Project Path="tests/DocDr.TestSupport/DocDr.TestSupport.csproj" />
   </Folder>
 </Solution>

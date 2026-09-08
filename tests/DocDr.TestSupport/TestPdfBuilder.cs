@@ -1,14 +1,16 @@
+using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text;
 
-namespace DocDr.Pdf.Tests;
+namespace DocDr.TestSupport;
 
 /// <summary>
 /// Generates tiny but valid multi-page PDFs with a real (non-embedded, base-14) text layer so
 /// tests exercising rendering and text search do not need binary fixtures checked into the repo.
 /// </summary>
-internal static class TestPdfBuilder
+public static class TestPdfBuilder
 {
     public const double PageWidth = 612;
     public const double PageHeight = 792;
