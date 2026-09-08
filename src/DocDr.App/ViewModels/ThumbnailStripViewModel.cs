@@ -21,10 +21,10 @@ public sealed partial class ThumbnailStripViewModel : ObservableObject
     public const double ThumbnailWidth = 118.0;
 
     private readonly PdfDocument _document;
-    private readonly BackgroundRenderQueue _queue;
+    private readonly IRenderQueue _queue;
     private double _deviceScale = 1.0;
 
-    public ThumbnailStripViewModel(PdfDocument document, IReadOnlyList<PdfSize> pageSizes, BackgroundRenderQueue queue)
+    public ThumbnailStripViewModel(PdfDocument document, IReadOnlyList<PdfSize> pageSizes, IRenderQueue queue)
     {
         _document = document;
         _queue = queue;

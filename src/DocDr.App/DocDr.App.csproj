@@ -16,6 +16,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="DocDr.App.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Resource Include="Assets\DocDr.ico" />
     <Resource Include="Assets\DocDr.png" />
   </ItemGroup>

@@ -15,11 +15,11 @@ namespace DocDr.App.ViewModels;
 /// </summary>
 public sealed partial class AnnotationFormatViewModel : ObservableObject
 {
-    private readonly PdfPaneViewModel _owner;
+    private readonly IAnnotationFormatHost _owner;
     private readonly Guid _id;
     private readonly bool _loading;
 
-    public AnnotationFormatViewModel(PdfPaneViewModel owner, PdfAnnotation a)
+    public AnnotationFormatViewModel(IAnnotationFormatHost owner, PdfAnnotation a)
     {
         _loading = true;
         _owner = owner;
@@ -173,7 +173,7 @@ public sealed partial class AnnotationFormatViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void Delete() => _owner.DeleteAnnotationCommand.Execute(_id);
+    private void Delete() => _owner.DeleteAnnotation(_id);
 
     private uint? Resolve(string key, uint fallback) => key == AnnotationColors.Custom
         ? _owner.PickCustomColor(fallback)

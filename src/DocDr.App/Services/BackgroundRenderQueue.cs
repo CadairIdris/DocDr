@@ -30,7 +30,7 @@ internal readonly record struct RenderKey(object Owner, int PageIndex, int Pixel
 /// user just scrolled to renders before the backlog), coalescing duplicate requests. Results are
 /// marshalled back to the UI dispatcher.
 /// </summary>
-public sealed class BackgroundRenderQueue : IDisposable
+public sealed class BackgroundRenderQueue : IDisposable, IRenderQueue
 {
     private readonly PageImageService _images;
     private readonly Dispatcher _dispatcher;
@@ -65,13 +65,17 @@ public sealed class BackgroundRenderQueue : IDisposable
         lock (_gate)
         {
             foreach (RenderKey key in _pending
-                         .Where(kv => kv.Value.Request.PixelWidth > ThumbnailPixelWidth)
+                         .Where(kv => IsStalePageRender(kv.Value.Request))
                          .Select(kv => kv.Key).ToList())
             {
                 _pending.Remove(key);
             }
         }
     }
+
+    /// <summary>A queued render that <see cref="Clear"/> drops: a full-size page render (which goes
+    /// stale on a zoom / document swap), as opposed to a fixed-size thumbnail.</summary>
+    internal static bool IsStalePageRender(RenderRequest request) => request.PixelWidth > ThumbnailPixelWidth;
 
     private async Task WorkerLoopAsync()
     {
@@ -117,49 +121,55 @@ public sealed class BackgroundRenderQueue : IDisposable
 
     /// <summary>A render this narrow or narrower is a thumbnail — cheap, and served before page
     /// renders so a burst of scroll-driven page requests can't leave the strip blank.</summary>
-    private const int ThumbnailPixelWidth = 320;
+    internal const int ThumbnailPixelWidth = 320;
 
     private RenderRequest? TakeNext()
     {
         lock (_gate)
         {
-            if (_pending.Count == 0)
+            if (PickNext(_pending) is not { } key)
             {
                 return null;
             }
 
-            RenderKey pickKey = default;
-            long bestSeq = 0;
-            bool haveThumb = false;
-            bool have = false;
-
-            foreach ((RenderKey key, (RenderRequest req, long seq)) in _pending)
-            {
-                bool isThumb = req.PixelWidth <= ThumbnailPixelWidth;
-
-                // Thumbnails first (oldest first, so the strip fills top-to-bottom); among page
-                // renders, newest first (the page the user just scrolled to).
-                bool better = !have || (isThumb, haveThumb) switch
-                {
-                    (true, false) => true,
-                    (true, true) => seq < bestSeq,
-                    (false, true) => false,
-                    (false, false) => seq > bestSeq,
-                };
-
-                if (better)
-                {
-                    pickKey = key;
-                    bestSeq = seq;
-                    haveThumb = isThumb;
-                    have = true;
-                }
-            }
-
-            RenderRequest request = _pending[pickKey].Request;
-            _pending.Remove(pickKey);
+            RenderRequest request = _pending[key].Request;
+            _pending.Remove(key);
             return request;
         }
+    }
+
+    /// <summary>Choose the next request to serve: thumbnails (≤ <see cref="ThumbnailPixelWidth"/>)
+    /// before page renders; oldest-first among thumbnails so the strip fills top-to-bottom;
+    /// newest-first among page renders so the page the user just scrolled to wins.</summary>
+    internal static RenderKey? PickNext(IReadOnlyDictionary<RenderKey, (RenderRequest Request, long Seq)> pending)
+    {
+        RenderKey pickKey = default;
+        long bestSeq = 0;
+        bool haveThumb = false;
+        bool have = false;
+
+        foreach ((RenderKey key, (RenderRequest req, long seq)) in pending)
+        {
+            bool isThumb = req.PixelWidth <= ThumbnailPixelWidth;
+
+            bool better = !have || (isThumb, haveThumb) switch
+            {
+                (true, false) => true,
+                (true, true) => seq < bestSeq,
+                (false, true) => false,
+                (false, false) => seq > bestSeq,
+            };
+
+            if (better)
+            {
+                pickKey = key;
+                bestSeq = seq;
+                haveThumb = isThumb;
+                have = true;
+            }
+        }
+
+        return have ? pickKey : null;
     }
 
     public void Dispose()

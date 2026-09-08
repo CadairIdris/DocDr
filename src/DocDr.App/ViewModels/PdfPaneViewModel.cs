@@ -21,7 +21,7 @@ namespace DocDr.App.ViewModels;
 /// own independent text search — so the two panes never affect each other. Both panes share a
 /// single <see cref="PdfDocument"/>; every PDFium call is serialised inside that type.
 /// </summary>
-public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
+public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IAnnotationFormatHost
 {
     private const double MinZoom = 0.25;
     private const double MaxZoom = 8.0;
@@ -30,7 +30,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     private const int MaxGridColumns = 6;
 
     private readonly PdfDocument _document;
-    private readonly BackgroundRenderQueue _queue;
+    private readonly IRenderQueue _queue;
     private readonly PdfSearch _search;
     private IReadOnlyList<PdfSize> _pageSizes;
 
@@ -44,7 +44,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     private bool _deferRerender;
     private DispatcherTimer? _rerenderTimer;
 
-    public PdfPaneViewModel(string title, PdfDocument document, IReadOnlyList<PdfSize> pageSizes, BackgroundRenderQueue queue)
+    public PdfPaneViewModel(string title, PdfDocument document, IReadOnlyList<PdfSize> pageSizes, IRenderQueue queue)
     {
         Title = title;
         _document = document;
@@ -842,7 +842,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     partial void OnSelectedAnnotationIdChanged(System.Guid? value) => BuildAnnotationOverlays();
 
     /// <summary>Kinds whose selection raises the floating format toolbar (not ink / image — no styling there).</summary>
-    private static bool HasFormatBar(PdfAnnotationKind kind) => kind is not (PdfAnnotationKind.Ink or PdfAnnotationKind.Image);
+    internal static bool HasFormatBar(PdfAnnotationKind kind) => kind is not (PdfAnnotationKind.Ink or PdfAnnotationKind.Image);
 
     /// <summary>Rebuild <see cref="SelectedFormat"/> + its anchor from the current selection. Called at the
     /// end of <see cref="BuildAnnotationOverlays"/> (and so on every selection / annotation change).</summary>
@@ -879,6 +879,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         SelectedFormatAnchor = anchor;
         SelectedFormatChanged?.Invoke(this, System.EventArgs.Empty);
     }
+
+    void IAnnotationFormatHost.DeleteAnnotation(System.Guid id) => DeleteAnnotationCommand.Execute(id);
 
     /// <summary>Apply a styling edit to one annotation (used by the format toolbar).</summary>
     public void ApplyFormat(System.Guid id, System.Func<PdfAnnotation, PdfAnnotation> mutate)
@@ -2015,7 +2017,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Offset a shape's box by (dx, dy) page points; a callout keeps its tip and re-attaches the leader.</summary>
-    private static PdfAnnotation MoveShape(PdfAnnotation a, double dx, double dy)
+    internal static PdfAnnotation MoveShape(PdfAnnotation a, double dx, double dy)
     {
         if (a.Kind is PdfAnnotationKind.Line or PdfAnnotationKind.Arrow && a.Leader.Count >= 2)
         {
@@ -2129,7 +2131,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     /// <summary>Move one corner of the shape's box by (dx, dy) page points, keeping a minimum size and
     /// (for a callout) re-attaching the leader. Sets <see cref="PdfAnnotation.AutoSize"/> off.</summary>
-    private static PdfAnnotation ResizeShape(PdfAnnotation a, BoxHandle handle, double dx, double dy)
+    internal static PdfAnnotation ResizeShape(PdfAnnotation a, BoxHandle handle, double dx, double dy)
     {
         PdfRect b = a.Box;
         double l = Math.Min(b.Left, b.Right), r = Math.Max(b.Left, b.Right);
@@ -2338,7 +2340,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
         BuildAnnotationOverlays();
     }
 
-    private static PdfAnnotation MoveLineEndpoint(PdfAnnotation a, int end, double dx, double dy)
+    internal static PdfAnnotation MoveLineEndpoint(PdfAnnotation a, int end, double dx, double dy)
     {
         if (a.Leader.Count < 2 || end is < 0 or > 1)
         {
@@ -3073,14 +3075,17 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     private int ExpectedPixelHeight(PageSlotViewModel slot) => CappedRenderSize(slot).Height;
 
-    private (int Width, int Height) CappedRenderSize(PageSlotViewModel slot)
+    private (int Width, int Height) CappedRenderSize(PageSlotViewModel slot) =>
+        CapToMaxEdge(slot.LayoutWidth * _deviceScale, slot.LayoutHeight * _deviceScale, MaxRenderEdge);
+
+    /// <summary>Round a device-pixel page size to ints, scaling it down proportionally if its
+    /// longest edge would exceed <paramref name="maxEdge"/>.</summary>
+    internal static (int Width, int Height) CapToMaxEdge(double w, double h, double maxEdge)
     {
-        double w = slot.LayoutWidth * _deviceScale;
-        double h = slot.LayoutHeight * _deviceScale;
         double longest = Math.Max(w, h);
-        if (longest > MaxRenderEdge)
+        if (longest > maxEdge)
         {
-            double k = MaxRenderEdge / longest;
+            double k = maxEdge / longest;
             w *= k;
             h *= k;
         }
