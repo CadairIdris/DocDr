@@ -45,6 +45,13 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
         Bookmarks = new BookmarksViewModel(bookmarks);
         Bookmarks.BookmarkActivated += pageIndex => LeftPane.GoToPage(pageIndex + 1);
+        Bookmarks.PropertyChanged += (_, ev) =>
+        {
+            if (ev.PropertyName == nameof(BookmarksViewModel.HasBookmarks))
+            {
+                OnPropertyChanged(nameof(CanGenerateBookmarks));
+            }
+        };
 
         Clauses = new ClausesViewModel();
         Clauses.ClauseActivated += pageIndex => LeftPane.GoToPage(pageIndex + 1);
@@ -485,6 +492,34 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
+    /// <summary>True while the document has no outline — the "Generate bookmarks" affordance shows.</summary>
+    public bool CanGenerateBookmarks => !Bookmarks.HasBookmarks;
+
+    [RelayCommand]
+    private async Task GenerateBookmarks()
+    {
+        try
+        {
+            IReadOnlyList<PdfBookmark> outline =
+                await Task.Run(() => PdfHeadings.FromHeadings(Document)).ConfigureAwait(true);
+
+            if (outline.Count == 0)
+            {
+                MessageBox.Show(
+                    "No headings could be detected to build bookmarks from.",
+                    "DocDr", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            Document.SetOutline(outline); // raises Changed → Bookmarks.Reload
+        }
+        catch (PdfException ex)
+        {
+            MessageBox.Show($"Could not scan for headings: {ex.Message}", "DocDr",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     [RelayCommand(CanExecute = nameof(CanUndo))]
     private void Undo() => Document.Undo();
 
@@ -608,7 +643,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         LeftPane.ReloadPages(sizes);
         RightPane.ReloadPages(sizes);
         Thumbnails.Reload(sizes);
-        Bookmarks.Reload(PdfBookmarks.Read(Document));
+        Bookmarks.Reload(Document.GetOutline());
         Clauses.Load(Document);
         Annotations.Reload(Document);
         Thumbnails.SetCurrentPage(LeftPane.CurrentPage);

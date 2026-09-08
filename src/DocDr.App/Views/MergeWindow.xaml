@@ -1,0 +1,54 @@
+<Window x:Class="DocDr.App.Views.MergeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:DocDr.App.ViewModels"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance vm:MergeViewModel}"
+        Title="Merge PDFs" Width="640" Height="520"
+        Icon="/DocDr.App;component/Assets/DocDr.ico"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        MinWidth="480" MinHeight="360">
+    <Window.Resources>
+        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}" />
+    </Window.Resources>
+    <DockPanel Margin="16">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10"
+                   Foreground="{DynamicResource SecondaryTextBrush}"
+                   Text="Pages are merged top to bottom. Edit a title to name that file's bookmark. The merged document opens in a new tab — save it with Save As." />
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Content="Cancel" MinWidth="80" Padding="8,4" Margin="0,0,8,0" IsCancel="True"
+                    Command="{Binding CancelCommand}" />
+            <Button Content="Merge" MinWidth="90" Padding="8,4" IsDefault="True"
+                    Command="{Binding MergeCommand}" />
+        </StackPanel>
+
+        <CheckBox DockPanel.Dock="Bottom" Margin="0,12,0,0" Content="Add a bookmark for each file"
+                  IsChecked="{Binding AddBookmarks}" Foreground="{DynamicResource PrimaryTextBrush}" />
+
+        <StackPanel DockPanel.Dock="Right" Margin="10,0,0,0" VerticalAlignment="Top">
+            <Button Content="Move up" Padding="8,4" Margin="0,0,0,6" MinWidth="90"
+                    Command="{Binding MoveUpCommand}" />
+            <Button Content="Move down" Padding="8,4" Margin="0,0,0,6" MinWidth="90"
+                    Command="{Binding MoveDownCommand}" />
+            <Button Content="Remove" Padding="8,4" Margin="0,0,0,6" MinWidth="90"
+                    Command="{Binding RemoveCommand}" />
+            <Button Content="Add files…" Padding="8,4" Margin="0,10,0,0" MinWidth="90"
+                    Command="{Binding AddFilesCommand}" />
+        </StackPanel>
+
+        <DataGrid ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}"
+                  AutoGenerateColumns="False" HeadersVisibility="Column" CanUserAddRows="False"
+                  CanUserReorderColumns="False" CanUserResizeRows="False" GridLinesVisibility="Horizontal"
+                  BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                  Background="{DynamicResource ChromeBrush}">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="File" Binding="{Binding FileName}" IsReadOnly="True" Width="1.4*" />
+                <DataGridTextColumn Header="Bookmark title" Binding="{Binding Title, UpdateSourceTrigger=PropertyChanged}" Width="2*" />
+                <DataGridTextColumn Header="Pages" Binding="{Binding PageCount}" IsReadOnly="True" Width="60" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>

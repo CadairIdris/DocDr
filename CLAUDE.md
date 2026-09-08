@@ -62,6 +62,43 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   So Save / SaveAs / strip on a secured PDF all drop the security handler; `PdfDocument.IsEncrypted`
   exposes the state and the watermark review dialog notes it.
 
+## Batch merge + generated outlines (`PdfDocument.Merge` / `PdfOutlineWriter` / `PdfHeadings`)
+
+- **`PdfDocument.Merge(paths)` → `MergeResult(Document, SourceStartPages)`** — a new untitled
+  (`FilePath == null`), dirty document built in ONE pass: `FPDF_CreateNewDocument` +
+  `FPDF_ImportPages(merged, src, null, dest)` per source, then `DetachSource` each into
+  `_sources` so later structural edits still `Rebuild()` from them. `SourceStartPages[i]` is the
+  0-based page each input's pages begin at. A dedicated private ctor sets `_pages`/`_annotations`/
+  `_sources` directly (no per-page annotation read — sources were already stripped by their own
+  `Load`).
+- **Outline model**: `PdfDocument._outline` (`IReadOnlyList<PdfBookmark>?`). `GetOutline()` returns
+  it if set else `PdfBookmarks.Read(this)`; **the App uses `Document.GetOutline()`, not
+  `PdfBookmarks.Read`, everywhere**. `SetOutline(tree)` sets it, `SetDirty`, raises `Changed`;
+  **not on the undo stack** (like metadata). A structural edit after `SetOutline` leaves the
+  model outline in place but its page indices go stale — regenerate.
+- **`PdfOutlineWriter.Append(bytes, outline)`** — called only from `SaveToBytes` (not
+  `SerialiseCurrentHandle`, which also feeds the watermark/OCR adopt path). Incremental-update
+  append modelled on `PdfMetadataWriter` (which now exposes `internal PdfString`): reads the last
+  `trailer` for `/Root` + `/Size`, bracket-scans the Catalog dict, walks `/Pages` → `/Kids` (flat
+  or nested) for page object refs, emits one object per bookmark (`/Title /Parent /Prev /Next
+  /First /Last /Count /Dest [<pageObj> 0 R /Fit]`) + an `/Outlines` dict + a Catalog override
+  with `/Outlines` spliced in, then a two-subsection `xref` + `trailer /Prev`. Unparseable input
+  → returns the bytes unchanged (outline stays session-only).
+- **`PdfHeadings`**: `FromHeadings(doc)` maps the whole `PdfClauses.ReadStructure` tree to
+  `PdfBookmark`s (≥ 2 nodes or `[]`); `SubHeadings(doc)` = a single doc's numbered sub-headings
+  (dotted numbers only, doc-local pages, sentence-ish lines dropped); `Shift(tree, delta)` offsets
+  every page index; `SuggestTitle(doc, path)` = own first outline entry → first substantial page-1
+  line → cleaned filename.
+- App: `MainViewModel.MergeCommand` (multi-select `OpenFileDialog` → `MergeWindow` /
+  `MergeViewModel` — reorderable `DataGrid`, editable title per file, "Add a bookmark for each
+  file" checkbox) → `Task.Run(Merge + per-file SetOutline)` → `AddDocumentTab` (the
+  path-less half of `OpenPathAsync`). `DocumentTabViewModel.GenerateBookmarksCommand` +
+  `CanGenerateBookmarks` (`!Bookmarks.HasBookmarks`) for the "Generate from headings" button in
+  `BookmarksPanelView` (reaches the tab VM via `RelativeSource AncestorType=NavigationPanelView`).
+- **Cross-references are never persisted** — `PdfClauses`/`PdfCrossReferences` run on every open
+  (`ClausesViewModel` background scan → `_crossRefCache`, in-memory only). A merged+saved file
+  re-derives them next open.
+
 ## OCR (`PdfOcr` / `DocDr.Ocr`, Stage 6)
 
 - **`DocDr.Ocr`** is a separate `net9.0` (x64-only) project so the Tesseract dependency stays out

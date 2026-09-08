@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.IO;
@@ -7,6 +8,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DocDr.App.Services;
+using DocDr.App.Views;
 using DocDr.Pdf;
 using Microsoft.Win32;
 
@@ -164,21 +166,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         StatusText = $"Opening {Path.GetFileName(path)}…";
         try
         {
-            (PdfDocument document,
-             System.Collections.Generic.IReadOnlyList<PdfSize> sizes,
-             System.Collections.Generic.IReadOnlyList<PdfBookmark> bookmarks) =
-                await Task.Run(() =>
-                {
-                    PdfDocument doc = PdfDocument.Load(path);
-                    return (doc, doc.GetPageSizes(), PdfBookmarks.Read(doc));
-                }).ConfigureAwait(true);
+            PdfDocument document = await Task.Run(() =>
+            {
+                PdfDocument doc = PdfDocument.Load(path);
+                _ = doc.GetPageSizes();
+                return doc;
+            }).ConfigureAwait(true);
 
-            var tab = new DocumentTabViewModel(
-                UniqueTitle(Path.GetFileName(path)), document, sizes, bookmarks, _renderQueue, _cache);
-            tab.CloseRequested += (_, _) => CloseTab(tab);
-            Tabs.Add(tab);
-            SelectedTab = tab;
-            StatusText = $"{document.PageCount} page(s) — {Tabs.Count} tab(s) open.";
+            AddDocumentTab(document, UniqueTitle(Path.GetFileName(path)));
 
             _settings.PushRecentFile(Path.GetFullPath(path));
             _settings.Save();
@@ -187,6 +182,87 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         catch (Exception ex) when (ex is PdfException or IOException or UnauthorizedAccessException)
         {
             StatusText = $"Could not open {Path.GetFileName(path)}: {ex.Message}";
+        }
+    }
+
+    /// <summary>Add a tab for an already-loaded document (merge output, or an opened file).</summary>
+    public void AddDocumentTab(PdfDocument document, string title)
+    {
+        var tab = new DocumentTabViewModel(
+            UniqueTitle(title), document, document.GetPageSizes(), document.GetOutline(),
+            _renderQueue, _cache);
+        tab.CloseRequested += (_, _) => CloseTab(tab);
+        Tabs.Add(tab);
+        SelectedTab = tab;
+        StatusText = $"{document.PageCount} page(s) — {Tabs.Count} tab(s) open.";
+    }
+
+    [RelayCommand]
+    private async Task MergeAsync()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Select PDFs to merge",
+            Filter = "PDF documents (*.pdf)|*.pdf",
+            CheckFileExists = true,
+            Multiselect = true,
+        };
+
+        if (dialog.ShowDialog() != true || dialog.FileNames.Length == 0)
+        {
+            return;
+        }
+
+        var viewModel = new MergeViewModel(dialog.FileNames);
+        var window = new MergeWindow(viewModel) { Owner = Application.Current?.MainWindow };
+        MergeRequest? request = null;
+        viewModel.Confirmed = r => { request = r; window.Close(); };
+        window.ShowDialog();
+        if (request is null || request.Files.Count == 0)
+        {
+            return;
+        }
+
+        StatusText = $"Merging {request.Files.Count} files…";
+        try
+        {
+            PdfDocument merged = await Task.Run(() =>
+            {
+                MergeResult result = PdfDocument.Merge(request.Files.Select(f => f.Path).ToArray());
+                if (request.AddBookmarks)
+                {
+                    var roots = new System.Collections.Generic.List<PdfBookmark>(request.Files.Count);
+                    for (int i = 0; i < request.Files.Count; i++)
+                    {
+                        int start = result.SourceStartPages[i];
+                        IReadOnlyList<PdfBookmark> subs = [];
+                        try
+                        {
+                            using PdfDocument src = PdfDocument.Load(request.Files[i].Path);
+                            subs = PdfHeadings.Shift(PdfHeadings.SubHeadings(src), start);
+                        }
+                        catch (PdfException)
+                        {
+                            // no sub-headings for this file
+                        }
+
+                        roots.Add(new PdfBookmark(request.Files[i].Title, start, subs));
+                    }
+
+                    result.Document.SetOutline(roots);
+                }
+
+                _ = result.Document.GetPageSizes();
+                return result.Document;
+            }).ConfigureAwait(true);
+
+            AddDocumentTab(merged, "Merged document");
+        }
+        catch (Exception ex) when (ex is PdfException or IOException or UnauthorizedAccessException)
+        {
+            StatusText = $"Merge failed: {ex.Message}";
+            MessageBox.Show($"Could not merge those files: {ex.Message}", "DocDr",
+                MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 

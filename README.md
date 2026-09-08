@@ -48,6 +48,17 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
   contents-page leaders are stripped; wrapped lines are joined and words de-hyphenated across
   line breaks. Pages with no text layer are reported and skipped — run **OCR…** first.
 
+### Merge & bookmarks
+
+- **Merge…** (home screen / toolbar): pick several PDFs, put them in order and give each a
+  bookmark title in the dialog, and DocDr combines them into one new document (opens in a new
+  tab — Save As to keep it). "Add a bookmark for each file" also pulls in numbered sub-headings
+  (`5.1 Introduction`, …) under each file.
+- **Generate from headings** (Bookmarks panel, when a document has none): builds an outline from
+  detected clause/section headings.
+- Generated bookmarks are written into the PDF on save, so other viewers see them too. Clause
+  and figure cross-references are re-detected every time a document is opened — nothing to save.
+
 ### Dark mode
 
 - **System / Light / Dark** picker in the toolbar, persisted to `%APPDATA%\DocDr\settings.json`.
