@@ -37,6 +37,23 @@ designed, and those are where bugs keep coming from.
 | 4 | **Interaction flag-soup in `PdfPaneView.xaml.cs`** — ~11 mutually-aware `bool`s (`_selecting`, `_inking`, `_shaping`, `_movingShape`, `_resizing`, `_leaderTipMoving`, `_lineEndpointMoving`, `_panning`, `_tableSelecting`, …) branched through mousedown/move/up/key. Each new gesture adds a flag and more branches. One `enum InteractionState` + small handler objects would be more robust. | **incremental** |
 | 5 | **`RenderedPage` LOH churn.** Every render is `new byte[stride*height]` — 60 MB+ at high zoom, straight to the LOH, GC'd; no pooling. Rent from `ArrayPool<byte>.Shared`, render, copy into the frozen `BitmapSource`, return. Better long-session stability. | **quick win, do next** |
 
+## Parked — revisit only if it surfaces as a real complaint
+
+- **Tiled + interruptible page rendering.** PDF-XChange Editor is the smoothness benchmark
+  (native C++, own engine on Direct2D/DirectWrite, out-of-process render workers, display-list
+  cache, visible-clip-only raster). The reachable slice on WPF + PDFium is: render only the
+  visible tiles (`FPDF_RenderPageBitmap` clip) and make a render abandonable mid-flight via the
+  progressive API — `fpdf_progressive.FPDF_RenderPageBitmapStart` / `RenderPageContinue` /
+  `RenderPageClose` + `IFSDK_PAUSE` (all bound in PDFiumCore 4688; `IFSDK_PAUSE` is a wrapper
+  class with a settable `NeedToPauseNow` delegate — keep it GC-alive like the save `WriteBlock`).
+  Fixes the >2× zoom blur and the big-single-bitmap memory spike at extreme zoom, and stops the
+  worker finishing stale renders when scrolling while zoomed in. ~1.5–2 days; a ~1 h spike first
+  to confirm the `IFSDK_PAUSE` callback round-trips through CppSharp.
+  **Parked** because the queue already caps stale work at ~one frame at normal zoom (`Clear()` +
+  newest-first) and no one has complained about scroll stutter. It's fully isolated behind
+  `IPageRenderer` — swap it in any time. Trigger: a stutter complaint while zoomed in, or the
+  high-zoom memory spike becoming more than a transient annoyance.
+
 ## Not worth it
 
 - **A GPU / Direct2D rendering pipeline.** PDFium renders to a CPU buffer; the current
