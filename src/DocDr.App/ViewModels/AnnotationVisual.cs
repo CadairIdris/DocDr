@@ -75,6 +75,25 @@ public sealed record AnnotationVisual(
     /// <summary>The small "edit" glyph button — only for a noted highlight (notes have their own pin).</summary>
     public bool ShowMarker => Kind == PdfAnnotationKind.Highlight && HasNote;
 
+    // --- Hover note preview (for a Comment pin or a noted highlight) -----------------------
+
+    /// <summary>The note's text, shown in the hover tooltip.</summary>
+    public string NoteText { get; init; } = string.Empty;
+
+    /// <summary>"Author · 8 Sep 2026" for the tooltip header; empty when unknown.</summary>
+    public string NoteMeta { get; init; } = string.Empty;
+
+    /// <summary>Number of replies on the note thread.</summary>
+    public int ReplyCount { get; init; }
+
+    public bool HasNoteText => !string.IsNullOrWhiteSpace(NoteText);
+
+    public bool HasNoteMeta => !string.IsNullOrEmpty(NoteMeta);
+
+    public bool HasReplies => ReplyCount > 0;
+
+    public string ReplyLabel => ReplyCount == 1 ? "1 reply" : $"{ReplyCount} replies";
+
     /// <summary>A selected annotation gets an inline trash button.</summary>
     public bool ShowDeleteButton => IsSelected && Kind is PdfAnnotationKind.Highlight or PdfAnnotationKind.Ink
         or PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud or PdfAnnotationKind.Comment;

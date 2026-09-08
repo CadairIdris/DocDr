@@ -36,6 +36,44 @@
             <Setter Property="Margin" Value="1,0" />
             <Setter Property="Padding" Value="6,3" />
         </Style>
+
+        <!-- Hover preview of a note's text (used by the note pin and a noted highlight's button).
+             DataContext = the AnnotationVisual of the placement target. -->
+        <Style x:Key="NoteTip" TargetType="ToolTip">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HasDropShadow" Value="True" />
+            <!-- Bind to the hovered element's AnnotationVisual rather than relying on inheritance. -->
+            <Setter Property="DataContext"
+                    Value="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolTip">
+                        <Border Background="{DynamicResource OverlayCardBrush}" MaxWidth="340"
+                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                CornerRadius="4" Padding="10,8">
+                            <StackPanel>
+                                <TextBlock Text="{Binding NoteMeta}" FontSize="10.5"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           Visibility="{Binding HasNoteMeta, Converter={StaticResource BoolToVisibility}}" />
+                                <TextBlock Text="{Binding NoteText}" TextWrapping="Wrap" Margin="0,3,0,0"
+                                           Foreground="{DynamicResource PrimaryTextBrush}"
+                                           Visibility="{Binding HasNoteText, Converter={StaticResource BoolToVisibility}}" />
+                                <TextBlock Text="(empty note)" FontStyle="Italic" Margin="0,3,0,0"
+                                           Foreground="{DynamicResource HintTextBrush}"
+                                           Visibility="{Binding HasNoteText, Converter={StaticResource InverseBoolToVisibility}}" />
+                                <TextBlock Text="{Binding ReplyLabel}" FontSize="10.5" Margin="0,4,0,0"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           Visibility="{Binding HasReplies, Converter={StaticResource BoolToVisibility}}" />
+                                <TextBlock Text="Double-click to edit" FontSize="10" Margin="0,5,0,0"
+                                           Foreground="{DynamicResource HintTextBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style x:Key="ModeIcon" TargetType="Path">
             <Setter Property="Width" Value="16" />
             <Setter Property="Height" Value="16" />
@@ -259,13 +297,17 @@
                                                Foreground="{Binding ShapeBrush}" FontSize="{Binding BoxFontSize}" />
                                 </Border>
 
-                                <!-- Sticky-note pin (drag to move, click to select, double-click to edit). -->
+                                <!-- Sticky-note pin (drag to move, click to select, double-click to edit).
+                                     Hit-test-visible only so the hover tooltip works — the Preview
+                                     mouse handlers on PageList still drive select / drag / edit. -->
                                 <Border Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
                                         Width="{Binding Box.Width}" Height="{Binding Box.Height}"
                                         CornerRadius="4,4,4,1" Background="{Binding ShapeBrush}"
-                                        IsHitTestVisible="False"
-                                        ToolTip="Note — drag to move, double-click to edit"
+                                        ToolTipService.InitialShowDelay="300" ToolTipService.ShowDuration="60000"
                                         Visibility="{Binding IsNote, Converter={StaticResource BoolToVisibility}}">
+                                    <Border.ToolTip>
+                                        <ToolTip Style="{StaticResource NoteTip}" />
+                                    </Border.ToolTip>
                                     <Border.Style>
                                         <Style TargetType="Border">
                                             <Setter Property="BorderBrush" Value="White" />
@@ -299,10 +341,13 @@
                                         Padding="0" MinWidth="0" MinHeight="0" Cursor="Hand"
                                         Background="{DynamicResource OverlayCardBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                                        ToolTip="Edit note"
+                                        ToolTipService.InitialShowDelay="300" ToolTipService.ShowDuration="60000"
                                         Visibility="{Binding ShowMarker, Converter={StaticResource BoolToVisibility}}"
                                         Command="{Binding DataContext.EditAnnotationCommand, RelativeSource={RelativeSource AncestorType={x:Type views:PdfPaneView}}}"
                                         CommandParameter="{Binding Id}">
+                                    <Button.ToolTip>
+                                        <ToolTip Style="{StaticResource NoteTip}" />
+                                    </Button.ToolTip>
                                     <Path Data="M2,2 H12 V9 H6 L3,12 V9 H2 Z" Stretch="Uniform" Margin="2"
                                           Stroke="{DynamicResource PrimaryTextBrush}" StrokeThickness="1.2"
                                           StrokeLineJoin="Round" />

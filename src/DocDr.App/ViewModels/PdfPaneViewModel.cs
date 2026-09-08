@@ -1015,6 +1015,9 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
                     CloudGeometry = cloud,
                     BoxText = annotation.Contents ?? string.Empty,
                     BoxFontSize = Math.Max(4, (annotation.FontSize > 0 ? annotation.FontSize : PdfAnnotation.DefaultFontSize) * scale),
+                    NoteText = annotation.Contents ?? string.Empty,
+                    NoteMeta = FormatNoteMeta(annotation),
+                    ReplyCount = annotation.Replies.Count,
                 });
             }
 
@@ -1024,6 +1027,17 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable
 
     private double SlotScale(PageSlotViewModel slot) =>
         slot.SizePoints.Width > 0 ? slot.LayoutWidth / slot.SizePoints.Width : PdfCoordinates.PointToDip * Zoom;
+
+    private static string FormatNoteMeta(PdfAnnotation annotation)
+    {
+        string author = annotation.Author?.Trim() ?? string.Empty;
+        string date = (annotation.Modified ?? annotation.Created) is { } when
+            ? when.LocalDateTime.ToString("d MMM yyyy")
+            : string.Empty;
+        return string.Join(
+            " · ",
+            new[] { author, date }.Where(s => !string.IsNullOrWhiteSpace(s)));
+    }
 
     // --- In-document links ----------------------------------------------------------------
 
