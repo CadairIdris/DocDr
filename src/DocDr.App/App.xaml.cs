@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 using DocDr.App.Services;
@@ -14,6 +15,17 @@ public partial class App : Application
     private MainViewModel? _mainViewModel;
 
     public ThemeService Theme { get; private set; } = null!;
+
+    public App()
+    {
+        DiagnosticsLog.Init();
+
+        // Last-resort nets. A pilot user on an unfamiliar work PDF will hit edge cases; without
+        // these the app just vanishes with nothing to send back.
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+    }
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -89,5 +101,52 @@ public partial class App : Application
     {
         _mainViewModel?.Dispose();
         base.OnExit(e);
+    }
+
+    private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        DiagnosticsLog.Exception("UI thread — unhandled", e.Exception);
+
+        MessageBoxResult keepGoing = MessageBox.Show(
+            "DocDr hit an unexpected error. It's been written to the log:\n\n" +
+            $"{DiagnosticsLog.LogFile}\n\n" +
+            "You can keep working, but save your open files soon. If it keeps happening, send the " +
+            "logs folder to whoever gave you DocDr.\n\nKeep DocDr open?",
+            "DocDr — unexpected error", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+        e.Handled = keepGoing == MessageBoxResult.Yes;
+        if (!e.Handled)
+        {
+            Shutdown(1);
+        }
+    }
+
+    private static void OnDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        DiagnosticsLog.Exception(
+            $"non-UI thread — unhandled (terminating={e.IsTerminating})", e.ExceptionObject as Exception ?? new Exception(e.ExceptionObject?.ToString()));
+
+        if (e.IsTerminating)
+        {
+            try
+            {
+                MessageBox.Show(
+                    "DocDr has to close because of an unexpected error. It's been written to:\n\n" +
+                    $"{DiagnosticsLog.LogFile}",
+                    "DocDr — fatal error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch
+            {
+                // nothing more we can do
+            }
+        }
+    }
+
+    private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        // Background task failures that nothing awaited — usually already surfaced elsewhere.
+        // Log them and mark observed so they don't escalate to a process kill.
+        DiagnosticsLog.Exception("background task — unobserved", e.Exception);
+        e.SetObserved();
     }
 }

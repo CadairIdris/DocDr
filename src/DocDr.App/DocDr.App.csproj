@@ -19,6 +19,21 @@
     <InternalsVisibleTo Include="DocDr.App.Tests" />
   </ItemGroup>
 
+  <!-- Give InformationalVersion a short "+<git sha>" suffix (→ "0.9.0+90cbc2e2f4"). The .NET SDK
+       already fills SourceRevisionId with the full 40-char hash when the build is inside a git
+       checkout; shorten it. If that detection is off (exported source), query git directly.
+       ContinueOnError so a no-git build still succeeds, just without the suffix. -->
+  <Target Name="ShortenGitSha" BeforeTargets="AddSourceRevisionToInformationalVersion">
+    <PropertyGroup Condition="$(SourceRevisionId.Length) &gt; 10">
+      <SourceRevisionId>$(SourceRevisionId.Substring(0, 10))</SourceRevisionId>
+    </PropertyGroup>
+    <Exec Condition="'$(SourceRevisionId)' == ''"
+          Command="git -C &quot;$(MSBuildProjectDirectory)&quot; rev-parse --short=10 HEAD"
+          ConsoleToMSBuild="true" ContinueOnError="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="SourceRevisionId" />
+    </Exec>
+  </Target>
+
   <ItemGroup>
     <Resource Include="Assets\DocDr.ico" />
     <Resource Include="Assets\DocDr.png" />

@@ -512,6 +512,19 @@ Set `DOCDR_BINDING_LOG=<path>` to have the app log WPF data-binding errors to th
 DataContext="{Binding RightPane}"`) resolves its *other* bindings against that new context —
 use `RelativeSource AncestorType=...` to reach the parent VM.
 
+## Diagnostics & versioning
+
+- **Version** is set once in `Directory.Build.props` (`<Version>`), repo-wide. `InformationalVersion`
+  gets a `+<short git sha>` suffix via the `ShortenGitSha` target in `DocDr.App.csproj` (the SDK
+  fills the full 40-char hash; the target trims it to 10). `DiagnosticsLog.Version` /
+  `.InformationalVersion` expose it; it shows in the window title, the home screen, and
+  **Help → About** (the version button at the right of the status bar → `MainViewModel.AboutCommand`).
+- **`DiagnosticsLog`** (`DocDr.App/Services`) is the only always-on log: `%APPDATA%\DocDr\logs\docdr-<date>.log`,
+  one session-start line + any unhandled exception. `App` wires `DispatcherUnhandledException`
+  (log → "keep open?" prompt → `e.Handled`), `AppDomain.UnhandledException` (log → dialog if
+  terminating) and `TaskScheduler.UnobservedTaskException` (log + `SetObserved`). Native PDFium
+  crashes still bypass all of this — a bad file can hard-kill the process.
+
 Gotcha: a modal `Window.ShowDialog()` raised **synchronously from a mouse-down / popup-click
 handler** opens without activating (invisible-ish, not in the UIAutomation tree). Post it with
 `Dispatcher.BeginInvoke(..., DispatcherPriority.Input)` so it runs after the input event

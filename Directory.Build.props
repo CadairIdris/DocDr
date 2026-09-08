@@ -8,4 +8,12 @@
     <AccelerateBuildsInVisualStudio>true</AccelerateBuildsInVisualStudio>
   </PropertyGroup>
 
+  <!-- One version for the whole repo. InformationalVersion picks up "+<git sha>" via the
+       SetGitSha target in DocDr.App.csproj, so a pilot build is pinnable from a bug report. -->
+  <PropertyGroup>
+    <Version>0.9.0</Version>
+    <Product>DocDr</Product>
+    <Company>DocDr</Company>
+  </PropertyGroup>
+
 </Project>

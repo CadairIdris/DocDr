@@ -80,7 +80,20 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public bool HasTabs => Tabs.Count > 0;
 
-    public string WindowTitle => SelectedTab is null ? "DocDr" : $"{SelectedTab.Title} — DocDr";
+    public string WindowTitle => SelectedTab is null
+        ? $"DocDr {DiagnosticsLog.Version}"
+        : $"{SelectedTab.Title} — DocDr {DiagnosticsLog.Version}";
+
+    /// <summary>Shown on the home screen and in the About box; carries the git SHA.</summary>
+    public string AppVersionLabel => $"version {DiagnosticsLog.InformationalVersion}";
+
+    [RelayCommand]
+    private static void About() => MessageBox.Show(
+        $"DocDr {DiagnosticsLog.InformationalVersion}\n\n" +
+        $".NET {System.Environment.Version} · {System.Runtime.InteropServices.RuntimeInformation.OSDescription}\n\n" +
+        $"Logs: {DiagnosticsLog.LogDirectory}\n\n" +
+        "Bundled open-source components (PDFium, Tesseract OCR, …) — see THIRD-PARTY-NOTICES.md.",
+        "About DocDr", MessageBoxButton.OK, MessageBoxImage.Information);
 
     // --- Read mode -------------------------------------------------------------------------
 

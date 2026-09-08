@@ -241,7 +241,14 @@
         <Border DockPanel.Dock="Bottom" Background="{DynamicResource ChromeBrush}"
                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
                 Visibility="{Binding IsReadMode, Converter={StaticResource InverseBoolToVisibility}}">
-            <TextBlock Margin="8,3" Text="{Binding StatusText}" />
+            <DockPanel LastChildFill="True">
+                <Button DockPanel.Dock="Right" Content="{Binding AppVersionLabel}" Margin="0,0,6,0" Padding="6,1"
+                        Background="Transparent" BorderThickness="0" Cursor="Hand"
+                        FontSize="11" Foreground="{DynamicResource HintTextBrush}"
+                        Command="{Binding AboutCommand}"
+                        AutomationProperties.Name="About DocDr" ToolTip="About DocDr" />
+                <TextBlock Margin="8,3" Text="{Binding StatusText}" />
+            </DockPanel>
         </Border>
 
         <Grid>
@@ -314,6 +321,8 @@
                     <TextBlock Text="Open a PDF to begin, or drop PDF files anywhere in this window."
                                HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
                                Foreground="{DynamicResource SecondaryTextBrush}" />
+                    <TextBlock Text="{Binding AppVersionLabel}" HorizontalAlignment="Center" Margin="0,4,0,0"
+                               FontSize="11" Foreground="{DynamicResource HintTextBrush}" />
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,14,0,0">
                         <Button Content="Open PDF…" Command="{Binding OpenCommand}" Padding="16,5" />
                         <Button Content="New document…" Command="{Binding NewDocumentCommand}" Padding="16,5"
