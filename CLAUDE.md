@@ -455,6 +455,28 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   / layout). Overlay = transparent `Button`s (so a click follows the link, not starts a
   selection — `PageList_MouseLeftButtonDown` already skips `ButtonBase`). `FollowLinkCommand`
   → `GoToPage`, or `Process.Start` for `http`/`https`/`mailto`.
+- **`PdfLinks.Read` also merges bare URLs** found by PDFium's text web-link detector
+  (`FPDFLinkLoadWebLinks` → `FPDFLinkCountWebLinks` / `GetURL` / `CountRects` / `GetRect`, inside
+  `PdfTextExtractor.WithTextPage`). One `PdfLink` per on-page rect; web links overlapping an
+  existing `/Link` are dropped; a page with no text layer is skipped (`PdfException` swallowed).
+
+## Extra PDFium bits
+
+- **Page labels** — `PdfDocument.GetPageLabel(i)` / `HasPageLabels` (`FPDF_GetPageLabel`, cached
+  like `_pageSizes`, cleared on structural edits; returns null when the label equals the
+  ordinal). App: `PageDisplay.Label(doc, i)` = label-or-ordinal, used by the pane `PageCountText`,
+  the Bookmarks / Clauses / Annotations nav rows (each takes a `Func<int,string>` /
+  `DocumentTabViewModel.PageLabelFor`), and `Citations` (page arg is now a `string`).
+- **Trim margins** — `PdfDocument.TrimMargins(pages, marginPt=6, progress, ct)` renders each page
+  (~120 DPI, `PageRenderer`), finds the non-white bbox, maps it back via
+  `PdfCoordinates.DeviceToPage`, and stores an absolute `PageRef.CropBox`. `Rebuild()` re-applies
+  crop after rotation (like `Rotation`); the first trim `Rebuild()`s so a source page's box is
+  never mutated (undo can't reverse `FPDFPage_SetCropBox` in place — an undo that changes any
+  crop rebuilds from source). Returns the count trimmed. App: toolbar "Trim margins" →
+  `DocumentTabViewModel.TrimMarginsCommand` (wait cursor, `Task.Run`, confirm > 40 pp).
+- **`PdfDocument.IsTagged`** (`FPDFCatalogIsTagged`) → the "Format" line in Document Properties.
+  Investigated `fpdf_structtree` for clause detection and shelved it (real "tagged" engineering
+  PDFs auto-tag everything `H1` or carry no heading elements) — see the spec.
 
 ## Testing
 

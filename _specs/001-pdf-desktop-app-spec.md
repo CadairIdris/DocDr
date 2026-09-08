@@ -46,6 +46,34 @@ than one large build.
 - **Future OCR engine**: Tesseract via a .NET wrapper, fed directly from PDFium-rendered
   page bitmaps.
 
+### PDFium capabilities in use (and deliberately not)
+
+**In use beyond the core viewer/editor:** text + per-character geometry, search with match
+flags, outline + link + destination resolution, page import / rebuild, `FPDF_SaveAsCopy` with
+security removal, incremental metadata / outline append, path-segment accessors
+(`FPDFPathCountSegments` / `FPDFPathGetPathSegment` / `FPDFPathSegmentGet*` — **confirmed present
+in PDFiumCore 4688 and used by `PdfTableExtractor`** for ruled-line / whitespace column
+detection, so the Stage 7 page-vector model is viable), CropBox read **and write**
+(`FPDFPageSetCropBox`, used by the *Trim margins* command), `FPDF_GetPageLabel` (printed page
+labels shown in the page box, nav rows and citations), the `fpdf_text` web-link detector (bare
+URLs in page text become clickable), `FPDFCatalogIsTagged` (a "Tagged" line in Properties).
+
+**Available but not adopted** (candidates, roughly by value):
+- Digital-signature *reading* (`fpdf_signature`) — signer / reason / time / coverage in
+  Properties and the catalog. Reading only; signing stays out of scope.
+- Embedded file attachments (`fpdf_attachment`) — list + extract.
+- Optional-content layers (`FPDFPageObj_Get/SetIsActive`) — a layers panel for drawings.
+- Embedded page thumbnails (`fpdf_thumbnail`), progressive rendering (`fpdf_progressive`),
+  `FPDF_RenderPageBitmapWithMatrix` (magnifier / hi-res region export), viewer preferences in
+  the print path (`FPDF_VIEWERREF_*`).
+- Document JavaScript enumeration (`fpdf_javascript`) — a safety line in Properties; never executed.
+- Tagged **structure-tree** heading extraction (`fpdf_structtree`) — investigated and shelved:
+  real "tagged" engineering PDFs either auto-tag every block as `H1` or carry no heading
+  elements, and `FPDFTextObjGetFontSize` returns the nominal (not effective) size. The
+  dotted-decimal heuristics remain the clause-detection path.
+- Forms (`fpdf_formfill`) — read-only field extraction could feed the catalog, but forms +
+  e-signing are explicitly out of scope.
+
 ### Cross-cutting technical constraints
 
 - **Rendering**: render pages into a `WriteableBitmap`, not `System.Drawing.Bitmap` →
@@ -276,8 +304,11 @@ text — plus a markups schedule that also serves document review generally.
   `FPDFPageObjGetType` == path / `FPDFPath*` segment accessors), transform each segment to
   page space through the object + page matrices, and index the resulting line segments in a
   spatial grid. Vector-only — a page with no path geometry (a scan) falls back to free
-  placement / whole-page compare, and the UI says so. Confirm the `FPDFPathGetPathSegment` /
-  `FPDFPathSegmentGetPoint` bindings exist in the chosen wrapper before relying on this.
+  placement / whole-page compare, and the UI says so. The `FPDFPathCountSegments` /
+  `FPDFPathGetPathSegment` / `FPDFPathSegmentGet{Point,Type,Close}` bindings are **confirmed
+  present in PDFiumCore 4688 and already used by `PdfTableExtractor`**, so this foundation is
+  viable; note that textbook-style PDFs whose page content is one Form XObject report zero page
+  objects — such pages fall back like a scan.
 - **2-point registration:** a small modal where the user clicks the same feature on two pages
   (this document's page, or an overlay document's page); DocDr solves the translation + uniform
   scale that maps one onto the other. Used by overlay and visual diff so mis-exported or

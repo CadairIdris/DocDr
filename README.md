@@ -59,6 +59,16 @@ A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
 - Generated bookmarks are written into the PDF on save, so other viewers see them too. Clause
   and figure cross-references are re-detected every time a document is opened — nothing to save.
 
+### Page handling
+
+- **Printed page labels** — a standard with roman front matter or prefixed appendix numbering
+  ("vii", "A-3") shows that label in the page box, the navigation panels and citations.
+- **Trim margins** (toolbar): crops every page to its visible content plus a small margin —
+  handy for scans and merged documents. One undo step; the crop is saved into the file.
+- **Bare URLs are clickable** — an `http`/`https`/`mailto` address printed as plain text opens
+  in your browser, even without a real link in the PDF.
+- Document Properties shows whether a PDF is tagged (accessible), encrypted, or re-labelled.
+
 ### Collage authoring
 
 - **New document…** (home screen / toolbar): a blank page at A4 / A3 / A2 / A1 or a custom mm
