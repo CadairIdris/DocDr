@@ -212,8 +212,15 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         }
 
         _deviceScale = scale;
+        ApplyLayout(); // re-snap page boxes to the new device-pixel grid
         RerenderRealized(clearQueue: true);
     }
+
+    /// <summary>Round a DIP length so it maps to a whole number of device pixels at the current
+    /// DPI. The page bitmap is rasterised at exactly <c>length * _deviceScale</c> pixels, so a
+    /// snapped box lets WPF blit it 1:1 with no resampling blur.</summary>
+    private double SnapToDevicePixels(double dip) =>
+        _deviceScale > 0 ? Math.Round(dip * _deviceScale) / _deviceScale : dip;
 
     /// <summary>The view reports its scroll viewport so Fit modes and the grid column count can be computed.</summary>
     public void SetViewport(double width, double height)
@@ -2802,8 +2809,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             double dipScale = PdfCoordinates.PointToDip * Zoom;
             foreach (PageSlotViewModel slot in Pages)
             {
-                slot.LayoutWidth = slot.SizePoints.Width * dipScale;
-                slot.LayoutHeight = slot.SizePoints.Height * dipScale;
+                slot.LayoutWidth = SnapToDevicePixels(slot.SizePoints.Width * dipScale);
+                slot.LayoutHeight = SnapToDevicePixels(slot.SizePoints.Height * dipScale);
             }
         }
 
@@ -2843,8 +2850,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
         foreach (PageSlotViewModel slot in Pages)
         {
-            slot.LayoutWidth = slot.SizePoints.Width * scale;
-            slot.LayoutHeight = slot.SizePoints.Height * scale;
+            slot.LayoutWidth = SnapToDevicePixels(slot.SizePoints.Width * scale);
+            slot.LayoutHeight = SnapToDevicePixels(slot.SizePoints.Height * scale);
         }
     }
 
@@ -2863,8 +2870,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             double aspect = slot.SizePoints.Width > 0
                 ? slot.SizePoints.Height / slot.SizePoints.Width
                 : 1.294;
-            slot.LayoutWidth = tile;
-            slot.LayoutHeight = tile * aspect;
+            slot.LayoutWidth = SnapToDevicePixels(tile);
+            slot.LayoutHeight = SnapToDevicePixels(tile * aspect);
         }
     }
 

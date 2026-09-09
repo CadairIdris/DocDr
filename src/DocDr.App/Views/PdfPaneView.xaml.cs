@@ -128,6 +128,16 @@ public partial class PdfPaneView : UserControl
         }
     }
 
+    /// <summary>Window dragged to a monitor with a different scale factor — re-push the device
+    /// scale so pages re-rasterise at the new native resolution instead of upscaling a stale
+    /// low-res bitmap.</summary>
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+        PushViewportMetrics();
+        RefreshVisibleRange();
+    }
+
     private void OnPanePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(PdfPaneViewModel.Mode))

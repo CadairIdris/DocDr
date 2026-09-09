@@ -90,11 +90,16 @@
         <!-- One rendered page: its bitmap plus any search-highlight overlay. -->
         <DataTemplate x:Key="PageSlotTemplate" DataType="{x:Type vm:PageSlotViewModel}">
             <Grid Width="{Binding LayoutWidth}" Height="{Binding LayoutHeight}"
-                  Margin="8" Background="{DynamicResource PaperBrush}" SnapsToDevicePixels="True">
-                <Grid.Effect>
-                    <DropShadowEffect BlurRadius="6" ShadowDepth="0" Opacity="0.3" />
-                </Grid.Effect>
-                <Image Source="{Binding Image}" Stretch="Fill" />
+                  Margin="8" SnapsToDevicePixels="True" UseLayoutRounding="True">
+                <!-- Drop shadow drawn by an empty sibling: an Effect on an ancestor of the page
+                     bitmap would force it through a resampled intermediate and soften every glyph. -->
+                <Border Background="{DynamicResource PaperBrush}">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="6" ShadowDepth="0" Opacity="0.3" />
+                    </Border.Effect>
+                </Border>
+                <Image Source="{Binding Image}" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="HighQuality" />
                 <ItemsControl ItemsSource="{Binding Highlights}" IsHitTestVisible="False">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
@@ -633,6 +638,7 @@
                  Background="{DynamicResource PageBackgroundBrush}"
                  BorderThickness="0"
                  HorizontalContentAlignment="Center"
+                 UseLayoutRounding="True"
                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                  ScrollViewer.CanContentScroll="True"

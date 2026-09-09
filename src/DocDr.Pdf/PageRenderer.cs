@@ -42,8 +42,11 @@ public sealed class PageRenderer : IPageRenderer
 {
     private const uint OpaqueWhite = 0xFFFFFFFFu;
 
-    private const PdfiumRenderFlags DefaultFlags =
-        PdfiumRenderFlags.Annotations | PdfiumRenderFlags.LcdText;
+    // Greyscale text anti-aliasing, not LCD subpixel. The App shows this bitmap through WPF,
+    // which resamples it whenever the page box isn't a pixel-exact match (zoom, fractional
+    // fit sizes, DPI). LCD subpixel edges only look right blitted 1:1 to the panel — resampled
+    // they smear into visible fuzz and colour fringing. Greyscale AA resamples cleanly.
+    private const PdfiumRenderFlags DefaultFlags = PdfiumRenderFlags.Annotations;
 
     public RenderedPage Render(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, CancellationToken cancellationToken = default)
     {
