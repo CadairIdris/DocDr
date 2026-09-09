@@ -17,6 +17,10 @@ public sealed class RenderRequest
     public required int PixelWidth { get; init; }
     public required int PixelHeight { get; init; }
 
+    /// <summary>Physical pixels per DIP the request was sized for. Baked into the rendered
+    /// <see cref="ImageSource"/>'s DPI so it blits 1:1 on a scaled display.</summary>
+    public double DeviceScale { get; init; } = 1.0;
+
     /// <summary>Invoked on the UI thread with the finished image (never on failure/cancellation).</summary>
     public required Action<int, int, ImageSource> OnRendered { get; init; }
 
@@ -99,7 +103,8 @@ public sealed class BackgroundRenderQueue : IDisposable, IRenderQueue
             try
             {
                 ImageSource image = _images.Render(
-                    request.Document, request.PageIndex, request.PixelWidth, request.PixelHeight, _shutdown.Token);
+                    request.Document, request.PageIndex, request.PixelWidth, request.PixelHeight, _shutdown.Token,
+                    request.DeviceScale);
 
                 RenderRequest captured = request;
                 _ = _dispatcher.BeginInvoke(() =>

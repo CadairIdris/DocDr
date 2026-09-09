@@ -2981,6 +2981,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             PageIndex = slot.PageIndex,
             PixelWidth = pixelWidth,
             PixelHeight = pixelHeight,
+            DeviceScale = _deviceScale,
             OnRendered = OnPageRendered,
         });
     }
