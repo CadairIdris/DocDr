@@ -33,8 +33,15 @@ public sealed class CachingPageRenderer : IPageRenderer
         _maxEntryBytes = Math.Max(1, _maxBytes / 3);
     }
 
-    public RenderedPage Render(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, CancellationToken cancellationToken = default)
+    public RenderedPage Render(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, CancellationToken cancellationToken = default, PageRenderRegion? region = null)
     {
+        // Viewport (detail) renders are keyed to a scroll position that changes constantly —
+        // caching them would just churn the LRU. Pass straight through.
+        if (region is not null)
+        {
+            return _inner.Render(document, pageIndex, pixelWidth, pixelHeight, cancellationToken, region);
+        }
+
         var key = new Key(document, pageIndex, pixelWidth, pixelHeight);
 
         lock (_gate)

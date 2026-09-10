@@ -128,6 +128,16 @@ public partial class PdfPaneView : UserControl
         }
     }
 
+    /// <summary>Window dragged to a monitor with a different scale factor — re-push the device
+    /// scale so pages re-rasterise at the new native resolution instead of upscaling a stale
+    /// low-res bitmap.</summary>
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+        PushViewportMetrics();
+        RefreshVisibleRange();
+    }
+
     private void OnPanePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(PdfPaneViewModel.Mode))
@@ -395,6 +405,59 @@ public partial class PdfPaneView : UserControl
         else
         {
             _pane.UpdateVisibleRange(_pane.CurrentPage - 1, _pane.CurrentPage - 1);
+        }
+
+        RefreshDetailRegions();
+    }
+
+    /// <summary>Tell the VM which slice of each on-screen page is actually visible, so a page
+    /// zoomed past the render cap gets that slice re-rendered crisp instead of upscaled.</summary>
+    private void RefreshDetailRegions()
+    {
+        if (_pane is null || _scrollViewer is null || _pane.Mode is ViewMode.Grid or ViewMode.TwoPage)
+        {
+            return;
+        }
+
+        double vw = _scrollViewer.ViewportWidth, vh = _scrollViewer.ViewportHeight;
+        if (vw <= 0 || vh <= 0)
+        {
+            return;
+        }
+
+        ItemContainerGenerator generator = PageList.ItemContainerGenerator;
+        foreach (object item in PageList.Items)
+        {
+            if (generator.ContainerFromItem(item) is not FrameworkElement { IsVisible: true } container
+                || FindDescendantSlot(container) is not { DataContext: PageSlotViewModel slot } grid
+                || grid.ActualWidth <= 0 || grid.ActualHeight <= 0)
+            {
+                continue;
+            }
+
+            Point tl;
+            try
+            {
+                tl = grid.TransformToVisual(_scrollViewer).Transform(new Point(0, 0));
+            }
+            catch (InvalidOperationException)
+            {
+                continue;
+            }
+
+            double visL = Math.Max(0, -tl.X);
+            double visT = Math.Max(0, -tl.Y);
+            double visR = Math.Min(grid.ActualWidth, vw - tl.X);
+            double visB = Math.Min(grid.ActualHeight, vh - tl.Y);
+
+            if (visR - visL > 1 && visB - visT > 1)
+            {
+                _pane.SetPageDetailRegion(slot.PageIndex, new Rect(visL, visT, visR - visL, visB - visT));
+            }
+            else
+            {
+                _pane.ClearPageDetailRegion(slot.PageIndex);
+            }
         }
     }
 

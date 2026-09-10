@@ -70,6 +70,65 @@ public sealed class PdfTableExtractorTests
     }
 
     [Fact]
+    public void Extract_uses_ruling_lines_to_split_a_sparse_narrow_first_column()
+    {
+        using var ws = new TempWorkspace();
+        // A one-letter "Category" column beside two wide prose columns — like EN 1991-1-1 Table 6.1.
+        // Whitespace voting alone folds the lone letters into the next column; the grid rules don't.
+        string[][] cells =
+        [
+            ["Cat", "Specific use", "Example"],
+            ["A", "domestic and residential activities", "houses; hospitals; hotels"],
+            ["B", "office areas", ""],
+            ["C", "areas where people congregate", "schools, cafes, restaurants, halls"],
+        ];
+        var runs = Grid([95, 132, 310], 600, 26, cells);
+        var rects = new List<TestPdfBuilder.Rect>
+        {
+            // four vertical rules (thin filled rects, as real code PDFs draw them) + a top/bottom rule
+            new(90, 490, 90.6, 612), new(126, 490, 126.6, 612),
+            new(300, 490, 300.6, 612), new(470, 490, 470.6, 612),
+            new(90, 611.4, 470, 612), new(90, 490, 470, 490.6),
+        };
+        string path = TestPdfBuilder.WriteRuns(ws.Path("ruled.pdf"), runs, rects);
+        using var doc = PdfDocument.Load(path);
+
+        TableGrid grid = PdfTableExtractor.Extract(doc, 0, new PdfRect(85, 616, 480, 486));
+
+        Assert.Equal(3, grid.ColumnCount);
+        Assert.Equal("A", grid.Cell(1, 0));
+        Assert.Equal("domestic and residential activities", grid.Cell(1, 1));
+        Assert.Equal("schools, cafes, restaurants, halls", grid.Cell(3, 2));
+    }
+
+    [Fact]
+    public void Extract_drops_a_margin_watermark_a_loose_selection_caught()
+    {
+        using var ws = new TempWorkspace();
+        var runs = Grid([120, 220, 300], 600, 26,
+        [
+            ["Class", "C20", "C30"],
+            ["fck", "20", "30"],
+            ["fctm", "2.2", "2.9"],
+        ]);
+        // stray single characters up the left margin, clear of the table rows (y = 600/574/548)
+        foreach (double y in new[] { 509.0, 522, 535, 561, 587, 613, 626 })
+        {
+            runs.Add(new TestPdfBuilder.Run("X", 24, y));
+        }
+
+        string path = TestPdfBuilder.WriteRuns(ws.Path("margin.pdf"), runs);
+        using var doc = PdfDocument.Load(path);
+
+        // selection sloppily reaches into the left margin
+        TableGrid grid = PdfTableExtractor.Extract(doc, 0, new PdfRect(12, 616, 340, 500));
+
+        Assert.Equal(3, grid.ColumnCount);
+        Assert.Equal(["Class", "C20", "C30"], grid.Rows[0]);
+        Assert.DoesNotContain("X", grid.Rows.SelectMany(r => r));
+    }
+
+    [Fact]
     public void ToCsv_quotes_fields_that_need_it()
     {
         var grid = new TableGrid([["plain", "has, comma"], ["has \"quote\"", "x"]]);

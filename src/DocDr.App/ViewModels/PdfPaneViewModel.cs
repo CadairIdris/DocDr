@@ -43,6 +43,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     private bool _suppressScrollSync;
     private bool _deferRerender;
     private DispatcherTimer? _rerenderTimer;
+    private DispatcherTimer? _detailTimer;
+    private readonly Dictionary<int, System.Windows.Rect> _detailRegions = [];
 
     public PdfPaneViewModel(string title, PdfDocument document, IReadOnlyList<PdfSize> pageSizes, IRenderQueue queue)
     {
@@ -114,6 +116,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         _linkCache.Clear();
         _crossRefCache.Clear();
         ClearTextSelection();
+        _detailTimer?.Stop();
+        _detailRegions.Clear();
 
         Pages.Clear();
         for (int i = 0; i < pageSizes.Count; i++)
@@ -212,8 +216,27 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         }
 
         _deviceScale = scale;
+        ClearAllDetail();
+        ApplyLayout(); // re-snap page boxes to the new device-pixel grid
         RerenderRealized(clearQueue: true);
     }
+
+    private void ClearAllDetail()
+    {
+        _detailTimer?.Stop();
+        _detailRegions.Clear();
+        foreach (PageSlotViewModel slot in Pages)
+        {
+            slot.DetailImage = null;
+            slot.DetailRequestKey = default;
+        }
+    }
+
+    /// <summary>Round a DIP length so it maps to a whole number of device pixels at the current
+    /// DPI. The page bitmap is rasterised at exactly <c>length * _deviceScale</c> pixels, so a
+    /// snapped box lets WPF blit it 1:1 with no resampling blur.</summary>
+    private double SnapToDevicePixels(double dip) =>
+        _deviceScale > 0 ? Math.Round(dip * _deviceScale) / _deviceScale : dip;
 
     /// <summary>The view reports its scroll viewport so Fit modes and the grid column count can be computed.</summary>
     public void SetViewport(double width, double height)
@@ -283,6 +306,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             {
                 Pages[i].Image = null;
                 Pages[i].RenderedPixelWidth = 0;
+            }
+
+            if (!visible && Pages[i].DetailImage is not null)
+            {
+                ClearPageDetailRegion(i);
             }
         }
 
@@ -494,6 +522,10 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
     partial void OnZoomChanged(double value)
     {
+        // Detail tiles are pinned to the old zoom's pixel grid — drop them; the view re-reports
+        // visible regions once layout settles.
+        ClearAllDetail();
+
         if (Mode == ViewMode.Grid)
         {
             RebuildGrid();
@@ -2802,8 +2834,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             double dipScale = PdfCoordinates.PointToDip * Zoom;
             foreach (PageSlotViewModel slot in Pages)
             {
-                slot.LayoutWidth = slot.SizePoints.Width * dipScale;
-                slot.LayoutHeight = slot.SizePoints.Height * dipScale;
+                slot.LayoutWidth = SnapToDevicePixels(slot.SizePoints.Width * dipScale);
+                slot.LayoutHeight = SnapToDevicePixels(slot.SizePoints.Height * dipScale);
             }
         }
 
@@ -2843,8 +2875,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
         foreach (PageSlotViewModel slot in Pages)
         {
-            slot.LayoutWidth = slot.SizePoints.Width * scale;
-            slot.LayoutHeight = slot.SizePoints.Height * scale;
+            slot.LayoutWidth = SnapToDevicePixels(slot.SizePoints.Width * scale);
+            slot.LayoutHeight = SnapToDevicePixels(slot.SizePoints.Height * scale);
         }
     }
 
@@ -2863,8 +2895,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             double aspect = slot.SizePoints.Width > 0
                 ? slot.SizePoints.Height / slot.SizePoints.Width
                 : 1.294;
-            slot.LayoutWidth = tile;
-            slot.LayoutHeight = tile * aspect;
+            slot.LayoutWidth = SnapToDevicePixels(tile);
+            slot.LayoutHeight = SnapToDevicePixels(tile * aspect);
         }
     }
 
@@ -2974,6 +3006,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             PageIndex = slot.PageIndex,
             PixelWidth = pixelWidth,
             PixelHeight = pixelHeight,
+            DeviceScale = _deviceScale,
             OnRendered = OnPageRendered,
         });
     }
@@ -2995,11 +3028,142 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         slot.Image = image;
     }
 
+    // --- Viewport (detail) render --------------------------------------------------------------
+    // Past MaxRenderEdge the full-page bitmap is downscaled then blown back up by WPF -> blur.
+    // So the view reports which slice of each on-screen page is actually visible, and we render
+    // just that slice at native resolution and lay it over the soft base image.
+
+    /// <summary>The view reports the visible slice of a page (page-local DIP). Ignored unless the
+    /// page is zoomed past the render cap.</summary>
+    public void SetPageDetailRegion(int pageIndex, System.Windows.Rect regionDip)
+    {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return;
+        }
+
+        if (!NeedsDetailRender(Pages[pageIndex]))
+        {
+            ClearPageDetailRegion(pageIndex);
+            return;
+        }
+
+        _detailRegions[pageIndex] = regionDip;
+        _detailTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(110) };
+        _detailTimer.Tick -= OnDetailTimerTick;
+        _detailTimer.Tick += OnDetailTimerTick;
+        _detailTimer.Stop();
+        _detailTimer.Start();
+    }
+
+    /// <summary>The page is off-screen or no longer zoomed past the cap — drop its detail tile.</summary>
+    public void ClearPageDetailRegion(int pageIndex)
+    {
+        _detailRegions.Remove(pageIndex);
+        if (pageIndex >= 0 && pageIndex < Pages.Count)
+        {
+            Pages[pageIndex].DetailImage = null;
+            Pages[pageIndex].DetailRequestKey = default;
+        }
+    }
+
+    private bool NeedsDetailRender(PageSlotViewModel slot) =>
+        Math.Max(slot.LayoutWidth, slot.LayoutHeight) * _deviceScale > MaxRenderEdge + 0.5;
+
+    private void OnDetailTimerTick(object? sender, EventArgs e)
+    {
+        _detailTimer!.Stop();
+        foreach ((int pageIndex, System.Windows.Rect region) in _detailRegions.ToList())
+        {
+            if (pageIndex >= 0 && pageIndex < Pages.Count)
+            {
+                RequestDetailRender(Pages[pageIndex], region);
+            }
+        }
+    }
+
+    private void RequestDetailRender(PageSlotViewModel slot, System.Windows.Rect regionDip)
+    {
+        if (!NeedsDetailRender(slot))
+        {
+            slot.DetailImage = null;
+            return;
+        }
+
+        double ds = _deviceScale;
+        int fullW = (int)Math.Round(slot.LayoutWidth * ds);
+        int fullH = (int)Math.Round(slot.LayoutHeight * ds);
+
+        // Pad the visible rect so a small scroll doesn't immediately expose the soft base layer.
+        const double padDip = 120;
+        double x0 = Math.Clamp(regionDip.X - padDip, 0, slot.LayoutWidth);
+        double y0 = Math.Clamp(regionDip.Y - padDip, 0, slot.LayoutHeight);
+        double x1 = Math.Clamp(regionDip.Right + padDip, 0, slot.LayoutWidth);
+        double y1 = Math.Clamp(regionDip.Bottom + padDip, 0, slot.LayoutHeight);
+        if (x1 - x0 < 1 || y1 - y0 < 1)
+        {
+            slot.DetailImage = null;
+            return;
+        }
+
+        int offX = (int)Math.Round(x0 * ds);
+        int offY = (int)Math.Round(y0 * ds);
+        (int tileW, int tileH) = CapToMaxEdge((x1 - x0) * ds, (y1 - y0) * ds, MaxRenderEdge);
+        if (tileW < 1 || tileH < 1)
+        {
+            return;
+        }
+
+        var key = (offX, offY, tileW, tileH, fullW, fullH);
+        if (slot.DetailImage is not null && slot.DetailRequestKey == key)
+        {
+            return;
+        }
+
+        slot.DetailRequestKey = key;
+        int pageIndex = slot.PageIndex;
+        double placeLeft = offX / ds, placeTop = offY / ds, placeW = tileW / ds, placeH = tileH / ds;
+
+        _queue.Enqueue(new RenderRequest
+        {
+            Owner = this,
+            Document = _document,
+            PageIndex = pageIndex,
+            PixelWidth = tileW,
+            PixelHeight = tileH,
+            DeviceScale = ds,
+            Region = new PageRenderRegion(fullW, fullH, offX, offY),
+            OnRendered = (_, _, image) => OnDetailRendered(pageIndex, key, placeLeft, placeTop, placeW, placeH, image),
+        });
+    }
+
+    private void OnDetailRendered(
+        int pageIndex, (int, int, int, int, int, int) key,
+        double left, double top, double width, double height, ImageSource image)
+    {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return;
+        }
+
+        PageSlotViewModel slot = Pages[pageIndex];
+        if (slot.DetailRequestKey != key || !NeedsDetailRender(slot))
+        {
+            return; // superseded by a later scroll/zoom
+        }
+
+        slot.DetailLeft = left;
+        slot.DetailTop = top;
+        slot.DetailWidth = width;
+        slot.DetailHeight = height;
+        slot.DetailImage = image;
+    }
+
     // A page is never rasterised larger than this on its long edge. Beyond it the buffer
     // (long*short*4 bytes) gets big enough to risk its allocation at extreme zoom (the worker
     // catches that and skips the page). WPF upscales the capped bitmap into the (larger) layout
-    // box, so text goes soft past ~2x zoom on a 150% display; the render cache bypasses entries
-    // this large so one doesn't evict the whole cache.
+    // box past this point, so the visible slice is re-rendered crisp via SetPageDetailRegion;
+    // the render cache bypasses entries this large so one doesn't evict the whole cache.
     private const int MaxRenderEdge = 4800;
 
     // Renders are produced at the slot's on-screen size (zoom, grid tiling and DPI already folded
@@ -3029,6 +3193,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     public void Dispose()
     {
         _rerenderTimer?.Stop();
+        _detailTimer?.Stop();
         _searchCts?.Cancel();
         _searchCts?.Dispose();
     }

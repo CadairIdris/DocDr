@@ -145,6 +145,7 @@ public sealed partial class ThumbnailStripViewModel : ObservableObject
                 PageIndex = thumb.PageIndex,
                 PixelWidth = pixelWidth,
                 PixelHeight = pixelHeight,
+                DeviceScale = _deviceScale,
                 OnRendered = OnThumbnailRendered,
             });
         }

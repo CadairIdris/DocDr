@@ -91,7 +91,7 @@ public sealed class CachingPageRendererTests
     /// can drive the cache's byte/entry accounting without depending on real raster output.</summary>
     private sealed class FixedRenderer(int bytesPerPage) : IPageRenderer
     {
-        public RenderedPage Render(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, CancellationToken cancellationToken = default) =>
+        public RenderedPage Render(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, CancellationToken cancellationToken = default, PageRenderRegion? region = null) =>
             new(pageIndex, pixelWidth, pixelHeight, pixelWidth * 4, new byte[bytesPerPage]);
     }
 }

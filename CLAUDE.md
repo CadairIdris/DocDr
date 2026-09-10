@@ -335,16 +335,28 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   working set on a long standard. Keyed by `(document, page, w, h)`; `Purge(doc)` on tab close.
   A single render bigger than a third of the budget (a page at extreme zoom) **bypasses the
   cache** — caching it would evict a run of reusable normal pages; the slot still holds it.
-- `MaxRenderEdge` is **4800** (was 4096): crisp to ~2× zoom on a 150 % display before WPF
-  upscales the capped bitmap. Extreme zoom is still soft — a tiled render would fix that.
+- `MaxRenderEdge` is **4800**: the long-edge cap on a full-page bitmap. Reading zoom renders
+  1:1 (`PageImageService` bakes `96 × deviceScale` DPI into the `BitmapSource` so its DIP size
+  equals the on-screen box — no WPF resample); `PageRenderer` uses greyscale AA, not `LcdText`,
+  since the bitmap gets resampled during a zoom gesture.
+- **Past the cap the visible slice is re-rendered crisp (viewport render).** `PdfPaneView.
+  RefreshDetailRegions` (every scroll / visible-range refresh) reports each on-screen page's
+  visible rect in page-local DIP → `PdfPaneViewModel.SetPageDetailRegion` (debounced 110 ms,
+  skipped unless `NeedsDetailRender` — long edge > `MaxRenderEdge`). `RequestDetailRender` pads
+  the rect, enqueues a `RenderRequest` with a **`PageRenderRegion`** (full-page px size +
+  up-left offset); `PageRenderer` draws the whole page at full size shifted so only that slice
+  lands in the buffer (`FPDF_RenderPageBitmap` with negative `start_x/y`). Result → `PageSlot
+  ViewModel.DetailImage` + `DetailLeft/Top/Width/Height`, laid over the soft base `Image` in a
+  `Canvas`. `CachingPageRenderer` passes region renders straight through (scroll-transient, no
+  point caching). Cleared on zoom / device-scale / reload / page leaving the visible range
+  (`ClearAllDetail` / `ClearPageDetailRegion`). Continuous + SinglePage only, not Grid/TwoPage.
 - **Text I-beam on hover:** `PdfPaneView.UpdateHoverCursor` (from `PageList_MouseMove` when no
   button is down) hit-tests `PdfPaneViewModel.IsOverText` (the page's char boxes) and sets
   `PageList.Cursor = IBeam`, or `ClearValue` so the style's tool-cursor triggers win. The
   char-box cache (`_charBoxCache` + `_charBoxOrder`) is an 8-page LRU so hover doesn't retain
   every page the pointer crosses.
-- `PdfPaneViewModel.MaxRenderEdge` (4096) caps a page bitmap's long side; WPF upscales it into
-  the (larger) layout box, so only very high zoom goes soft. `CappedRenderSize` is used for both
-  the enqueue size and the `OnPageRendered` stale check, so they agree.
+- `CappedRenderSize` is used for both the enqueue size and the `OnPageRendered` stale check, so
+  they agree.
 - **Visible-range detection reads WPF's realised containers only — there is no parallel height
   model.** `PdfPaneView.VisiblePageRange()` walks `PageList.Items` → `ContainerFromItem` → the
   containers that actually intersect the viewport (`TransformToVisual(scrollViewer)` + `ActualHeight`),
@@ -413,7 +425,15 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   else y-cluster the char boxes. Columns: vertical rules else the whitespace channels — a data
   row "votes" for a gap at x only when no run straddles x *and* it has a cell further right
   (ignores the ragged right edge; caption / note / spanning-header rows with one very wide run
-  are dropped). `TrimEmptyEdges` cleans margin rows/cols. App: `DocumentTabViewModel.TableSelectActive`
+  are dropped). **Ruling lines** are detected from both stroked lines and the thin *filled*
+  rectangles real code PDFs use for grids: `FPDF_SEGMENT_LINETO` is **0** (not 1 — the constants
+  are LINETO 0 / BEZIERTO 1 / MOVETO 2), and an edge longer than the selection is a page
+  border, not a rule. Column bands are sorted L→R (`Bands` returns them descending). Robustness
+  against a loose marquee: rotated glyphs (`FPDFText_GetCharAngle` via `GetCharBoxesWithAngle`,
+  the "uncontrolled copy" margin strip) are dropped; whitespace column search is clamped to the
+  x-span the data rows actually cover; a char more than ~1.5 row-heights / ~3 char-heights
+  outside every band is dropped rather than snapped (`IndexOfBand` slop). `TrimEmptyEdges` cleans
+  margin rows/cols. App: `DocumentTabViewModel.TableSelectActive`
   (mirrored to panes, mutually exclusive with the other tools), toolbar "Extract table" toggle;
   `PdfPaneView` drags a marquee (`BeginTableSelect`/`ExtendTableSelect`/`EndTableSelect`, reuses
   `PageSlotViewModel.ShapePreview`), `TableRegionSelected` → `TableExtractWindow` (a `DataView`
