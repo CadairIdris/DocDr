@@ -54,3 +54,6 @@ slice of the page at exact device resolution and position it; re-render on
 scroll / zoom-settle. Also removes the extreme-zoom OOM risk.
 
 
+##  Open other files to pdf
+
+dxf drawings
