@@ -47,6 +47,31 @@ public static class PdfTextExtractor
         }));
     }
 
+    /// <summary>Per-character boxes plus each glyph's rotation (radians, ≥ 0; -1 if PDFium can't
+    /// say). Table extraction uses the angle to ignore the rotated "uncontrolled copy" strip that
+    /// runs up the page margin, which a loose table selection would otherwise pull in.</summary>
+    internal static IReadOnlyList<(PdfCharBox Box, double Angle)> GetCharBoxesWithAngle(PdfDocument document, int pageIndex)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        document.ValidatePageIndex(pageIndex);
+
+        return document.Locked(() => WithTextPage(document, pageIndex, textPage =>
+        {
+            int count = fpdf_text.FPDFTextCountChars(textPage);
+            var boxes = new List<(PdfCharBox, double)>(Math.Max(0, count));
+            for (int i = 0; i < count; i++)
+            {
+                double left = 0, right = 0, bottom = 0, top = 0;
+                fpdf_text.FPDFTextGetCharBox(textPage, i, ref left, ref right, ref bottom, ref top);
+                uint unicode = fpdf_text.FPDFTextGetUnicode(textPage, i);
+                double angle = fpdf_text.FPDFTextGetCharAngle(textPage, i);
+                boxes.Add((new PdfCharBox(i, CodePointToString(unicode), new PdfRect(left, top, right, bottom)), angle));
+            }
+
+            return (IReadOnlyList<(PdfCharBox, double)>)boxes;
+        }));
+    }
+
     internal static T WithTextPage<T>(PdfDocument document, int pageIndex, Func<FpdfTextpageT, T> work)
     {
         FpdfPageT? page = fpdfview.FPDF_LoadPage(document.Handle, pageIndex);

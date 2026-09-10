@@ -425,7 +425,15 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   else y-cluster the char boxes. Columns: vertical rules else the whitespace channels — a data
   row "votes" for a gap at x only when no run straddles x *and* it has a cell further right
   (ignores the ragged right edge; caption / note / spanning-header rows with one very wide run
-  are dropped). `TrimEmptyEdges` cleans margin rows/cols. App: `DocumentTabViewModel.TableSelectActive`
+  are dropped). **Ruling lines** are detected from both stroked lines and the thin *filled*
+  rectangles real code PDFs use for grids: `FPDF_SEGMENT_LINETO` is **0** (not 1 — the constants
+  are LINETO 0 / BEZIERTO 1 / MOVETO 2), and an edge longer than the selection is a page
+  border, not a rule. Column bands are sorted L→R (`Bands` returns them descending). Robustness
+  against a loose marquee: rotated glyphs (`FPDFText_GetCharAngle` via `GetCharBoxesWithAngle`,
+  the "uncontrolled copy" margin strip) are dropped; whitespace column search is clamped to the
+  x-span the data rows actually cover; a char more than ~1.5 row-heights / ~3 char-heights
+  outside every band is dropped rather than snapped (`IndexOfBand` slop). `TrimEmptyEdges` cleans
+  margin rows/cols. App: `DocumentTabViewModel.TableSelectActive`
   (mirrored to panes, mutually exclusive with the other tools), toolbar "Extract table" toggle;
   `PdfPaneView` drags a marquee (`BeginTableSelect`/`ExtendTableSelect`/`EndTableSelect`, reuses
   `PageSlotViewModel.ShapePreview`), `TableRegionSelected` → `TableExtractWindow` (a `DataView`

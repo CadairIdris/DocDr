@@ -86,6 +86,7 @@ public sealed record TableExtractOptions
 public static class PdfTableExtractor
 {
     private const int PageObjPath = 2;
+    private const int SegmentLineTo = 0; // PDFium FPDF_SEGMENT_LINETO
 
     public static TableGrid Extract(
         PdfDocument document, int pageIndex, PdfRect region, TableExtractOptions? options = null)
@@ -100,8 +101,10 @@ public static class PdfTableExtractor
             return new TableGrid([]);
         }
 
-        IReadOnlyList<PdfCharBox> allChars = PdfTextExtractor.GetCharBoxes(document, pageIndex);
-        var chars = allChars
+        var chars = PdfTextExtractor.GetCharBoxesWithAngle(document, pageIndex)
+            // Keep upright (and, defensively, unknown-angle) glyphs; drop rotated margin text.
+            .Where(c => c.Angle < 0 || Math.Abs(Math.Sin(c.Angle)) < 0.35)
+            .Select(c => c.Box)
             .Where(c => c.Text.Length > 0 && Intersects(c.Box, area))
             .ToList();
         if (chars.Count == 0)
@@ -128,7 +131,7 @@ public static class PdfTableExtractor
         }
 
         IReadOnlyList<(double Left, double Right)> columns = vLines.Count >= 3
-            ? Bands(vLines).Select(b => (Left: b.Lo, Right: b.Hi)).ToList()
+            ? Bands(vLines).Select(b => (Left: b.Lo, Right: b.Hi)).OrderBy(c => c.Left).ToList()
             : ColumnsFromWhitespace(chars, rows, area, medianHeight, options.MinColumnGap);
         if (columns.Count == 0)
         {
@@ -141,12 +144,18 @@ public static class PdfTableExtractor
             cells.Add(Enumerable.Range(0, columns.Count).Select(_ => new StringBuilder()).ToList());
         }
 
+        // A char that sits well outside every row/column band isn't in the table — most often
+        // the rotated "uncontrolled copy" strip up the page margin that a loose selection grabs,
+        // or a footnote just past the last rule. Snapping it to the nearest cell invents columns.
+        double rowSlop = medianHeight * 1.5;
+        double colSlop = medianHeight * 3;
+
         foreach (PdfCharBox ch in chars.OrderBy(c => c.Index))
         {
             double cy = (ch.Box.Top + ch.Box.Bottom) / 2;
             double cx = (ch.Box.Left + ch.Box.Right) / 2;
-            int row = IndexOfBand(rows, cy, static b => (b.Top, b.Bottom));
-            int col = IndexOfBand(columns, cx, static b => (b.Right, b.Left));
+            int row = IndexOfBand(rows, cy, static b => (b.Top, b.Bottom), rowSlop);
+            int col = IndexOfBand(columns, cx, static b => (b.Right, b.Left), colSlop);
             if (row >= 0 && col >= 0)
             {
                 cells[row][col].Append(ch.Text);
@@ -225,7 +234,7 @@ public static class PdfTableExtractor
             }
 
             double cy = (ch.Box.Top + ch.Box.Bottom) / 2;
-            int row = IndexOfBand(rows, cy, static b => (b.Top, b.Bottom));
+            int row = IndexOfBand(rows, cy, static b => (b.Top, b.Bottom), medianHeight * 1.5);
             if (row >= 0)
             {
                 perRow[row].Add((ch.Box.Left, ch.Box.Right));
@@ -273,15 +282,22 @@ public static class PdfTableExtractor
             return [(area.Left, area.Right)];
         }
 
-        int samples = Math.Max(80, (int)(area.Width / Math.Max(1, medianHeight * 0.2)));
-        double step = area.Width / samples;
+        // Work within the x-span the data rows actually cover, not the whole selection. A loose
+        // marquee that catches the page-margin "uncontrolled copy" strip would otherwise turn that
+        // strip into a spurious first column.
+        double spanLeft = Math.Max(area.Left, dataRows.Min(rr => rr.Min(s => s.L)) - medianHeight);
+        double spanRight = Math.Min(area.Right, dataRows.Max(rr => rr.Max(s => s.R)) + medianHeight);
+        double spanWidth = Math.Max(1, spanRight - spanLeft);
+
+        int samples = Math.Max(80, (int)(spanWidth / Math.Max(1, medianHeight * 0.2)));
+        double step = spanWidth / samples;
         int required = (int)Math.Ceiling(dataRows.Count * 0.6);
 
-        var boundaries = new List<double> { area.Left, area.Right };
+        var boundaries = new List<double> { spanLeft, spanRight };
         int runFrom = -1;
         for (int i = 0; i <= samples; i++)
         {
-            double x = area.Left + (i * step);
+            double x = spanLeft + (i * step);
             // A row votes for a column gap at x only when x sits between two of its cells — no run
             // straddles x and there is still a cell to the right. That ignores the ragged right
             // edge (a short cell overhanging a wide header) which would otherwise split a column.
@@ -319,9 +335,9 @@ public static class PdfTableExtractor
 
         void TryBoundary(int from, int to)
         {
-            double left = area.Left + (from * step);
-            double right = area.Left + (to * step);
-            bool touchesEdge = left <= area.Left + 0.5 || right >= area.Right - 0.5;
+            double left = spanLeft + (from * step);
+            double right = spanLeft + (to * step);
+            bool touchesEdge = left <= spanLeft + 0.5 || right >= spanRight - 0.5;
 
             // A gap in the middle just needs to be a hair wide; one at the edge must be a real
             // (empty) first / last column, so require it to be clearly wider than a margin.
@@ -330,8 +346,8 @@ public static class PdfTableExtractor
                 return;
             }
 
-            boundaries.Add(touchesEdge && left <= area.Left + 0.5 ? right : (left + right) / 2);
-            if (touchesEdge && right >= area.Right - 0.5)
+            boundaries.Add(touchesEdge && left <= spanLeft + 0.5 ? right : (left + right) / 2);
+            if (touchesEdge && right >= spanRight - 0.5)
             {
                 boundaries[^1] = left;
             }
@@ -397,22 +413,30 @@ public static class PdfTableExtractor
                         fpdf_edit.FPDFPathSegmentGetPoint(seg, ref sx, ref sy);
                         double x = (ma * sx) + (mc * sy) + me;
                         double y = (mb * sx) + (md * sy) + mf;
-                        int type = fpdf_edit.FPDFPathSegmentGetType(seg); // 1 line, 2 bezier, 3 move
+                        // PDFium FPDF_SEGMENT_*: LINETO = 0, BEZIERTO = 1, MOVETO = 2.
+                        int type = fpdf_edit.FPDFPathSegmentGetType(seg);
 
-                        if (type == 1 && have)
+                        // A straight edge — either a stroked line or one side of a thin filled
+                        // rectangle (how this family of PDFs draws its table rules).
+                        if (type == SegmentLineTo && have)
                         {
                             double dx = Math.Abs(x - px), dy = Math.Abs(y - py);
-                            if (dy <= 1.5 && dx >= 6 && WithinBand(area.Bottom - 3, area.Top + 3, (y + py) / 2))
+                            // A rule spans (part of) the table; an edge longer than the region is a
+                            // page border / background frame, not a cell divider.
+                            if (dy <= 1.5 && dx >= 6 && dx <= area.Width + 12
+                                && WithinBand(area.Bottom - 3, area.Top + 3, (y + py) / 2))
                             {
                                 horizontal.Add((y + py) / 2);
                             }
-                            else if (dx <= 1.5 && dy >= 6 && WithinBand(area.Left - 3, area.Right + 3, (x + px) / 2))
+                            else if (dx <= 1.5 && dy >= 6 && dy <= area.Height + 12
+                                     && WithinBand(area.Left - 3, area.Right + 3, (x + px) / 2))
                             {
                                 vertical.Add((x + px) / 2);
                             }
                         }
 
-                        (px, py, have) = (x, y, type != 2);
+                        // After any segment there is a current point to draw the next edge from.
+                        (px, py, have) = (x, y, true);
                     }
                 }
 
@@ -458,7 +482,10 @@ public static class PdfTableExtractor
 
     // --- Helpers -------------------------------------------------------------------------
 
-    private static int IndexOfBand<T>(IReadOnlyList<T> bands, double value, Func<T, (double Hi, double Lo)> range)
+    /// <summary>Index of the band containing <paramref name="value"/>, else the nearest band if it
+    /// is within <paramref name="maxSlop"/>, else -1 (the value is outside the table).</summary>
+    private static int IndexOfBand<T>(
+        IReadOnlyList<T> bands, double value, Func<T, (double Hi, double Lo)> range, double maxSlop)
     {
         int best = -1;
         double bestDist = double.MaxValue;
@@ -478,8 +505,7 @@ public static class PdfTableExtractor
             }
         }
 
-        // Snap to the nearest band only if it is close (within a band height); else drop.
-        return best;
+        return bestDist <= maxSlop ? best : -1;
     }
 
     private static List<List<string>> TrimEmptyEdges(List<List<string>> grid)

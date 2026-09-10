@@ -193,8 +193,15 @@ public static class TestPdfBuilder
     /// <summary>A run of text placed at an absolute page position (points, bottom-left origin).</summary>
     public sealed record Run(string Text, double X, double Y, double Size = 9);
 
+    /// <summary>A filled rectangle (points, bottom-left origin) — table tests use thin ones as
+    /// ruling lines, matching how real code PDFs draw their grids.</summary>
+    public sealed record Rect(double X0, double Y0, double X1, double Y1);
+
     /// <summary>Write a one-page PDF with each run drawn at its exact position — for table tests.</summary>
-    public static string WriteRuns(string path, IReadOnlyList<Run> runs)
+    public static string WriteRuns(string path, IReadOnlyList<Run> runs) => WriteRuns(path, runs, []);
+
+    /// <summary>Write a one-page PDF with text runs plus filled rectangles (table ruling lines).</summary>
+    public static string WriteRuns(string path, IReadOnlyList<Run> runs, IReadOnlyList<Rect> rects)
     {
         var buffer = new MemoryStream();
         var offsets = new List<long> { 0 };
@@ -219,6 +226,12 @@ public static class TestPdfBuilder
               "/Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>\nendobj\n");
 
         var stream = new StringBuilder();
+        foreach (Rect box in rects)
+        {
+            stream.Append(CultureInfo.InvariantCulture,
+                $"{F(box.X0)} {F(box.Y0)} {F(box.X1 - box.X0)} {F(box.Y1 - box.Y0)} re f\n");
+        }
+
         foreach (Run run in runs)
         {
             stream.Append(CultureInfo.InvariantCulture,
