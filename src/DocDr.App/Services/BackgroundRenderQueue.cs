@@ -21,13 +21,17 @@ public sealed class RenderRequest
     /// <see cref="ImageSource"/>'s DPI so it blits 1:1 on a scaled display.</summary>
     public double DeviceScale { get; init; } = 1.0;
 
+    /// <summary>Set for a viewport (detail) render — only this slice of a heavily-zoomed page is
+    /// rasterised, at native resolution. Null for a normal full-page render.</summary>
+    public PageRenderRegion? Region { get; init; }
+
     /// <summary>Invoked on the UI thread with the finished image (never on failure/cancellation).</summary>
     public required Action<int, int, ImageSource> OnRendered { get; init; }
 
-    internal RenderKey Key => new(Owner, PageIndex, PixelWidth, PixelHeight);
+    internal RenderKey Key => new(Owner, PageIndex, PixelWidth, PixelHeight, Region);
 }
 
-internal readonly record struct RenderKey(object Owner, int PageIndex, int PixelWidth, int PixelHeight);
+internal readonly record struct RenderKey(object Owner, int PageIndex, int PixelWidth, int PixelHeight, PageRenderRegion? Region = null);
 
 /// <summary>
 /// Serialises page rasterisation onto one background worker, newest-request-first (the page the
@@ -104,7 +108,7 @@ public sealed class BackgroundRenderQueue : IDisposable, IRenderQueue
             {
                 ImageSource image = _images.Render(
                     request.Document, request.PageIndex, request.PixelWidth, request.PixelHeight, _shutdown.Token,
-                    request.DeviceScale);
+                    request.DeviceScale, request.Region);
 
                 RenderRequest captured = request;
                 _ = _dispatcher.BeginInvoke(() =>

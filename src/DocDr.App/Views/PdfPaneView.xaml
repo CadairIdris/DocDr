@@ -100,6 +100,15 @@
                 </Border>
                 <Image Source="{Binding Image}" Stretch="Fill"
                        RenderOptions.BitmapScalingMode="HighQuality" />
+                <!-- Crisp native-resolution render of the on-screen slice, over the soft base
+                     image when zoomed past the render cap. -->
+                <Canvas>
+                    <Image Source="{Binding DetailImage}" Stretch="Fill"
+                           Canvas.Left="{Binding DetailLeft}" Canvas.Top="{Binding DetailTop}"
+                           Width="{Binding DetailWidth}" Height="{Binding DetailHeight}"
+                           RenderOptions.BitmapScalingMode="HighQuality"
+                           Visibility="{Binding DetailImage, Converter={StaticResource NotNullToVisibility}}" />
+                </Canvas>
                 <ItemsControl ItemsSource="{Binding Highlights}" IsHitTestVisible="False">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>

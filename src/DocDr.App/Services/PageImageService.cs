@@ -25,9 +25,9 @@ public sealed class PageImageService
     /// the <see cref="BitmapSource"/> DPI so a page rendered at, say, 1271 px on a 150% display
     /// reports a DIP width of 847.3 — the exact size of its on-screen box — and WPF blits it 1:1
     /// instead of scaling a 96-DPI (1271-DIP) image down into the box and back up to the panel.</param>
-    public ImageSource Render(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, CancellationToken cancellationToken, double deviceScale = 1.0)
+    public ImageSource Render(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, CancellationToken cancellationToken, double deviceScale = 1.0, PageRenderRegion? region = null)
     {
-        RenderedPage page = _renderer.Render(document, pageIndex, pixelWidth, pixelHeight, cancellationToken);
+        RenderedPage page = _renderer.Render(document, pageIndex, pixelWidth, pixelHeight, cancellationToken, region);
 
         double dpi = 96.0 * (deviceScale > 0 ? deviceScale : 1.0);
         var bitmap = BitmapSource.Create(

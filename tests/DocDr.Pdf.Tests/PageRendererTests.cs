@@ -22,6 +22,38 @@ public sealed class PageRendererTests
         Assert.True(HasNonWhitePixel(page), "Rendered page should contain drawn text, not be blank white.");
     }
 
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(200, 260)]
+    [InlineData(150, 130)]
+    public void Render_with_region_returns_the_matching_slice_of_the_full_render(int offX, int offY)
+    {
+        using var ws = new TempWorkspace();
+        string path = TestPdfBuilder.WritePdf(ws.Path("slice.pdf"), ["The quick brown fox jumps over the lazy dog"]);
+        using var doc = PdfDocument.Load(path);
+        var renderer = new PageRenderer();
+
+        const int fullW = 400, fullH = 520, tileW = 200, tileH = 260;
+        RenderedPage whole = renderer.Render(doc, 0, fullW, fullH);
+        RenderedPage tile = renderer.Render(doc, 0, tileW, tileH, default,
+            new PageRenderRegion(fullW, fullH, offX, offY));
+
+        Assert.Equal(tileW, tile.PixelWidth);
+        Assert.Equal(tileH, tile.PixelHeight);
+
+        for (int y = 0; y < tileH; y++)
+        {
+            for (int x = 0; x < tileW; x++)
+            {
+                int ti = y * tile.Stride + x * 4;
+                int wi = (y + offY) * whole.Stride + (x + offX) * 4;
+                Assert.Equal(whole.Pixels[wi], tile.Pixels[ti]);
+                Assert.Equal(whole.Pixels[wi + 1], tile.Pixels[ti + 1]);
+                Assert.Equal(whole.Pixels[wi + 2], tile.Pixels[ti + 2]);
+            }
+        }
+    }
+
     [Fact]
     public void CachingPageRenderer_returns_same_instance_for_repeat_request()
     {
