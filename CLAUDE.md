@@ -300,9 +300,16 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   it's reached once by reflection. `PdfAnnotationWriter` writes ink at ~150/255 alpha;
   `PdfCoordinates.PageToDevicePoint` is the point-level rotation map for the overlay `Polyline`s.
 - **The live PDFium handle never carries our annotations during a session.** The ctor reads
-  existing subtype-1/9 annotations via `PdfAnnotations.ReadLocked` then `StripManaged`s them off
+  existing subtype-1/9 annotations via `PdfAnnotations.ReadFromPage` then `StripManaged`s them off
   the original handle (== `_sources[0]`), so `Rebuild()` imports a clean base and the WPF overlay
-  is the only thing drawing them. `SaveToBytes` bakes them onto the pages via
+  is the only thing drawing them. **This loop is the dominant cost of opening a file** — it's the
+  only place that touches every page up front — so it does exactly one `FPDF_LoadPage` per page
+  and reuses that same page handle for rotation, the annotation read, and the strip, rather than
+  the three separate load/close round trips each used to do on its own (`GetRotation` /
+  `PdfAnnotations.ReadLocked` / a since-removed `StripManagedAnnotations`, each loading the page
+  itself). Halved open time on a 600-page synthetic benchmark (~490ms → ~260ms). `ReadLocked`
+  (loads the page itself) still exists for callers that only want the annotations, e.g.
+  `PdfAnnotations.Read`. `SaveToBytes` bakes them onto the pages via
   `PdfAnnotationWriter.Write` around `FPDF_SaveAsCopy`, then strips them again (idempotent).
 - Other annotation subtypes (ink, stamps, widgets…) are left untouched and still render.
 - Metadata: `PdfAnnotation` carries `Author` / `Created` / `Modified`. Reader pulls `/T`,

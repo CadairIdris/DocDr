@@ -36,92 +36,103 @@ public static class PdfAnnotations
 
         try
         {
-            int count = fpdf_annot.FPDFPageGetAnnotCount(page);
-            var result = new List<PdfAnnotation>();
-
-            for (int i = 0; i < count; i++)
-            {
-                FpdfAnnotationT? annot = fpdf_annot.FPDFPageGetAnnot(page, i);
-                if (annot is null || annot.__Instance == IntPtr.Zero)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    int subtype = fpdf_annot.FPDFAnnotGetSubtype(annot);
-                    bool ourStamp = subtype == SubtypeStamp && fpdf_annot.FPDFAnnotHasKey(annot, ShapeKey) != 0;
-                    if (subtype is not (SubtypeHighlight or SubtypeText or SubtypeInk) && !ourStamp)
-                    {
-                        continue;
-                    }
-
-                    string? contents = ReadString(annot, "Contents");
-                    string? author = ReadString(annot, "T");
-                    DateTimeOffset? created = PdfDate.TryParse(ReadString(annot, "CreationDate"), out DateTimeOffset c) ? c : null;
-                    DateTimeOffset? modified = PdfDate.TryParse(ReadString(annot, "M"), out DateTimeOffset m) ? m : null;
-                    Guid id = Guid.TryParse(ReadString(annot, "NM"), out Guid nm) ? nm : Guid.NewGuid();
-                    IReadOnlyList<PdfReply> replies = PdfReplyCodec.Decode(ReadString(annot, "DocDrThread"));
-
-                    if (ourStamp)
-                    {
-                        PdfAnnotation? shape = PdfShapeCodec.Decode(
-                            ReadString(annot, ShapeKey), id, ReadColor(annot), contents, author, created, modified, replies);
-                        if (shape is { Kind: PdfAnnotationKind.Image })
-                        {
-                            byte[]? png = TryFromBase64(ReadString(annot, ImageKey));
-                            shape = png is not null ? shape with { ImageData = png } : null;
-                        }
-
-                        if (shape is not null)
-                        {
-                            result.Add(shape);
-                        }
-
-                        continue;
-                    }
-
-                    if (subtype == SubtypeInk)
-                    {
-                        IReadOnlyList<IReadOnlyList<PdfPoint>> strokes = PdfInkInterop.ReadStrokes(annot);
-                        if (strokes.Count == 0)
-                        {
-                            continue;
-                        }
-
-                        result.Add(new PdfAnnotation(id, PdfAnnotationKind.Ink, [], ReadColor(annot),
-                            contents, author, created, modified)
-                        {
-                            Strokes = strokes,
-                            StrokeWidth = ReadBorderWidth(annot),
-                        });
-                        continue;
-                    }
-
-                    PdfAnnotationKind kind = subtype == SubtypeHighlight
-                        ? PdfAnnotationKind.Highlight
-                        : PdfAnnotationKind.Comment;
-                    IReadOnlyList<PdfRect> quads = subtype == SubtypeHighlight
-                        ? ReadQuads(annot)
-                        : [ReadRect(annot)];
-
-                    result.Add(new PdfAnnotation(id, kind, quads, ReadColor(annot), contents, author, created, modified)
-                    {
-                        Replies = replies,
-                    });
-                }
-                finally
-                {
-                    fpdf_annot.FPDFPageCloseAnnot(annot);
-                }
-            }
-
-            return result;
+            return ReadFromPage(page);
         }
         finally
         {
             fpdfview.FPDF_ClosePage(page);
         }
+    }
+
+    /// <summary>
+    /// Same as <see cref="ReadLocked"/>, but for a page the caller has already loaded — used when
+    /// the caller needs the page open for other work too (e.g. reading its rotation and stripping
+    /// managed annotations), so it isn't paying for a separate <c>FPDF_LoadPage</c>/<c>ClosePage</c>
+    /// round trip per concern. The document lock must still be held.
+    /// </summary>
+    internal static IReadOnlyList<PdfAnnotation> ReadFromPage(FpdfPageT page)
+    {
+        int count = fpdf_annot.FPDFPageGetAnnotCount(page);
+        var result = new List<PdfAnnotation>();
+
+        for (int i = 0; i < count; i++)
+        {
+            FpdfAnnotationT? annot = fpdf_annot.FPDFPageGetAnnot(page, i);
+            if (annot is null || annot.__Instance == IntPtr.Zero)
+            {
+                continue;
+            }
+
+            try
+            {
+                int subtype = fpdf_annot.FPDFAnnotGetSubtype(annot);
+                bool ourStamp = subtype == SubtypeStamp && fpdf_annot.FPDFAnnotHasKey(annot, ShapeKey) != 0;
+                if (subtype is not (SubtypeHighlight or SubtypeText or SubtypeInk) && !ourStamp)
+                {
+                    continue;
+                }
+
+                string? contents = ReadString(annot, "Contents");
+                string? author = ReadString(annot, "T");
+                DateTimeOffset? created = PdfDate.TryParse(ReadString(annot, "CreationDate"), out DateTimeOffset c) ? c : null;
+                DateTimeOffset? modified = PdfDate.TryParse(ReadString(annot, "M"), out DateTimeOffset m) ? m : null;
+                Guid id = Guid.TryParse(ReadString(annot, "NM"), out Guid nm) ? nm : Guid.NewGuid();
+                IReadOnlyList<PdfReply> replies = PdfReplyCodec.Decode(ReadString(annot, "DocDrThread"));
+
+                if (ourStamp)
+                {
+                    PdfAnnotation? shape = PdfShapeCodec.Decode(
+                        ReadString(annot, ShapeKey), id, ReadColor(annot), contents, author, created, modified, replies);
+                    if (shape is { Kind: PdfAnnotationKind.Image })
+                    {
+                        byte[]? png = TryFromBase64(ReadString(annot, ImageKey));
+                        shape = png is not null ? shape with { ImageData = png } : null;
+                    }
+
+                    if (shape is not null)
+                    {
+                        result.Add(shape);
+                    }
+
+                    continue;
+                }
+
+                if (subtype == SubtypeInk)
+                {
+                    IReadOnlyList<IReadOnlyList<PdfPoint>> strokes = PdfInkInterop.ReadStrokes(annot);
+                    if (strokes.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    result.Add(new PdfAnnotation(id, PdfAnnotationKind.Ink, [], ReadColor(annot),
+                        contents, author, created, modified)
+                    {
+                        Strokes = strokes,
+                        StrokeWidth = ReadBorderWidth(annot),
+                    });
+                    continue;
+                }
+
+                PdfAnnotationKind kind = subtype == SubtypeHighlight
+                    ? PdfAnnotationKind.Highlight
+                    : PdfAnnotationKind.Comment;
+                IReadOnlyList<PdfRect> quads = subtype == SubtypeHighlight
+                    ? ReadQuads(annot)
+                    : [ReadRect(annot)];
+
+                result.Add(new PdfAnnotation(id, kind, quads, ReadColor(annot), contents, author, created, modified)
+                {
+                    Replies = replies,
+                });
+            }
+            finally
+            {
+                fpdf_annot.FPDFPageCloseAnnot(annot);
+            }
+        }
+
+        return result;
     }
 
     private static IReadOnlyList<PdfRect> ReadQuads(FpdfAnnotationT annot)

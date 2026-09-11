@@ -75,17 +75,35 @@ public sealed class PdfDocument : IDisposable
         _annotations = new List<List<PdfAnnotation>>(pageCount);
         for (int i = 0; i < pageCount; i++)
         {
-            _pages.Add(new PageRef(OriginalSourceId, i, GetRotation(handle, i) & 3));
-
-            // Read any existing highlights / notes into our model, then strip them off the
-            // original handle so PDFium's renderer (annotations flag on) doesn't draw them
-            // under our own overlay. Stripping the original == stripping _sources[0], so every
-            // later Rebuild() imports a clean base.
-            List<PdfAnnotation> onPage = PdfAnnotations.ReadLocked(handle, i).ToList();
-            _annotations.Add(onPage);
-            if (onPage.Count > 0)
+            // One FPDF_LoadPage per page for all three concerns below (rotation, annotation read,
+            // strip) rather than one each — FPDF_LoadPage does real parsing work, and a large book
+            // opened noticeably slower paying for it three times over on every page.
+            FpdfPageT? page = fpdfview.FPDF_LoadPage(handle, i);
+            if (page is null || page.__Instance == IntPtr.Zero)
             {
-                StripManagedAnnotations(handle, i);
+                _pages.Add(new PageRef(OriginalSourceId, i, 0));
+                _annotations.Add([]);
+                continue;
+            }
+
+            try
+            {
+                _pages.Add(new PageRef(OriginalSourceId, i, GetRotation(page) & 3));
+
+                // Read any existing highlights / notes into our model, then strip them off the
+                // original handle so PDFium's renderer (annotations flag on) doesn't draw them
+                // under our own overlay. Stripping the original == stripping _sources[0], so every
+                // later Rebuild() imports a clean base.
+                List<PdfAnnotation> onPage = PdfAnnotations.ReadFromPage(page).ToList();
+                _annotations.Add(onPage);
+                if (onPage.Count > 0)
+                {
+                    PdfAnnotationWriter.StripManaged(page);
+                }
+            }
+            finally
+            {
+                fpdfview.FPDF_ClosePage(page);
             }
         }
 
@@ -664,24 +682,6 @@ public sealed class PdfDocument : IDisposable
     {
         SetDirty(true);
         AnnotationsChanged?.Invoke(this, new AnnotationsChangedEventArgs(pageIndex));
-    }
-
-    private static void StripManagedAnnotations(FpdfDocumentT doc, int pageIndex)
-    {
-        FpdfPageT? page = fpdfview.FPDF_LoadPage(doc, pageIndex);
-        if (page is null || page.__Instance == IntPtr.Zero)
-        {
-            return;
-        }
-
-        try
-        {
-            PdfAnnotationWriter.StripManaged(page);
-        }
-        finally
-        {
-            fpdfview.FPDF_ClosePage(page);
-        }
     }
 
     internal void ValidatePageIndex(int pageIndex)
@@ -1441,13 +1441,15 @@ public sealed class PdfDocument : IDisposable
 
         try
         {
-            return fpdf_edit.FPDFPageGetRotation(page);
+            return GetRotation(page);
         }
         finally
         {
             fpdfview.FPDF_ClosePage(page);
         }
     }
+
+    private static int GetRotation(FpdfPageT page) => fpdf_edit.FPDFPageGetRotation(page);
 
     private static void SetRotation(FpdfDocumentT doc, int pageIndex, int rotation)
     {
