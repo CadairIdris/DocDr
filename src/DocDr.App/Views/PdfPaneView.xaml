@@ -725,7 +725,11 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                     <Border Width="1" Margin="6,2" Background="{DynamicResource BorderBrush}" />
-                    <Button Content="Note…" Padding="8,3" Cursor="Hand"
+                    <Button Content="Copy" Padding="8,3" Cursor="Hand"
+                            ToolTip="Copy the selected text (Ctrl+C)"
+                            Command="{Binding CopySelectionCommand}"
+                            Click="PopupAction_Click" />
+                    <Button Content="Note…" Padding="8,3" Margin="4,0,0,0" Cursor="Hand"
                             Command="{Binding CommentOnSelectionCommand}"
                             Click="PopupAction_Click" />
                     <Button Content="Cite" Padding="8,3" Margin="4,0,0,0" Cursor="Hand"

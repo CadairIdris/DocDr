@@ -356,6 +356,17 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   branch only commits (`EndTextSelection` + open `SelectionPopup`) if `PointerDragged` — moved ≥
   `SystemParameters.Minimum{H,V}DragDistance`. A plain click on the page clears any pending run
   and deselects the current annotation (no popup). There is no separate "select vs pan" mode.
+  **The text-selection mouse-down branch calls `PageList.Focus()`** (added alongside `Copy` —
+  the shape-box and existing-annotation branches already did this, plain text-selection didn't).
+  Without it, `Ctrl+C`/`Ctrl+V` never reach `PageList_PreviewKeyDown` after a drag-selection —
+  focus just stays wherever it was, since a mouse-captured drag doesn't move keyboard focus the
+  way a plain click does. Caught by testing the real interaction, not by reading the code — it
+  compiled fine and looked correct.
+- **Copy** (`PdfPaneViewModel.CopySelectionCommand`) puts the selected passage's plain text
+  (`_pendingText`) on the clipboard via `Citations.CopyToClipboard` — doesn't clear the selection,
+  matching copy behaviour anywhere else. Reachable via the selection popup's "Copy" button or
+  `Ctrl+C` (`PageList_PreviewKeyDown`, alongside the existing `Ctrl+V` paste branch — gated on
+  `HasPendingSelection` so it doesn't swallow `Ctrl+C` when nothing's selected).
 - `AnnotationsChanged` is the light event (overlay rebuild only); `Changed` is the heavy one
   (full pane/thumbnail reload). Undo/redo raises `Changed` only when pages/rotations actually
   moved, `AnnotationsChanged` always.

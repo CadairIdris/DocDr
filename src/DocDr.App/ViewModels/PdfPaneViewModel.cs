@@ -2625,6 +2625,19 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         ClearTextSelection();
     }
 
+    /// <summary>Copy the selected passage's plain text to the clipboard (Ctrl+C, or the popup's
+    /// "Copy" button). Doesn't clear the selection — same expectation as copying anywhere else.</summary>
+    [RelayCommand]
+    private void CopySelection()
+    {
+        if (!HasPendingSelection || string.IsNullOrEmpty(_pendingText))
+        {
+            return;
+        }
+
+        Citations.CopyToClipboard(_pendingText);
+    }
+
     /// <summary>Copy a citation for the selected passage to the clipboard.</summary>
     [RelayCommand]
     private void CiteSelection()

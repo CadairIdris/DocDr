@@ -774,6 +774,9 @@ public partial class PdfPaneView : UserControl
         _selectionPageIndex = target.Slot.PageIndex;
         _pane.BeginTextSelection(target.Slot.PageIndex, pagePoint);
         PageList.CaptureMouse();
+        // Needed for Ctrl+C to reach PageList_PreviewKeyDown afterwards — a mouse-captured drag
+        // doesn't move keyboard focus on its own the way a plain click does.
+        PageList.Focus();
         e.Handled = true;
     }
 
@@ -1030,6 +1033,12 @@ public partial class PdfPaneView : UserControl
         if (e.Key == Key.V && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && _pane is not null)
         {
             PasteAtVisibleCentre();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.C && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control
+            && _pane?.HasPendingSelection == true)
+        {
+            _pane.CopySelectionCommand.Execute(null);
             e.Handled = true;
         }
         else if ((e.Key == Key.Delete || e.Key == Key.Back)
