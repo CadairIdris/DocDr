@@ -802,7 +802,13 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     private int _selectionHead = -1;
     private IReadOnlyList<PdfRect> _pendingQuads = [];
 
+    /// <summary>Selected text flattened to one line — what a citation quote wants; the PDF's own
+    /// line-wrap points are just where that line happened to run out of column width.</summary>
     private string _pendingText = string.Empty;
+
+    /// <summary>Selected text with its original line breaks kept (just normalised to
+    /// <see cref="Environment.NewLine"/>) — what a plain copy wants, e.g. a list or an address.</summary>
+    private string _pendingRawText = string.Empty;
 
     [ObservableProperty]
     private bool _commentToolActive;
@@ -1456,10 +1462,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         PendingSelectionPage = _selectionPage;
 
         IReadOnlyList<PdfCharBox> pageChars = CharBoxes(_selectionPage);
-        _pendingText = hi >= lo && hi < pageChars.Count
+        string rawConcat = hi >= lo && hi < pageChars.Count
             ? string.Concat(Enumerable.Range(lo, hi - lo + 1).Select(i => pageChars[i].Text))
-                .ReplaceLineEndings(" ").Trim()
             : string.Empty;
+        _pendingText = rawConcat.ReplaceLineEndings(" ").Trim();
+        _pendingRawText = rawConcat.ReplaceLineEndings().Trim();
 
         double scale = SlotScale(Pages[_selectionPage]);
         PdfSize unrotated = _document.GetUnrotatedPageSize(_selectionPage);
@@ -1485,6 +1492,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         _selectionPage = _selectionAnchor = _selectionHead = -1;
         _pendingQuads = [];
         _pendingText = string.Empty;
+        _pendingRawText = string.Empty;
         PendingSelectionPage = -1;
         foreach (PageSlotViewModel slot in Pages)
         {
@@ -2626,16 +2634,17 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     }
 
     /// <summary>Copy the selected passage's plain text to the clipboard (Ctrl+C, or the popup's
-    /// "Copy" button). Doesn't clear the selection — same expectation as copying anywhere else.</summary>
+    /// "Copy" button) — with its original line breaks kept, unlike the flattened quote a citation
+    /// wants. Doesn't clear the selection — same expectation as copying anywhere else.</summary>
     [RelayCommand]
     private void CopySelection()
     {
-        if (!HasPendingSelection || string.IsNullOrEmpty(_pendingText))
+        if (!HasPendingSelection || string.IsNullOrEmpty(_pendingRawText))
         {
             return;
         }
 
-        Citations.CopyToClipboard(_pendingText);
+        Citations.CopyToClipboard(_pendingRawText);
     }
 
     /// <summary>Copy a citation for the selected passage to the clipboard.</summary>

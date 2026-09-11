@@ -362,11 +362,20 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   focus just stays wherever it was, since a mouse-captured drag doesn't move keyboard focus the
   way a plain click does. Caught by testing the real interaction, not by reading the code — it
   compiled fine and looked correct.
-- **Copy** (`PdfPaneViewModel.CopySelectionCommand`) puts the selected passage's plain text
-  (`_pendingText`) on the clipboard via `Citations.CopyToClipboard` — doesn't clear the selection,
-  matching copy behaviour anywhere else. Reachable via the selection popup's "Copy" button or
-  `Ctrl+C` (`PageList_PreviewKeyDown`, alongside the existing `Ctrl+V` paste branch — gated on
+- **Copy** (`PdfPaneViewModel.CopySelectionCommand`) puts the selected passage's plain text on the
+  clipboard via `Citations.CopyToClipboard` — doesn't clear the selection, matching copy behaviour
+  anywhere else. Reachable via the selection popup's "Copy" button or `Ctrl+C`
+  (`PageList_PreviewKeyDown`, alongside the existing `Ctrl+V` paste branch — gated on
   `HasPendingSelection` so it doesn't swallow `Ctrl+C` when nothing's selected).
+  **`EndTextSelection` builds two strings from the same char range, not one:** `_pendingText`
+  (flattened to one line — `.ReplaceLineEndings(" ")` — what a citation quote wants, since the
+  PDF's line-wrap points are just where that line ran out of column width) for `CiteSelection`,
+  and `_pendingRawText` (`.ReplaceLineEndings()` with no argument — normalises whatever line-break
+  form PDFium used to `Environment.NewLine`, but keeps the breaks) for `CopySelection`. PDFium's
+  char-level extraction does emit real `\r`/`\n` characters between separately-positioned lines
+  (confirmed directly against a two-line fixture) — `_pendingText` was silently throwing that
+  structure away for every consumer, which was fine when the only consumer was the citation quote
+  but wrong once a plain copy needed the same selection.
 - `AnnotationsChanged` is the light event (overlay rebuild only); `Changed` is the heavy one
   (full pane/thumbnail reload). Undo/redo raises `Changed` only when pages/rotations actually
   moved, `AnnotationsChanged` always.
