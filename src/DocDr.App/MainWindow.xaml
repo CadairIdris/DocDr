@@ -23,6 +23,7 @@
         <KeyBinding Modifiers="Control" Key="Z" Command="{Binding SelectedTab.UndoCommand}" />
         <KeyBinding Modifiers="Control" Key="Y" Command="{Binding SelectedTab.RedoCommand}" />
         <KeyBinding Modifiers="Control" Key="O" Command="{Binding OpenCommand}" />
+        <KeyBinding Modifiers="Control+Shift" Key="F" Command="{Binding FindInFilesCommand}" />
         <KeyBinding Key="F11" Command="{Binding ToggleReadModeCommand}" />
         <KeyBinding Key="Escape" Command="{Binding ExitReadModeCommand}" />
     </Window.InputBindings>
@@ -53,6 +54,9 @@
                 <Button Command="{Binding MergeCommand}" Content="Merge…" Padding="8,3" Margin="4,0,0,0"
                         AutomationProperties.Name="Merge PDFs"
                         ToolTip="Combine several PDFs into one new document" />
+                <Button Command="{Binding FindInFilesCommand}" Content="Find in files…" Padding="8,3" Margin="4,0,0,0"
+                        AutomationProperties.Name="Find in files"
+                        ToolTip="Search every PDF in a folder for a term (Ctrl+Shift+F)" />
                 <Separator />
                 <Button Content="Watermark…" Padding="8,3"
                         Command="{Binding SelectedTab.RemoveWatermarksCommand}"
@@ -329,6 +333,8 @@
                                 Margin="8,0,0,0" AutomationProperties.Name="New document" />
                         <Button Content="Merge PDFs…" Command="{Binding MergeCommand}" Padding="16,5"
                                 Margin="8,0,0,0" AutomationProperties.Name="Merge PDFs" />
+                        <Button Content="Find in files…" Command="{Binding FindInFilesCommand}" Padding="16,5"
+                                Margin="8,0,0,0" AutomationProperties.Name="Find in files" />
                     </StackPanel>
 
                     <Grid Margin="0,30,0,6"

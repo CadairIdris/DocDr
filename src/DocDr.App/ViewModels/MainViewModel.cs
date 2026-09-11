@@ -311,6 +311,66 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    // --- Find in files -----------------------------------------------------------------
+
+    private FolderSearchWindow? _findInFilesWindow;
+
+    [RelayCommand]
+    private void FindInFiles()
+    {
+        if (_findInFilesWindow is not null)
+        {
+            _findInFilesWindow.Activate();
+            return;
+        }
+
+        var viewModel = new FolderSearchViewModel(_settings);
+        var window = new FolderSearchWindow(viewModel) { Owner = Application.Current?.MainWindow };
+        viewModel.ResultActivated += OnFindInFilesResultActivated;
+        window.Closed += (_, _) =>
+        {
+            viewModel.ResultActivated -= OnFindInFilesResultActivated;
+            _findInFilesWindow = null;
+        };
+
+        _findInFilesWindow = window;
+        window.Show();
+    }
+
+    private async void OnFindInFilesResultActivated(FolderSearchActivation activation) =>
+        await OpenSearchResultAsync(activation).ConfigureAwait(true);
+
+    /// <summary>Open (or switch to) the tab for the activated file and jump the left pane straight
+    /// to that match, using the hits the folder scan already found rather than re-searching the
+    /// whole document (which was the slow part — a big book has to be scanned page by page either
+    /// way, so doing it twice roughly doubled the wait).</summary>
+    public async Task OpenSearchResultAsync(FolderSearchActivation activation)
+    {
+        DocumentTabViewModel? tab = Tabs.FirstOrDefault(t => t.FilePath is { } p && PathsEqual(p, activation.FilePath));
+        if (tab is null)
+        {
+            await OpenPathAsync(activation.FilePath).ConfigureAwait(true);
+            tab = SelectedTab;
+        }
+        else
+        {
+            SelectedTab = tab;
+        }
+
+        if (tab is null)
+        {
+            return; // open failed; OpenPathAsync already updated StatusText
+        }
+
+        Application.Current?.MainWindow?.Activate();
+        await tab.LeftPane.GoToSearchHitAsync(
+            activation.KnownHits, activation.TargetPageIndex, activation.TargetCharStart,
+            activation.TargetCharCount, activation.Term, activation.MatchCase).ConfigureAwait(true);
+    }
+
+    private static bool PathsEqual(string a, string b) =>
+        string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+
     // --- Recent files ------------------------------------------------------------------
 
     [RelayCommand]

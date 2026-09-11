@@ -38,6 +38,13 @@ public sealed class AppSettings
     /// <summary>Absolute paths of recently opened documents, most recent first.</summary>
     public List<string> RecentFiles { get; set; } = [];
 
+    /// <summary>Last folder picked in "Find in files".</summary>
+    public string? LastFindInFilesFolder { get; set; }
+
+    public bool LastFindInFilesMatchCase { get; set; }
+
+    public bool LastFindInFilesSubfolders { get; set; } = true;
+
     /// <summary>Move <paramref name="path"/> to the front of the recent list (deduped, capped).</summary>
     public void PushRecentFile(string path)
     {

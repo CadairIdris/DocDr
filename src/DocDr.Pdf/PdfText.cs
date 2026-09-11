@@ -72,6 +72,78 @@ public static class PdfTextExtractor
         }));
     }
 
+    /// <summary>Padding added around each merged line box, as a fraction of that line's height —
+    /// scales with font size rather than a fixed point value looking right on one size and wrong
+    /// on another. Keeps the highlight from sitting flush against the glyph edges (ascenders,
+    /// descenders, serifs), which read as slightly clipped otherwise.</summary>
+    private const double LinePaddingFraction = 0.12;
+
+    /// <summary>
+    /// Merge a run of glyph boxes into one rectangle per text line, in the order given. Chars
+    /// whose vertical span still overlaps the current run's are the same line/word and widen one
+    /// box; a genuine line break doesn't overlap, so it starts a fresh one. Degenerate boxes
+    /// (spaces, zero-size glyphs) are skipped without breaking the run — otherwise every word
+    /// would land in its own rectangle wherever a space split the run. Used for both the
+    /// click-drag text selection highlight and search-hit highlights, so a search match reads as
+    /// one clean box around the word rather than a per-character (or PDFium-per-run) staircase.
+    /// Each finished box gets a small pad (see <see cref="LinePaddingFraction"/>) on all four
+    /// sides, applied after merging so it never affects the same-line decision above.
+    /// </summary>
+    public static IReadOnlyList<PdfRect> MergeIntoLineRects(IEnumerable<PdfRect> boxes)
+    {
+        var quads = new List<PdfRect>();
+        double left = 0, right = 0, top = 0, bottom = 0;
+        bool inRun = false;
+
+        void Flush()
+        {
+            if (inRun && right > left && top > bottom)
+            {
+                double pad = (top - bottom) * LinePaddingFraction;
+                quads.Add(new PdfRect(left - pad, top + pad, right + pad, bottom - pad));
+            }
+
+            inRun = false;
+        }
+
+        foreach (PdfRect b in boxes)
+        {
+            if (b.Right - b.Left < 0.5 || b.Top - b.Bottom < 0.5)
+            {
+                continue;
+            }
+
+            if (inRun)
+            {
+                double overlap = Math.Min(top, b.Top) - Math.Max(bottom, b.Bottom);
+                double glyphHeight = Math.Max(1, b.Top - b.Bottom);
+                if (overlap < glyphHeight * 0.35)
+                {
+                    Flush();
+                }
+            }
+
+            if (!inRun)
+            {
+                left = b.Left;
+                right = b.Right;
+                top = b.Top;
+                bottom = b.Bottom;
+                inRun = true;
+            }
+            else
+            {
+                left = Math.Min(left, b.Left);
+                right = Math.Max(right, b.Right);
+                top = Math.Max(top, b.Top);
+                bottom = Math.Min(bottom, b.Bottom);
+            }
+        }
+
+        Flush();
+        return quads;
+    }
+
     internal static T WithTextPage<T>(PdfDocument document, int pageIndex, Func<FpdfTextpageT, T> work)
     {
         FpdfPageT? page = fpdfview.FPDF_LoadPage(document.Handle, pageIndex);

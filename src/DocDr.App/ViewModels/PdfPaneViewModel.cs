@@ -642,6 +642,71 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
     private bool CanNavigateMatches() => _hits.Count > 0 || !string.IsNullOrWhiteSpace(SearchText);
 
+    /// <summary>
+    /// Used by folder-wide "Find in files": land on one match without re-searching the document.
+    /// <paramref name="knownHits"/> is every hit the folder scan already found in this file (its
+    /// exact page + character range), so this only has to resolve rects for those specific pages
+    /// — <see cref="PdfSearch.HitAt"/> touches one page each, versus <see cref="PdfSearch.FindAll"/>
+    /// scanning every page in the document, which made opening a match in a large book feel like
+    /// it was being searched all over again (because it was). A hit whose range no longer checks
+    /// out (the file changed since the scan) is silently dropped rather than failing the whole
+    /// jump.
+    /// </summary>
+    public async Task GoToSearchHitAsync(
+        IReadOnlyList<FolderSearchHit> knownHits, int targetPageIndex, int targetCharStart, int targetCharCount,
+        string term, bool matchCase)
+    {
+        _searchCts?.Cancel();
+        _searchCts = null;
+
+        MatchCase = matchCase;
+        SearchText = term;
+        ResetSearchState();
+
+        IsSearching = true;
+        try
+        {
+            IReadOnlyList<SearchHit> hits = await Task.Run(() =>
+            {
+                var resolved = new List<SearchHit>(knownHits.Count);
+                foreach (FolderSearchHit known in knownHits)
+                {
+                    if (_search.HitAt(known.PageIndex, known.CharStart, known.CharCount) is { } hit)
+                    {
+                        resolved.Add(hit);
+                    }
+                }
+
+                return (IReadOnlyList<SearchHit>)resolved;
+            }).ConfigureAwait(true);
+
+            _hits = hits;
+            TotalMatches = hits.Count;
+
+            if (hits.Count == 0)
+            {
+                GoToPage(targetPageIndex + 1);
+                return;
+            }
+
+            int index = 0;
+            for (int i = 0; i < hits.Count; i++)
+            {
+                if (hits[i].PageIndex == targetPageIndex && hits[i].CharStart == targetCharStart)
+                {
+                    index = i;
+                    break;
+                }
+            }
+
+            MoveToHit(index);
+        }
+        finally
+        {
+            IsSearching = false;
+        }
+    }
+
     [RelayCommand]
     private void ClearSearch()
     {
@@ -2525,7 +2590,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         return best;
     }
 
-    /// <summary>Merge the char boxes over [start, end] into one rectangle per text line.</summary>
+    /// <summary>Merge the char boxes over [start, end] into one rectangle per text line, via the
+    /// same heuristic <see cref="PdfSearch"/> uses for search-hit highlights.</summary>
     private IReadOnlyList<PdfRect> BuildLineQuads(int pageIndex, int start, int end)
     {
         IReadOnlyList<PdfCharBox> boxes = CharBoxes(pageIndex);
@@ -2537,65 +2603,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         start = Math.Clamp(start, 0, boxes.Count - 1);
         end = Math.Clamp(end, 0, boxes.Count - 1);
 
-        var quads = new List<PdfRect>();
-        double left = 0, right = 0, top = 0, bottom = 0;
-        bool inRun = false;
-
-        void Flush()
-        {
-            if (inRun && right > left && top > bottom)
-            {
-                quads.Add(new PdfRect(left, top, right, bottom));
-            }
-
-            inRun = false;
-        }
-
-        for (int i = start; i <= end; i++)
-        {
-            PdfRect b = boxes[i].Box;
-
-            // Skip degenerate boxes — spaces in particular come back with a real width but ~zero
-            // height, and letting one through would flush the run (killing the vertical overlap
-            // test) and split every word onto its own rectangle.
-            if (b.Right - b.Left < 0.5 || b.Top - b.Bottom < 0.5)
-            {
-                continue;
-            }
-
-            // Same line while this glyph's vertical span still overlaps the run's. Sub/superscripts
-            // and inline formula glyphs overlap and just widen the band; a real line break doesn't,
-            // so it starts a fresh rectangle. Each line's quad is then the bounding box of its
-            // glyphs — one clean rectangle, not a per-word staircase.
-            if (inRun)
-            {
-                double overlap = Math.Min(top, b.Top) - Math.Max(bottom, b.Bottom);
-                double glyphHeight = Math.Max(1, b.Top - b.Bottom);
-                if (overlap < glyphHeight * 0.35)
-                {
-                    Flush();
-                }
-            }
-
-            if (!inRun)
-            {
-                left = b.Left;
-                right = b.Right;
-                top = b.Top;
-                bottom = b.Bottom;
-                inRun = true;
-            }
-            else
-            {
-                left = Math.Min(left, b.Left);
-                right = Math.Max(right, b.Right);
-                top = Math.Max(top, b.Top);
-                bottom = Math.Min(bottom, b.Bottom);
-            }
-        }
-
-        Flush();
-        return quads;
+        return PdfTextExtractor.MergeIntoLineRects(
+            Enumerable.Range(start, end - start + 1).Select(i => boxes[i].Box));
     }
 
     // --- Annotation commands ----------------------------------------------------------------

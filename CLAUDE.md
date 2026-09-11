@@ -62,6 +62,59 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   So Save / SaveAs / strip on a secured PDF all drop the security handler; `PdfDocument.IsEncrypted`
   exposes the state and the watermark review dialog notes it.
 
+## Find in files (`PdfFolderSearch`)
+
+- **`PdfFolderSearch.Search(filePaths, term, options, progress, ct)`** (`DocDr.Pdf`) full-text
+  searches many PDFs and reports one `FolderSearchProgress` per file (hits-or-error, plus running
+  totals) via `IProgress<T>` — no persistent index; every run is a fresh scan (there's no SQLite
+  catalog yet to cache extracted text in). Per file it's just `PdfDocument.Load` +
+  `new PdfSearch(doc).FindAll(term, options, ct, includeSnippets: true)`; `SearchHit.Snippet`
+  (new, opt-in — the in-pane search leaves it off) is captured in the same `FPDFTextFindNext`
+  pass as the rects, so there's no second text-extraction cost per hit.
+- **Parallelism is deliberately capped low** (`min(4, ProcessorCount)`, via `Parallel.ForEach`)
+  — every PDFium call is still serialised through `PdfiumLibrary.SyncRoot`, so extra workers
+  can't parallelise the PDFium work itself. What they overlap is one file's disk read /
+  `FPDF_LoadMemDocument64` parse with the *previous* file's search, which is otherwise wall-clock
+  waste; more workers than that just queue on the same lock.
+- App: `MainViewModel.FindInFilesCommand` opens a modeless `FolderSearchWindow` /
+  `FolderSearchViewModel` (toolbar "Find in files…", home screen, Ctrl+Shift+F) — modeless, not
+  `ShowDialog`, so results can be clicked while the main window is used. Folder enumeration
+  (`Directory.EnumerateFiles(..., "*.pdf", ...)`) and the recurse-subfolders/match-case options
+  live in the App, not `DocDr.Pdf` — the library just searches a list of paths it's given.
+  Results stream into a `TreeView` (Document > page/snippet). Last folder / match-case /
+  subfolders choice persists in `AppSettings`.
+- **Progress reaches the UI through a `ConcurrentQueue`, not a live `Progress<T>` per file** —
+  `Progress<T>.Report` posts to the dispatcher on *every* call, and a folder with thousands of
+  PDFs turned that into thousands of dispatcher messages, enough to make the window sluggish to
+  even drag around even though the scan itself runs on a background thread. `FolderSearchViewModel`
+  hands `PdfFolderSearch.Search` a trivial `IProgress<T>` that just enqueues (no marshalling), and
+  a `DispatcherTimer` (150 ms) drains the queue in capped batches — so UI work happens a fixed
+  number of times a second regardless of scan speed, then does one uncapped final drain once the
+  background task completes.
+- **Activating a hit does *not* re-search the document** — `FolderSearchHitViewModel.SiblingHits`
+  carries every hit the folder scan already found in that file (exact page + char range), passed
+  through `FolderSearchActivation` → `MainViewModel.OpenSearchResultAsync` →
+  `PdfPaneViewModel.GoToSearchHitAsync(knownHits, targetPageIndex, targetCharStart, targetCharCount,
+  term, matchCase)`, which resolves rects via `PdfSearch.HitAt` (one page touched per known hit)
+  instead of `FindAll` (every page in the document). Re-scanning the whole file again was the
+  actual cause of the "long delay before opening" — a full-document `FindAll` is exactly as slow
+  the second time as the first, so doing it on every click roughly doubled the wait on a big book.
+  A hit whose range no longer checks out (the file changed since the scan) is silently dropped
+  rather than failing the jump. Always targets `LeftPane`, like every other nav panel (bookmarks,
+  clauses, thumbnails).
+- **Search highlights are one box per line, not one per PDFium "rect"** — `PdfSearch.CollectRects`
+  used to call `FPDFTextCountRects`/`FPDFTextGetRect`, which on a PDF that positions each
+  character explicitly (a kerned or justified line's `TJ` array) returns one rect per glyph run,
+  i.e. a strip of tiny per-character boxes instead of one box around the word. It now walks the
+  match's own `FPDFTextGetCharBox` boxes and merges them with the new
+  `PdfTextExtractor.MergeIntoLineRects` — the exact heuristic `PdfPaneViewModel.BuildLineQuads`
+  already used for the click-drag text-selection highlight (vertical-overlap-continues-the-line,
+  degenerate/space boxes skipped without breaking the run), now shared by both instead of
+  duplicated. `BuildLineQuads` is a two-line wrapper around it. Each merged line box also gets a
+  small pad (`LinePaddingFraction`, 12% of that line's height, applied after the merge so it can't
+  affect the same-line decision) — a highlight sitting exactly flush against the glyph edges reads
+  as slightly clipped, particularly on ascenders/descenders.
+
 ## Navigation panel (icon rail)
 
 - **`NavigationRailView`** is a ~40px always-visible strip (column 0 of `DocumentTabView`) with

@@ -1,0 +1,91 @@
+<Window x:Class="DocDr.App.Views.FolderSearchWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:DocDr.App.ViewModels"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance vm:FolderSearchViewModel}"
+        Title="Find in files" Width="560" Height="640"
+        Icon="/DocDr.App;component/Assets/DocDr.ico"
+        WindowStartupLocation="CenterOwner"
+        MinWidth="420" MinHeight="360">
+    <Window.InputBindings>
+        <KeyBinding Key="Return" Command="{Binding SearchCommand}" />
+    </Window.InputBindings>
+    <DockPanel Margin="16">
+        <TextBlock DockPanel.Dock="Top" Text="Folder" FontWeight="SemiBold" Margin="0,0,0,4"
+                   Foreground="{DynamicResource PrimaryTextBrush}" />
+        <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox Grid.Column="0" Text="{Binding FolderPath, UpdateSourceTrigger=PropertyChanged}"
+                     VerticalContentAlignment="Center" Padding="4,4" />
+            <Button Grid.Column="1" Content="Browse…" Padding="10,4" Margin="6,0,0,0"
+                    Command="{Binding BrowseFolderCommand}" />
+        </Grid>
+
+        <TextBlock DockPanel.Dock="Top" Text="Search for" FontWeight="SemiBold" Margin="0,0,0,4"
+                   Foreground="{DynamicResource PrimaryTextBrush}" />
+        <Grid DockPanel.Dock="Top" Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="TermBox" Grid.Column="0" Text="{Binding SearchTerm, UpdateSourceTrigger=PropertyChanged}"
+                     VerticalContentAlignment="Center" Padding="4,4" />
+            <Button Grid.Column="1" Content="Search" Padding="10,4" Margin="6,0,0,0" IsDefault="True"
+                    Command="{Binding SearchCommand}"
+                    Visibility="{Binding IsSearching, Converter={StaticResource InverseBoolToVisibility}}" />
+            <Button Grid.Column="1" Content="Cancel" Padding="10,4" Margin="6,0,0,0"
+                    Command="{Binding CancelCommand}"
+                    Visibility="{Binding IsSearching, Converter={StaticResource BoolToVisibility}}" />
+        </Grid>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+            <CheckBox Content="Match case" IsChecked="{Binding MatchCase}" Margin="0,0,16,0"
+                      Foreground="{DynamicResource PrimaryTextBrush}" />
+            <CheckBox Content="Include subfolders" IsChecked="{Binding IncludeSubfolders}"
+                      Foreground="{DynamicResource PrimaryTextBrush}" />
+        </StackPanel>
+
+        <TextBlock DockPanel.Dock="Bottom" Text="{Binding StatusText}" Margin="0,8,0,0"
+                   Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" />
+
+        <TreeView x:Name="ResultsTree" ItemsSource="{Binding Results}"
+                  BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                  Background="{DynamicResource ChromeBrush}"
+                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                  VirtualizingPanel.IsVirtualizing="True"
+                  SelectedItemChanged="ResultsTree_SelectedItemChanged">
+            <TreeView.ItemContainerStyle>
+                <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
+                    <Setter Property="IsExpanded" Value="True" />
+                    <Setter Property="Padding" Value="2,3" />
+                    <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                </Style>
+            </TreeView.ItemContainerStyle>
+            <TreeView.Resources>
+                <HierarchicalDataTemplate DataType="{x:Type vm:FolderSearchDocumentViewModel}" ItemsSource="{Binding Hits}">
+                    <TextBlock Text="{Binding Header}" FontWeight="SemiBold" ToolTip="{Binding FilePath}"
+                               Foreground="{DynamicResource PrimaryTextBrush}" TextTrimming="CharacterEllipsis" />
+                </HierarchicalDataTemplate>
+                <DataTemplate DataType="{x:Type vm:FolderSearchHitViewModel}">
+                    <Grid MinWidth="200">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="{Binding PageLabel}" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" Margin="0,0,8,0" />
+                        <TextBlock Grid.Column="1" Text="{Binding Snippet}" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding Snippet}" />
+                    </Grid>
+                </DataTemplate>
+            </TreeView.Resources>
+        </TreeView>
+    </DockPanel>
+</Window>
