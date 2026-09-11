@@ -317,7 +317,7 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto"
                           Visibility="{Binding HasTabs, Converter={StaticResource InverseBoolToVisibility}}">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
-                            Width="460" Margin="24,40">
+                            Width="560" Margin="24,40">
                     <Image Source="/DocDr.App;component/Assets/DocDr.png" Width="56" Height="56"
                            HorizontalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality" />
                     <TextBlock Text="DocDr" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center"

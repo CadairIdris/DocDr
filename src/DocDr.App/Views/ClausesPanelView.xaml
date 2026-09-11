@@ -50,23 +50,25 @@
         </TreeView>
 
         <TextBlock Text="Scanning for clause headings…" Foreground="{DynamicResource HintTextBrush}" FontSize="11"
-                   HorizontalAlignment="Center" VerticalAlignment="Top" Margin="10,16"
+                   HorizontalAlignment="Center" VerticalAlignment="Top" Margin="10,16" MaxWidth="180"
                    TextWrapping="Wrap" TextAlignment="Center"
                    Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}" />
 
-        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="12,16"
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="12,16" MaxWidth="190"
                     Visibility="{Binding NotYetScanned, Converter={StaticResource BoolToVisibility}}">
             <TextBlock Foreground="{DynamicResource HintTextBrush}" FontSize="11"
                        TextWrapping="Wrap" TextAlignment="Center"
-                       Text="Detect numbered clause headings (6.4.3, Annex A, …). Best for standards and design codes — a full scan of the document, so it's on demand." />
-            <Button Content="Scan for clause headings" Padding="8,4" Margin="0,10,0,0"
+                       Text="Finds numbered clauses (6.4.3, Annex A, …) and turns references to them into clickable links. Best for standards — it's a full scan, so it's on demand." />
+            <Button Padding="8,4" Margin="0,10,0,0" MaxWidth="170"
                     HorizontalAlignment="Center"
                     Style="{StaticResource {x:Type Button}}"
                     Command="{Binding DataContext.ScanClausesCommand,
-                              RelativeSource={RelativeSource AncestorType=views:NavigationPanelView}}" />
+                              RelativeSource={RelativeSource AncestorType=views:NavigationPanelView}}">
+                <TextBlock Text="Create document links for clauses" TextWrapping="Wrap" TextAlignment="Center" />
+            </Button>
         </StackPanel>
 
-        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="12,16"
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="12,16" MaxWidth="190"
                     Visibility="{Binding IsEmptyResult, Converter={StaticResource BoolToVisibility}}">
             <TextBlock Foreground="{DynamicResource HintTextBrush}" FontSize="11"
                        TextWrapping="Wrap" TextAlignment="Center"
