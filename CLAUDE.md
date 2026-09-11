@@ -466,7 +466,32 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 - App: `NavigationTab.Clauses`, `ClausesViewModel` (background `Task.Run`, continuation on
   `FromCurrentSynchronizationContext`, `Scanned` event, `CancelLoad` on dispose),
   `ClausesPanelView` (TreeView, `SelectedItemChanged` → jump, right-click → `CopyCitationCommand`).
-  Reload on `Document.Changed`.
+- **The scan is on demand, not automatic on open or after every edit.** It used to run
+  unconditionally in `DocumentTabViewModel`'s ctor *and* again on every `Document.Changed`
+  (any rotate/delete/insert/undo) — a full page-by-page `GetPageText` pass competing for the same
+  global PDFium lock as whatever page was actually being rendered, worthwhile for a 400-page
+  Eurocode but wasted (and a real drag on responsiveness) on the other ~95% of documents opened.
+  Now: the ctor only calls `ClausesViewModel.LoadFromCache` when `PdfDocument.CachedClauseStructure`
+  is already set (instant, no scan); `OnDocumentChanged` doesn't rescan at all after a structural
+  edit (matches the outline's existing precedent — page numbers go stale, regenerate manually);
+  and the actual scan (`ClausesViewModel.Load`, unchanged internally) only runs from
+  `DocumentTabViewModel.ScanClausesCommand`, wired to a "Scan for clause headings" button in
+  `ClausesPanelView` (`NotYetScanned` / `IsEmptyResult` states — same `RelativeSource
+  AncestorType=NavigationPanelView` command-reach pattern as the Bookmarks panel's "Generate from
+  headings" button).
+- **`PdfClauseCache`** (`DocDr.Pdf`, internal) caches a scan's `PdfCodeStructure` inside the PDF
+  itself — a private Flate-compressed stream object referenced from the Catalog (`/DocDrClauses`),
+  appended as an incremental update exactly like `PdfOutlineWriter`/`PdfMetadataWriter` (PDFium has
+  no setter for a new Catalog entry either, and the three compose fine in one save — each preserves
+  Catalog keys it doesn't understand). `PdfDocument.SetClauseStructure` (called from
+  `ClausesViewModel.Load`'s continuation, only for a non-empty result) sets `_clauseStructure` and
+  marks the document dirty, same as `SetOutline`; `SaveToBytes` appends it after the outline.
+  `Load` restores `_clauseStructure` straight from the field (not through the dirty-marking
+  setter — it's session state coming back, not a new edit) via `PdfClauseCache.TryRead`, which
+  does one linear byte-scan for the `/DocDrClauses` marker before paying for any string/regex
+  parsing — the overwhelming majority of opens are files with no cache at all, and that has to
+  stay cheap. An empty result is never persisted (nothing to skip a rescan for), and a stale
+  cache (structural edit since the scan) isn't auto-invalidated, same rationale as outline.
 - **`PdfCrossReferences.Scan(doc, page, pageMap)`** finds *cued* clause refs
   (`see|in accordance with|according to|… 8.3.1`), `Annex L` refs, and `Figure 8.5` / `Table 4.3`
   refs in the page's char boxes, maps the match's string offsets back to a union `PdfRect`, and

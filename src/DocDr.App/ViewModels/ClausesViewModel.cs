@@ -60,6 +60,10 @@ public sealed partial class ClausesViewModel : ObservableObject
     /// <summary>True once a scan has finished and found nothing (so we can show the "none" hint).</summary>
     public bool IsEmptyResult => !IsLoading && Roots.Count == 0 && _hasScanned;
 
+    /// <summary>True before the first scan (or cache load) of this session — the panel shows a
+    /// "scan for clause headings" invitation rather than an empty result.</summary>
+    public bool NotYetScanned => !IsLoading && Roots.Count == 0 && !_hasScanned;
+
     private bool _hasScanned;
 
     /// <summary>Raised when a clause is chosen; carries the 0-based page index.</summary>
@@ -68,12 +72,36 @@ public sealed partial class ClausesViewModel : ObservableObject
     /// <summary>Raised on the UI thread when a scan finishes, with the clause tree + caption map.</summary>
     public event Action<PdfCodeStructure>? Scanned;
 
-    /// <summary>(Re)scan the document for clause headings on a background thread.</summary>
+    /// <summary>
+    /// Populate immediately from a structure already cached in the file (see
+    /// <see cref="PdfDocument.CachedClauseStructure"/>) — synchronous, no scan, so it's safe to
+    /// call right when a tab opens without the page-by-page cost <see cref="Load"/> pays.
+    /// </summary>
+    public void LoadFromCache(PdfCodeStructure structure, PdfDocument document)
+    {
+        _sourceName = SourceName(document);
+        Roots.Clear();
+        foreach (PdfClause clause in structure.Clauses)
+        {
+            Roots.Add(new ClauseNodeViewModel(clause, 0, p => PageDisplay.Label(document, p)));
+        }
+
+        _hasScanned = true;
+        IsLoading = false;
+        RaiseState();
+        Scanned?.Invoke(structure);
+    }
+
+    /// <summary>
+    /// Scan the document for clause headings on a background thread — a full page-by-page text
+    /// pass (~5s on a 400-page standard), so this is on-demand (a button in the panel) rather than
+    /// automatic on every open; most documents aren't standards and never need it. A non-empty
+    /// result is cached on <paramref name="document"/> (<see cref="PdfDocument.SetClauseStructure"/>)
+    /// so a later open can skip straight to <see cref="LoadFromCache"/> once saved.
+    /// </summary>
     public void Load(PdfDocument document)
     {
-        _sourceName = document.FilePath is { Length: > 0 } path
-            ? System.IO.Path.GetFileNameWithoutExtension(path)
-            : "this document";
+        _sourceName = SourceName(document);
 
         _load?.Cancel();
         _load?.Dispose();
@@ -100,6 +128,11 @@ public sealed partial class ClausesViewModel : ObservableObject
                     Roots.Add(new ClauseNodeViewModel(clause, 0, p => PageDisplay.Label(document, p)));
                 }
 
+                if (result.Clauses.Count > 0)
+                {
+                    document.SetClauseStructure(result);
+                }
+
                 _hasScanned = true;
                 IsLoading = false;
                 RaiseState();
@@ -109,6 +142,9 @@ public sealed partial class ClausesViewModel : ObservableObject
             TaskContinuationOptions.None,
             TaskScheduler.FromCurrentSynchronizationContext());
     }
+
+    private static string SourceName(PdfDocument document) =>
+        document.FilePath is { Length: > 0 } path ? System.IO.Path.GetFileNameWithoutExtension(path) : "this document";
 
     public void Activate(ClauseNodeViewModel? node)
     {
@@ -139,7 +175,12 @@ public sealed partial class ClausesViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(HasClauses));
         OnPropertyChanged(nameof(IsEmptyResult));
+        OnPropertyChanged(nameof(NotYetScanned));
     }
 
-    partial void OnIsLoadingChanged(bool value) => OnPropertyChanged(nameof(IsEmptyResult));
+    partial void OnIsLoadingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsEmptyResult));
+        OnPropertyChanged(nameof(NotYetScanned));
+    }
 }

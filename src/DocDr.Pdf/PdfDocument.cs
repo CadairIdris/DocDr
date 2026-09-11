@@ -62,6 +62,10 @@ public sealed class PdfDocument : IDisposable
     /// <summary>A DocDr-generated outline that overrides the file's own (if any). Written on save.</summary>
     private IReadOnlyList<PdfBookmark>? _outline;
 
+    /// <summary>A cached <see cref="PdfClauses"/> scan — either read back from a prior save (see
+    /// <see cref="PdfClauseCache"/>) or set after an on-demand scan this session. Written on save.</summary>
+    private PdfCodeStructure? _clauseStructure;
+
     /// <summary>Decoder for image-annotation bytes, used when baking. Set by the app; null = image
     /// annotations are skipped on save.</summary>
     public IImageDecoder? ImageDecoder { get; set; }
@@ -191,6 +195,27 @@ public sealed class PdfDocument : IDisposable
         OutlineChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// A <see cref="PdfClauses"/> scan of this document, if one has ever been done and cached —
+    /// either read back from a prior save (see <see cref="PdfClauseCache"/>) or set this session
+    /// via <see cref="SetClauseStructure"/>. Null means "never scanned"; the Clauses nav panel scans
+    /// on demand rather than on every open (the scan is a full page-by-page text pass — worthwhile
+    /// for a standard, wasted work for most other documents).
+    /// </summary>
+    public PdfCodeStructure? CachedClauseStructure => _clauseStructure;
+
+    /// <summary>
+    /// Cache a clause scan's result so a later open doesn't have to redo it (see
+    /// <see cref="CachedClauseStructure"/>). Applied to the file on the next save; not part of undo.
+    /// A later structural edit is not reflected in these page indices — rescan afterwards.
+    /// </summary>
+    public void SetClauseStructure(PdfCodeStructure structure)
+    {
+        ArgumentNullException.ThrowIfNull(structure);
+        _clauseStructure = structure;
+        SetDirty(true);
+    }
+
     internal FpdfDocumentT Handle =>
         _handle ?? throw new ObjectDisposedException(nameof(PdfDocument));
 
@@ -240,7 +265,10 @@ public sealed class PdfDocument : IDisposable
                         $"PDF reports {pageCount} pages.");
                 }
 
-                return new PdfDocument(handle, pin, path, pageCount);
+                // Restoring session state from a prior save — not a new edit, so set the field
+                // directly rather than through SetClauseStructure (which would mark a freshly
+                // opened, otherwise-untouched document dirty).
+                return new PdfDocument(handle, pin, path, pageCount) { _clauseStructure = PdfClauseCache.TryRead(bytes) };
             }
         }
         catch
@@ -1492,7 +1520,17 @@ public sealed class PdfDocument : IDisposable
             try
             {
                 byte[] bytes = SerialiseCurrentHandle();
-                return _outline is null ? bytes : PdfOutlineWriter.Append(bytes, _outline);
+                if (_outline is not null)
+                {
+                    bytes = PdfOutlineWriter.Append(bytes, _outline);
+                }
+
+                if (_clauseStructure is not null)
+                {
+                    bytes = PdfClauseCache.Append(bytes, _clauseStructure);
+                }
+
+                return bytes;
             }
             finally
             {

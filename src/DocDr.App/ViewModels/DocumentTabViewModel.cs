@@ -58,7 +58,22 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Clauses = new ClausesViewModel();
         Clauses.ClauseActivated += pageIndex => LeftPane.GoToPage(pageIndex + 1);
         Clauses.Scanned += OnClausesScanned;
-        Clauses.Load(document);
+        Clauses.PropertyChanged += (_, ev) =>
+        {
+            if (ev.PropertyName == nameof(ClausesViewModel.HasClauses))
+            {
+                OnPropertyChanged(nameof(CanScanClauses));
+            }
+        };
+
+        // Scanning for clause headings is a full page-by-page text pass (~5s on a 400-page
+        // standard) — worthwhile for a design code, wasted work for most other documents. So it's
+        // on demand (the panel's "Scan for clause headings" button) rather than automatic here;
+        // a document that's already been scanned and saved skips straight to the cached result.
+        if (document.CachedClauseStructure is { } cachedClauses)
+        {
+            Clauses.LoadFromCache(cachedClauses, document);
+        }
 
         Annotations = new AnnotationListViewModel();
         Annotations.Reload(document);
@@ -591,6 +606,13 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>True while nothing's been scanned yet (or the last scan found nothing) — the
+    /// "Scan for clause headings" affordance shows.</summary>
+    public bool CanScanClauses => !Clauses.HasClauses;
+
+    [RelayCommand]
+    private void ScanClauses() => Clauses.Load(Document);
+
     [RelayCommand(CanExecute = nameof(CanUndo))]
     private void Undo() => Document.Undo();
 
@@ -715,7 +737,9 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         RightPane.ReloadPages(sizes);
         Thumbnails.Reload(sizes);
         Bookmarks.Reload(Document.GetOutline(), PageLabelFor);
-        Clauses.Load(Document);
+        // Clauses are deliberately NOT rescanned here — like the outline, a structural edit leaves
+        // an already-scanned tree's page numbers stale rather than paying for a full rescan on
+        // every rotate/delete/insert; the user can hit "Scan for clause headings" again if needed.
         Annotations.Reload(Document);
         Thumbnails.SetCurrentPage(LeftPane.CurrentPage);
 
