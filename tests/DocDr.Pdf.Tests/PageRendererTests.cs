@@ -55,34 +55,50 @@ public sealed class PageRendererTests
     }
 
     [Fact]
-    public void CachingPageRenderer_returns_same_instance_for_repeat_request()
+    public void RenderInto_writes_the_same_pixels_as_Render_into_caller_memory()
     {
         using var ws = new TempWorkspace();
-        string path = TestPdfBuilder.WritePdf(ws.Path("cache.pdf"), ["a", "b"]);
+        string path = TestPdfBuilder.WritePdf(ws.Path("into.pdf"), ["a", "The quick brown fox"]);
         using var doc = PdfDocument.Load(path);
-        var cache = new CachingPageRenderer(new PageRenderer());
+        var renderer = new PageRenderer();
+        const int w = 200, h = 260;
 
-        RenderedPage first = cache.Render(doc, 1, 200, 260);
-        RenderedPage second = cache.Render(doc, 1, 200, 260);
-        RenderedPage differentSize = cache.Render(doc, 1, 201, 260);
+        RenderedPage reference = renderer.Render(doc, 1, w, h);
 
-        Assert.Same(first, second);
-        Assert.NotSame(first, differentSize);
+        // A padded stride, as a bitmap back buffer may have one.
+        int stride = (w * 4) + 16;
+        IntPtr buffer = System.Runtime.InteropServices.Marshal.AllocHGlobal(stride * h);
+        try
+        {
+            renderer.RenderInto(doc, 1, w, h, buffer, stride);
+
+            var row = new byte[w * 4];
+            for (int y = 0; y < h; y++)
+            {
+                System.Runtime.InteropServices.Marshal.Copy(buffer + (y * stride), row, 0, row.Length);
+                for (int x = 0; x < w; x++)
+                {
+                    int o = x * 4, r = (y * reference.Stride) + o; // compare B, G, R — the 4th byte is unused
+                    Assert.Equal(reference.Pixels[r], row[o]);
+                    Assert.Equal(reference.Pixels[r + 1], row[o + 1]);
+                    Assert.Equal(reference.Pixels[r + 2], row[o + 2]);
+                }
+            }
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.FreeHGlobal(buffer);
+        }
     }
 
     [Fact]
-    public void CachingPageRenderer_evicts_beyond_entry_budget()
+    public void RenderInto_rejects_a_stride_narrower_than_a_row()
     {
         using var ws = new TempWorkspace();
-        string path = TestPdfBuilder.WritePdf(ws.Path("evict.pdf"), ["a", "b", "c"]);
-        using var doc = PdfDocument.Load(path);
-        var cache = new CachingPageRenderer(new PageRenderer(), maxEntries: 2);
+        using var doc = PdfDocument.Load(TestPdfBuilder.WritePdf(ws.Path("s.pdf"), ["a"]));
 
-        RenderedPage p0 = cache.Render(doc, 0, 100, 130);
-        cache.Render(doc, 1, 100, 130);
-        cache.Render(doc, 2, 100, 130); // evicts page 0 (least recently used)
-
-        Assert.NotSame(p0, cache.Render(doc, 0, 100, 130));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new PageRenderer().RenderInto(doc, 0, 100, 100, new IntPtr(1), stride: 399));
     }
 
     private static bool HasNonWhitePixel(RenderedPage page)

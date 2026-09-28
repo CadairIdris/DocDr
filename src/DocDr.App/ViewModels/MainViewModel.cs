@@ -22,13 +22,13 @@ namespace DocDr.App.ViewModels;
 public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
     private readonly BackgroundRenderQueue _renderQueue;
-    private readonly CachingPageRenderer _cache;
+    private readonly PageImageService _images;
     private readonly AppSettings _settings;
 
-    public MainViewModel(BackgroundRenderQueue renderQueue, CachingPageRenderer cache, AppSettings settings)
+    public MainViewModel(BackgroundRenderQueue renderQueue, PageImageService images, AppSettings settings)
     {
         _renderQueue = renderQueue;
-        _cache = cache;
+        _images = images;
         _settings = settings;
         AnnotationColors.CustomColorArgb = settings.LastCustomColor;
         Tabs.CollectionChanged += OnTabsChanged;
@@ -206,7 +206,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         var tab = new DocumentTabViewModel(
             UniqueTitle(title), document, document.GetPageSizes(), document.GetOutline(),
-            _renderQueue, _cache);
+            _renderQueue, _images);
         tab.CloseRequested += (_, _) => CloseTab(tab);
         tab.CustomColorChanged += argb =>
         {

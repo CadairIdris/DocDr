@@ -21,7 +21,7 @@ namespace DocDr.App.ViewModels;
 /// </summary>
 public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 {
-    private readonly CachingPageRenderer _cache;
+    private readonly PageImageService _images;
     private string _baseTitle;
 
     public DocumentTabViewModel(
@@ -30,11 +30,11 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         IReadOnlyList<PdfSize> pageSizes,
         IReadOnlyList<PdfBookmark> bookmarks,
         BackgroundRenderQueue queue,
-        CachingPageRenderer cache)
+        PageImageService images)
     {
         _baseTitle = title;
         Document = document;
-        _cache = cache;
+        _images = images;
 
         LeftPane = new PdfPaneViewModel("Left", document, pageSizes, queue);
         RightPane = new PdfPaneViewModel("Right", document, pageSizes, queue);
@@ -730,7 +730,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
     private void OnDocumentChanged(object? sender, EventArgs e) => RunOnUi(() =>
     {
-        _cache.Purge(Document);
+        _images.Purge(Document);
         IReadOnlyList<PdfSize> sizes = Document.GetPageSizes();
 
         LeftPane.ReloadPages(sizes);
@@ -895,7 +895,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Clauses.CancelLoad();
         LeftPane.Dispose();
         RightPane.Dispose();
-        _cache.Purge(Document);
+        _images.Purge(Document);
         Document.Dispose();
     }
 }

@@ -49,13 +49,13 @@ public partial class App : Application
 
         PdfiumLibrary.EnsureInitialized();
 
-        // Page bitmaps are raw BGRA (~4-6 MB each at 150 % DPI). 128 MB still keeps ~20 A4 pages
-        // hot for instant re-scroll; more just inflates the working set on a long standard.
-        var cache = new CachingPageRenderer(new PageRenderer(), maxEntries: 48, maxBytes: 128L * 1024 * 1024);
-        var imageService = new PageImageService(cache);
+        // Page bitmaps are ~4-6 MB each at 150 % DPI. 128 MB still keeps ~20 A4 pages hot for
+        // instant re-scroll; more just inflates the working set on a long standard. The cache holds
+        // the same frozen bitmaps the page slots display, so on-screen pages count once.
+        var imageService = new PageImageService(new PageRenderer(), cacheEntries: 48, cacheBytes: 128L * 1024 * 1024);
         var renderQueue = new BackgroundRenderQueue(imageService, Dispatcher);
 
-        _mainViewModel = new MainViewModel(renderQueue, cache, settings);
+        _mainViewModel = new MainViewModel(renderQueue, imageService, settings);
 
         var window = new MainWindow { DataContext = _mainViewModel };
         MainWindow = window;
@@ -70,7 +70,7 @@ public partial class App : Application
                 proc.Refresh();
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
-                (int entries, long bytes) = cache.Stats;
+                (int entries, long bytes) = imageService.CacheStats;
                 int slotImages = 0, tabs = 0, thumbs = 0;
                 foreach (DocumentTabViewModel tab in _mainViewModel.Tabs)
                 {

@@ -139,6 +139,20 @@ public sealed class PdfDocument : IDisposable
     /// <summary>Raised (on the calling thread) after any edit, undo, or redo changes the pages.</summary>
     public event EventHandler? Changed;
 
+    private int _contentVersion;
+
+    /// <summary>Bumped every time <see cref="Changed"/> is raised (page edits, rotation, trim,
+    /// watermark strip, OCR, undo/redo of any of those) — i.e. whenever a page's rendered pixels
+    /// may differ. A render cache keys on it so a render that was already in flight when the pages
+    /// changed can't be served afterwards as if it showed the new content.</summary>
+    public int ContentVersion => Volatile.Read(ref _contentVersion);
+
+    private void RaiseChanged()
+    {
+        Interlocked.Increment(ref _contentVersion);
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
     /// <summary>Raised when <see cref="IsDirty"/> changes.</summary>
     public event EventHandler? DirtyChanged;
 
@@ -905,7 +919,7 @@ public sealed class PdfDocument : IDisposable
         _cropOrigins = null;
         _pageLabels = null;
         SetDirty(true);
-        Changed?.Invoke(this, EventArgs.Empty);
+        RaiseChanged();
     }
 
     /// <summary>Replace every source and the live handle with a freshly loaded copy of <paramref name="bytes"/>.
@@ -1085,7 +1099,7 @@ public sealed class PdfDocument : IDisposable
         _cropOrigins = null;
         _pageLabels = null;
         SetDirty(true);
-        Changed?.Invoke(this, EventArgs.Empty);
+        RaiseChanged();
 
         return new OcrResult(pagesProcessed, total - candidates.Count, wordsAdded);
     }
@@ -1187,7 +1201,7 @@ public sealed class PdfDocument : IDisposable
         _cropOrigins = null;
         _pageLabels = null;
         SetDirty(true);
-        Changed?.Invoke(this, EventArgs.Empty);
+        RaiseChanged();
     }
 
     private void ApplyHistoryResult(HistoryResult result)
@@ -1203,7 +1217,7 @@ public sealed class PdfDocument : IDisposable
             _pageSizes = null;
             _cropOrigins = null;
             _pageLabels = null;
-            Changed?.Invoke(this, EventArgs.Empty);
+            RaiseChanged();
         }
 
         AnnotationsChanged?.Invoke(this, new AnnotationsChangedEventArgs(-1));
