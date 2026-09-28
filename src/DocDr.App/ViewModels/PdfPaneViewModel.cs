@@ -3291,6 +3291,16 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         int fullW = (int)Math.Round(slot.LayoutWidth * ds);
         int fullH = (int)Math.Round(slot.LayoutHeight * ds);
 
+        // The tile is padded (below) precisely so small scrolls stay inside it — so while the tile
+        // on screen covers the visible rect plus a little margin, there's nothing to do.
+        // Re-rendering on every scroll stop, as this used to (any pixel of movement changed the
+        // tile's offset), cost a render of up to MaxRenderEdge² for a view that already looked right.
+        if (slot.DetailImage is not null
+            && DetailTileCovers(slot.DetailShownKey, fullW, fullH, regionDip, slot.LayoutWidth, slot.LayoutHeight, ds))
+        {
+            return;
+        }
+
         // Pad the visible rect so a small scroll doesn't immediately expose the soft base layer.
         const double padDip = 120;
         double x0 = Math.Clamp(regionDip.X - padDip, 0, slot.LayoutWidth);
@@ -3334,6 +3344,29 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         });
     }
 
+    /// <summary>Whether a detail tile (<paramref name="tileKey"/> = offsetX, offsetY, tileW, tileH,
+    /// fullW, fullH in device px) rendered for the current full page size still covers the visible
+    /// <paramref name="regionDip"/> plus a small margin (clamped to the page, since the tile is too).</summary>
+    internal static bool DetailTileCovers(
+        (int, int, int, int, int, int) tileKey, int fullW, int fullH,
+        System.Windows.Rect regionDip, double pageWidthDip, double pageHeightDip, double deviceScale)
+    {
+        (int kx, int ky, int kw, int kh, int kfw, int kfh) = tileKey;
+        if (kw <= 0 || kh <= 0 || kfw != fullW || kfh != fullH)
+        {
+            return false; // no tile, or one rendered for a different zoom / DPI
+        }
+
+        const double marginDip = 32;
+        double x0 = Math.Clamp(regionDip.X - marginDip, 0, pageWidthDip) * deviceScale;
+        double y0 = Math.Clamp(regionDip.Y - marginDip, 0, pageHeightDip) * deviceScale;
+        double x1 = Math.Clamp(regionDip.Right + marginDip, 0, pageWidthDip) * deviceScale;
+        double y1 = Math.Clamp(regionDip.Bottom + marginDip, 0, pageHeightDip) * deviceScale;
+
+        const double slop = 0.5; // the tile's edges were rounded to whole pixels
+        return x0 >= kx - slop && y0 >= ky - slop && x1 <= kx + kw + slop && y1 <= ky + kh + slop;
+    }
+
     private void OnDetailRendered(
         int pageIndex, (int, int, int, int, int, int) key,
         double left, double top, double width, double height, ImageSource image)
@@ -3353,6 +3386,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         slot.DetailTop = top;
         slot.DetailWidth = width;
         slot.DetailHeight = height;
+        slot.DetailShownKey = key;
         slot.DetailImage = image;
     }
 

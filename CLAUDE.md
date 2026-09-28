@@ -14,7 +14,8 @@ PDF viewer/editor/cataloguer for Windows. WPF + PDFium. Staged build — spec in
 
 - **All PDFium access is serialised through `PdfiumLibrary.SyncRoot`** (via `PdfDocument.Locked`).
   The `pdfium-binaries` build is not thread-safe across documents. Never bypass this.
-- `DocDr.Pdf` stays WPF-free — it returns raw BGRA buffers (`RenderedPage`) and plain geometry
+- `DocDr.Pdf` stays WPF-free — it returns raw BGRx buffers (`RenderedPage`, or `PageRenderer.RenderInto`
+  caller-owned memory) and plain geometry
   structs. Bitmap/`ImageSource` creation lives in `DocDr.App` (`PageImageService`).
 - The SQLite catalog (Stage 5) is the source of truth for user metadata, not the PDF itself.
 
@@ -255,7 +256,7 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   The model (`tessdata_fast/eng`, ~4 MB) is committed at `src/DocDr.Ocr/tessdata/eng.traineddata`
   and copied next to the app. `OcrWord` boxes are in **rendered-image pixel space** (top-left
   origin). One engine instance is not thread-safe — the app makes one per run and disposes it.
-- `TesseractOcrEngine.Recognise` encodes the BGRA `RenderedPage` as an in-memory 24-bit BMP
+- `TesseractOcrEngine.Recognise` encodes the BGRx `RenderedPage` as an in-memory 24-bit BMP
   (`BmpWriter` — Leptonica reads BMP from memory; PNG needs an encoder we don't have), then
   walks `page.Layout` → `Block` → `Paragraph` → `TextLine` → `Word`. `user_defined_dpi` is set
   to 300 so Tesseract doesn't warn/guess.
@@ -410,11 +411,22 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 - **The worker `catch`es every per-request exception and keeps looping** — an uncaught throw
   there kills the worker and *every* page then renders blank forever (this was a real bug:
   extreme zoom → a `new byte[stride*height]` of hundreds of MB → `OutOfMemoryException` → dead worker).
-- `CachingPageRenderer` (the raw-BGRA LRU below the queue) is capped at **128 MB** — page
-  bitmaps are ~4-6 MB each at 150 % DPI, so 128 MB keeps ~20 hot; more just inflates the
-  working set on a long standard. Keyed by `(document, page, w, h)`; `Purge(doc)` on tab close.
-  A single render bigger than a third of the budget (a page at extreme zoom) **bypasses the
-  cache** — caching it would evict a run of reusable normal pages; the slot still holds it.
+- **The page cache holds finished, frozen `BitmapSource`s** — `PageImageService`'s
+  `SizedLruCache<PageImageKey, BitmapSource>` (the LRU itself is generic and WPF-free in
+  `DocDr.Pdf`, so it's unit-tested there). These are the very objects the page slots display, so an
+  on-screen page is held once and a hit is free (no copy, no allocation). It replaced
+  `CachingPageRenderer`, a raw-BGRA LRU *below* `PageImageService` that held every visible page
+  twice (cached buffer + its `BitmapSource` copy) and re-copied on every hit. Capped at **128 MB /
+  48 entries** — page bitmaps are ~4-6 MB each at 150 % DPI, so ~20 stay hot. `Purge(doc)` on tab
+  close / `Document.Changed`. A single render bigger than a third of the budget (a page at extreme
+  zoom) **isn't cached** — it would evict a run of reusable normal pages; the slot still holds it.
+- **`PageImageKey` includes `PdfDocument.ContentVersion`** (bumped by `RaiseChanged`, i.e. on every
+  `Changed`). Without it, a render in flight when a page edit purges the cache could land *after*
+  the purge and then be served as the edited page (stale rotation / wrong page after a delete).
+- **A cache-miss render goes PDFium → `Marshal.AllocHGlobal` scratch (`PageRenderer.RenderInto`)
+  → `BitmapSource.Create(IntPtr…)` → freed.** No per-render managed `byte[]` (each was a multi-MB
+  LOH allocation for the GC to clean up). The scratch is per call, not pooled, so the short-lived
+  print / watermark-preview `PageImageService`s (no cache) have nothing to leak.
 - `MaxRenderEdge` is **4800**: the long-edge cap on a full-page bitmap. Reading zoom renders
   1:1 (`PageImageService` bakes `96 × deviceScale` DPI into the `BitmapSource` so its DIP size
   equals the on-screen box — no WPF resample); `PageRenderer` uses greyscale AA, not `LcdText`,
@@ -427,8 +439,11 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   up-left offset); `PageRenderer` draws the whole page at full size shifted so only that slice
   lands in the buffer (`FPDF_RenderPageBitmap` with negative `start_x/y`). Result → `PageSlot
   ViewModel.DetailImage` + `DetailLeft/Top/Width/Height`, laid over the soft base `Image` in a
-  `Canvas`. `CachingPageRenderer` passes region renders straight through (scroll-transient, no
-  point caching). Cleared on zoom / device-scale / reload / page leaving the visible range
+  `Canvas`. `PageImageService` never caches region renders (scroll-transient, no point).
+  **A scroll that stays inside the tile on screen doesn't re-render** — `DetailTileCovers` checks
+  the visible rect + 32 DIP against `PageSlotViewModel.DetailShownKey` (the *delivered* tile — a
+  merely requested one can be dropped by `_queue.Clear()`, so it isn't trusted); the tile is padded
+  120 DIP, so small scrolls cost nothing. It used to re-render on every scroll stop. Cleared on zoom / device-scale / reload / page leaving the visible range
   (`ClearAllDetail` / `ClearPageDetailRegion`). Continuous + SinglePage only, not Grid/TwoPage.
 - **Text I-beam on hover:** `PdfPaneView.UpdateHoverCursor` (from `PageList_MouseMove` when no
   button is down) hit-tests `PdfPaneViewModel.IsOverText` (the page's char boxes) and sets

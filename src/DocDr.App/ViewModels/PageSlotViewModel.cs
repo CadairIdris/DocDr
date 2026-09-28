@@ -71,6 +71,11 @@ public sealed partial class PageSlotViewModel : ObservableObject
     /// viewport hasn't really moved.</summary>
     internal (int, int, int, int, int, int) DetailRequestKey { get; set; }
 
+    /// <summary>The <see cref="DetailRequestKey"/> of the tile actually on screen in
+    /// <see cref="DetailImage"/> (meaningful only while that's non-null). A requested tile can
+    /// still be dropped from the render queue, so only a delivered one is trusted to cover the view.</summary>
+    internal (int, int, int, int, int, int) DetailShownKey { get; set; }
+
     [ObservableProperty]
     private IReadOnlyList<HighlightRect> _highlights = [];
 
