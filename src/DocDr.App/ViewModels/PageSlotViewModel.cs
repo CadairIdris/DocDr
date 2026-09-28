@@ -40,6 +40,13 @@ public sealed partial class PageSlotViewModel : ObservableObject
     /// <summary>Pixel width the current <see cref="Image"/> was rendered at (0 if none).</summary>
     public int RenderedPixelWidth { get; set; }
 
+    /// <summary>True when <see cref="Image"/> maps exactly one bitmap pixel to one device pixel of
+    /// the current layout box — the view then draws it nearest-neighbour, so a sub-pixel layout
+    /// or scroll offset can't soften the glyphs. False while it's being stretched (mid zoom
+    /// gesture, stale size, or capped at the render limit), when a smoothing filter is wanted.</summary>
+    [ObservableProperty]
+    private bool _isPixelExact;
+
     /// <summary>A crisp native-resolution render of just the on-screen slice of this page, laid over
     /// the (size-capped, upscaled) <see cref="Image"/> when the zoom is past the render cap. Null
     /// otherwise.</summary>

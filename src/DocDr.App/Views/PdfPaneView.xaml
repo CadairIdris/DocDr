@@ -98,15 +98,29 @@
                         <DropShadowEffect BlurRadius="6" ShadowDepth="0" Opacity="0.3" />
                     </Border.Effect>
                 </Border>
-                <Image Source="{Binding Image}" Stretch="Fill"
-                       RenderOptions.BitmapScalingMode="HighQuality" />
+                <!-- A 1:1 bitmap is drawn nearest-neighbour: any smoothing filter can only blur it
+                     (a sub-pixel layout or scroll offset gets interpolated across neighbouring
+                     pixels). Stretched mid-zoom or past the render cap, smooth it instead. -->
+                <Image Source="{Binding Image}" Stretch="Fill">
+                    <Image.Style>
+                        <Style TargetType="Image">
+                            <Setter Property="RenderOptions.BitmapScalingMode" Value="HighQuality" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsPixelExact}" Value="True">
+                                    <Setter Property="RenderOptions.BitmapScalingMode" Value="NearestNeighbor" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Image.Style>
+                </Image>
                 <!-- Crisp native-resolution render of the on-screen slice, over the soft base
-                     image when zoomed past the render cap. -->
+                     image when zoomed past the render cap. Always 1:1 (it's sized and placed in
+                     whole device pixels, and dropped on any zoom), hence nearest-neighbour. -->
                 <Canvas>
                     <Image Source="{Binding DetailImage}" Stretch="Fill"
                            Canvas.Left="{Binding DetailLeft}" Canvas.Top="{Binding DetailTop}"
                            Width="{Binding DetailWidth}" Height="{Binding DetailHeight}"
-                           RenderOptions.BitmapScalingMode="HighQuality"
+                           RenderOptions.BitmapScalingMode="NearestNeighbor"
                            Visibility="{Binding DetailImage, Converter={StaticResource NotNullToVisibility}}" />
                 </Canvas>
                 <ItemsControl ItemsSource="{Binding Highlights}" IsHitTestVisible="False">

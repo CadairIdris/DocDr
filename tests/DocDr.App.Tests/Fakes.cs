@@ -14,6 +14,21 @@ internal sealed class FakeRenderQueue : IRenderQueue
     public void Enqueue(RenderRequest request) => Enqueued.Add(request);
 
     public void Clear() => ClearCount++;
+
+    /// <summary>Requests a <see cref="RemoveWhere"/> call dropped. <see cref="Enqueued"/> is left
+    /// intact — it's the record of everything that was ever asked for.</summary>
+    public List<RenderRequest> Removed { get; } = [];
+
+    public void RemoveWhere(Func<RenderRequest, bool> predicate)
+    {
+        foreach (RenderRequest r in Enqueued)
+        {
+            if (!Removed.Contains(r) && predicate(r))
+            {
+                Removed.Add(r);
+            }
+        }
+    }
 }
 
 /// <summary>Captures the last edit / delete the format toolbar drove, and hands back a fixed

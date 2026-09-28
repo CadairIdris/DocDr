@@ -8,4 +8,9 @@ public interface IRenderQueue
     void Enqueue(RenderRequest request);
 
     void Clear();
+
+    /// <summary>Drop queued-but-not-started requests matching <paramref name="predicate"/> (e.g. pages
+    /// that have scrolled out of view). A render already in progress is unaffected. The predicate
+    /// runs synchronously on the caller's thread.</summary>
+    void RemoveWhere(Func<RenderRequest, bool> predicate);
 }

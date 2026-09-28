@@ -7,7 +7,7 @@ namespace DocDr.App.Services;
 /// <summary>
 /// Turns a PDFium page into a frozen, cross-thread-usable <see cref="ImageSource"/>.
 /// <para>
-/// PDFium rasterises straight into a tightly packed BGRA32 buffer (the spec's "render into a
+/// PDFium rasterises straight into a tightly packed 32-bit BGRx buffer (the spec's "render into a
 /// pixel buffer, not System.Drawing.Bitmap" constraint); we wrap that buffer in a
 /// <see cref="BitmapSource"/> and freeze it so the background thread can hand it to the UI.
 /// </para>
@@ -35,7 +35,7 @@ public sealed class PageImageService
             page.PixelHeight,
             dpi,
             dpi,
-            PixelFormats.Bgra32,
+            PixelFormats.Bgr32, // opaque BGRx straight from PDFium — no alpha to convert or blend
             palette: null,
             page.Pixels,
             page.Stride);

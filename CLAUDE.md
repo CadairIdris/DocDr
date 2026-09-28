@@ -437,6 +437,30 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   every page the pointer crosses.
 - `CappedRenderSize` is used for both the enqueue size and the `OnPageRendered` stale check, so
   they agree.
+- **Page bitmaps are opaque `Bgrx` → WPF `Bgr32`, not `Bgra`/`Bgra32`.** A page is always painted
+  on white, so alpha only cost: slower PDFium compositing, a WPF format conversion on upload, and
+  alpha blending every frame. `RenderedPage.Pixels` is BGRx — every consumer (trim margins, OCR's
+  `BmpWriter`, tests) reads only B/G/R. (`PdfStampAppearance`'s image-object bitmap is separate and
+  stays `Bgra` — that one genuinely needs alpha.)
+- **`PageSlotViewModel.IsPixelExact`** (set via `PdfPaneViewModel.SetLayoutSize` — every layout
+  path goes through it — and `OnPageRendered`): the bitmap was rendered at the box's full
+  device-pixel size and isn't capped. The page `Image` then switches to
+  `BitmapScalingMode=NearestNeighbor` (a style `DataTrigger`), so a sub-pixel layout/scroll offset
+  can't be interpolated into blur; `HighQuality` otherwise (mid zoom gesture, stale size, capped).
+  The detail tile is always 1:1, so it's `NearestNeighbor` outright.
+- **Queued renders for pages outside the realised window are dropped** —
+  `UpdateVisibleRange` calls `IRenderQueue.RemoveWhere(owner == this && page outside [first,last])`.
+  Without it a fast fling left the worker rasterising every page it passed (holding the global lock)
+  before reaching the one on screen. Thumbnails have a different `Owner`, so they're untouched.
+- **No PDFium reads on the UI thread for overlays.** `BuildLinkOverlays` draws only what's cached
+  and hands missing pages to `LoadLinkDataAsync` (`PdfLinks.Read` + `PdfCrossReferences.Scan` in a
+  `Task.Run`, resumes on the UI thread to fill `_linkCache`/`_crossRefCache`, then rebuilds). The
+  hover I-beam's `IsOverText` likewise returns false on a char-box cache miss and kicks off
+  `PrefetchCharBoxesAsync`. Both used to read inline, and so waited on `SyncRoot` behind whatever
+  page the render worker was rasterising — a scroll/hover stall. `_pageDataGeneration` (bumped by
+  `InvalidatePageDataLoads` in `ReloadPages` / `SetClausePageMap`) makes a stale result drop itself.
+  Selection / copy / annotation paths still call `CharBoxes` synchronously (by then hover has
+  usually warmed the cache).
 - **Visible-range detection reads WPF's realised containers only — there is no parallel height
   model.** `PdfPaneView.VisiblePageRange()` walks `PageList.Items` → `ContainerFromItem` → the
   containers that actually intersect the viewport (`TransformToVisual(scrollViewer)` + `ActualHeight`),

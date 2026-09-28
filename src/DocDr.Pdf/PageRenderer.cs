@@ -3,7 +3,8 @@ using PDFiumCore;
 
 namespace DocDr.Pdf;
 
-/// <summary>A rasterised page: a tightly-packed BGRA32 (premultiplied-alpha-free, opaque) buffer.</summary>
+/// <summary>A rasterised page: a tightly-packed 32-bit BGRx buffer (B, G, R, then an unused
+/// fourth byte — the page is always opaque, so there is no alpha channel to honour).</summary>
 public sealed class RenderedPage
 {
     public RenderedPage(int pageIndex, int pixelWidth, int pixelHeight, int stride, byte[] pixels)
@@ -22,7 +23,7 @@ public sealed class RenderedPage
     /// <summary>Row length in bytes (<see cref="PixelWidth"/> * 4).</summary>
     public int Stride { get; }
 
-    /// <summary>BGRA, top row first. Length is <see cref="Stride"/> * <see cref="PixelHeight"/>.</summary>
+    /// <summary>BGRx, top row first. Only the first three bytes of each pixel are meaningful. Length is <see cref="Stride"/> * <see cref="PixelHeight"/>.</summary>
     public byte[] Pixels { get; }
 
     public long ByteCount => Pixels.LongLength;
@@ -37,7 +38,7 @@ public readonly record struct PageRenderRegion(int FullWidth, int FullHeight, in
 
 public interface IPageRenderer
 {
-    /// <summary>Render one page to a BGRA buffer of exactly <paramref name="pixelWidth"/> x
+    /// <summary>Render one page to a BGRx buffer of exactly <paramref name="pixelWidth"/> x
     /// <paramref name="pixelHeight"/>. With <paramref name="region"/> set, only that slice of the
     /// (notionally much larger) page lands in the buffer.</summary>
     RenderedPage Render(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, CancellationToken cancellationToken = default, PageRenderRegion? region = null);
@@ -56,6 +57,12 @@ public sealed class PageRenderer : IPageRenderer
     // fit sizes, DPI). LCD subpixel edges only look right blitted 1:1 to the panel — resampled
     // they smear into visible fuzz and colour fringing. Greyscale AA resamples cleanly.
     private const PdfiumRenderFlags DefaultFlags = PdfiumRenderFlags.Annotations;
+
+    // Opaque BGRx, not BGRA. A page is always painted onto opaque white, so an alpha channel buys
+    // nothing and costs twice: PDFium's compositing paths for an alpha bitmap are slower, and the
+    // App would otherwise hand WPF a Bgra32 image that it format-converts on upload and then
+    // alpha-blends on every frame. (PDFium also only permits LCD text on a bitmap without alpha.)
+    private const PdfiumBitmapFormat BitmapFormat = PdfiumBitmapFormat.Bgrx;
 
     public RenderedPage Render(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, CancellationToken cancellationToken = default, PageRenderRegion? region = null)
     {
@@ -86,7 +93,7 @@ public sealed class PageRenderer : IPageRenderer
             try
             {
                 FpdfBitmapT? bitmap = fpdfview.FPDFBitmapCreateEx(
-                    pixelWidth, pixelHeight, (int)PdfiumBitmapFormat.Bgra,
+                    pixelWidth, pixelHeight, (int)BitmapFormat,
                     pinned.AddrOfPinnedObject(), stride);
                 if (bitmap is null || bitmap.__Instance == IntPtr.Zero)
                 {
