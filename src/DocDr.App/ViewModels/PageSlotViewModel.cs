@@ -37,8 +37,21 @@ public sealed partial class PageSlotViewModel : ObservableObject
     [ObservableProperty]
     private ImageSource? _image;
 
+    /// <summary>A low-resolution stand-in (the thumbnail-sized render) stretched over the page box
+    /// until <see cref="Image"/> first arrives, so a page scrolled into view shows its layout
+    /// straight away instead of sitting blank white. Cleared once the real image lands.</summary>
+    [ObservableProperty]
+    private ImageSource? _placeholderImage;
+
     /// <summary>Pixel width the current <see cref="Image"/> was rendered at (0 if none).</summary>
     public int RenderedPixelWidth { get; set; }
+
+    /// <summary>True when <see cref="Image"/> maps exactly one bitmap pixel to one device pixel of
+    /// the current layout box — the view then draws it nearest-neighbour, so a sub-pixel layout
+    /// or scroll offset can't soften the glyphs. False while it's being stretched (mid zoom
+    /// gesture, stale size, or capped at the render limit), when a smoothing filter is wanted.</summary>
+    [ObservableProperty]
+    private bool _isPixelExact;
 
     /// <summary>A crisp native-resolution render of just the on-screen slice of this page, laid over
     /// the (size-capped, upscaled) <see cref="Image"/> when the zoom is past the render cap. Null
@@ -63,6 +76,11 @@ public sealed partial class PageSlotViewModel : ObservableObject
     /// (offsetX, offsetY, tileW, tileH, fullW, fullH) in device px. Skips a re-request when the
     /// viewport hasn't really moved.</summary>
     internal (int, int, int, int, int, int) DetailRequestKey { get; set; }
+
+    /// <summary>The <see cref="DetailRequestKey"/> of the tile actually on screen in
+    /// <see cref="DetailImage"/> (meaningful only while that's non-null). A requested tile can
+    /// still be dropped from the render queue, so only a delivered one is trusted to cover the view.</summary>
+    internal (int, int, int, int, int, int) DetailShownKey { get; set; }
 
     [ObservableProperty]
     private IReadOnlyList<HighlightRect> _highlights = [];

@@ -81,6 +81,22 @@ public sealed class BackgroundRenderQueue : IDisposable, IRenderQueue
         }
     }
 
+    public ImageSource? TryGetCached(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, double deviceScale) =>
+        _images.TryGetCached(document, pageIndex, pixelWidth, pixelHeight, deviceScale);
+
+    public void RemoveWhere(Func<RenderRequest, bool> predicate)
+    {
+        lock (_gate)
+        {
+            foreach (RenderKey key in _pending
+                         .Where(kv => predicate(kv.Value.Request))
+                         .Select(kv => kv.Key).ToList())
+            {
+                _pending.Remove(key);
+            }
+        }
+    }
+
     /// <summary>A queued render that <see cref="Clear"/> drops: a full-size page render (which goes
     /// stale on a zoom / document swap), as opposed to a fixed-size thumbnail.</summary>
     internal static bool IsStalePageRender(RenderRequest request) => request.PixelWidth > ThumbnailPixelWidth;

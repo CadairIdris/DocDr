@@ -6,6 +6,29 @@ public sealed class PdfEditingTests
         PdfDocument.Load(TestPdfBuilder.WritePdf(ws.Path(name), pageLines));
 
     [Fact]
+    public void ContentVersion_moves_with_every_page_change_but_not_with_annotation_edits()
+    {
+        using var ws = new TempWorkspace();
+        using var doc = Make(ws, "v.pdf", "one", "two");
+        int changedEvents = 0;
+        doc.Changed += (_, _) => changedEvents++;
+        int v0 = doc.ContentVersion;
+
+        doc.RotatePages([0], PdfRotation.Clockwise90);
+        int v1 = doc.ContentVersion;
+        doc.Undo();
+        int v2 = doc.ContentVersion;
+
+        Assert.True(v1 > v0);
+        Assert.True(v2 > v1);
+        Assert.Equal(v2 - v0, changedEvents); // one bump per Changed, raised before the handlers run
+
+        // Annotations are overlay-only (never on the rendered page), so they don't invalidate renders.
+        doc.AddAnnotation(0, PdfAnnotation.NewRectangle(new PdfRect(10, 60, 60, 10), 0xFF2244AA));
+        Assert.Equal(v2, doc.ContentVersion);
+    }
+
+    [Fact]
     public void Rotate_swaps_page_size_and_undoes()
     {
         using var ws = new TempWorkspace();

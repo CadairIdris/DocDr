@@ -115,6 +115,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         _charBoxOrder.Clear();
         _linkCache.Clear();
         _crossRefCache.Clear();
+        InvalidatePageDataLoads();
         ClearTextSelection();
         _detailTimer?.Stop();
         _detailRegions.Clear();
@@ -305,7 +306,9 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             else if ((i < keepFrom || i > keepTo) && Pages[i].Image is not null)
             {
                 Pages[i].Image = null;
+                Pages[i].PlaceholderImage = null;
                 Pages[i].RenderedPixelWidth = 0;
+                Pages[i].IsPixelExact = false;
             }
 
             if (!visible && Pages[i].DetailImage is not null)
@@ -313,6 +316,12 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                 ClearPageDetailRegion(i);
             }
         }
+
+        // Renders queued for pages that have since scrolled out of the window are dead weight:
+        // the worker would still rasterise each one (holding the global PDFium lock) only for the
+        // result to be thrown away, and after a fast fling through a long document that backlog
+        // delays the page actually on screen. Drop them; a page coming back re-requests itself.
+        _queue.RemoveWhere(r => r.Owner == this && (r.PageIndex < first || r.PageIndex > last));
 
         BuildLinkOverlays();
     }
@@ -1304,15 +1313,28 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     {
         _clausePageMap = map;
         _crossRefCache.Clear();
+        InvalidatePageDataLoads();
         BuildLinkOverlays();
     }
 
     /// <summary>
-    /// Project each realised page's <c>/Link</c> regions into its slot's DIP space. Reads are
-    /// lazy and cached, so this is cheap to call on every scroll / zoom / layout change.
+    /// Project each realised page's <c>/Link</c> regions (and detected cross-references) into its
+    /// slot's DIP space. Only what's already cached is drawn; a page not read yet is queued for
+    /// <see cref="LoadLinkDataAsync"/>, which fills the caches off the UI thread and calls back
+    /// here. So this stays cheap to call on every scroll / zoom / layout change.
     /// </summary>
+    /// <remarks>
+    /// The reads used to happen inline, on the UI thread. <see cref="PdfLinks.Read"/> loads the
+    /// page's text layer for web-link detection and <see cref="PdfCrossReferences.Scan"/> walks
+    /// every char box — and both take the global PDFium lock, which the render worker holds for
+    /// the whole of a page render. So scrolling a new page into view could stall the UI thread
+    /// behind a large render before it even started its own read. A link overlay that turns up a
+    /// few tens of milliseconds after the page does is invisible to the user; a stalled scroll is not.
+    /// </remarks>
     public void BuildLinkOverlays()
     {
+        List<int>? toLoad = null;
+
         foreach (PageSlotViewModel slot in Pages)
         {
             if (!slot.IsRealized)
@@ -1325,27 +1347,18 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                 continue;
             }
 
-            if (!_linkCache.TryGetValue(slot.PageIndex, out IReadOnlyList<PdfLink>? links))
-            {
-                links = PdfLinks.Read(_document, slot.PageIndex);
-                _linkCache[slot.PageIndex] = links;
-            }
-
+            bool haveLinks = _linkCache.TryGetValue(slot.PageIndex, out IReadOnlyList<PdfLink>? links);
             IReadOnlyList<PdfCrossRef> crossRefs = [];
-            if (_clausePageMap.Count > 0 &&
-                !_crossRefCache.TryGetValue(slot.PageIndex, out crossRefs!))
-            {
-                try
-                {
-                    crossRefs = PdfCrossReferences.Scan(_document, slot.PageIndex, _clausePageMap);
-                }
-                catch (PdfException)
-                {
-                    crossRefs = [];
-                }
+            bool haveCrossRefs = _clausePageMap.Count == 0
+                || _crossRefCache.TryGetValue(slot.PageIndex, out crossRefs!);
 
-                _crossRefCache[slot.PageIndex] = crossRefs;
+            if (!haveLinks || !haveCrossRefs)
+            {
+                (toLoad ??= []).Add(slot.PageIndex);
+                crossRefs ??= [];
             }
+
+            links ??= [];
 
             if (links.Count == 0 && crossRefs.Count == 0)
             {
@@ -1383,6 +1396,105 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             }
 
             slot.Links = visuals;
+        }
+
+        if (toLoad is not null)
+        {
+            _ = LoadLinkDataAsync(toLoad);
+        }
+    }
+
+    /// <summary>Bumped whenever the per-page link / cross-ref / char-box caches are invalidated, so
+    /// a background read that finishes afterwards knows its result is stale and drops it.</summary>
+    private int _pageDataGeneration;
+
+    /// <summary>Pages with a background link / cross-ref read in progress (current generation only).</summary>
+    private readonly HashSet<int> _linkLoadsInFlight = [];
+
+    /// <summary>Pages with a background char-box read in progress (current generation only).</summary>
+    private readonly HashSet<int> _charBoxLoadsInFlight = [];
+
+    private bool _disposed;
+
+    private void InvalidatePageDataLoads()
+    {
+        _pageDataGeneration++;
+        _linkLoadsInFlight.Clear();
+        _charBoxLoadsInFlight.Clear();
+    }
+
+    /// <summary>Read the links (and, once a clause map is set, the cross-references) of
+    /// <paramref name="pages"/> on a worker thread, then cache them and redraw the overlays. Runs
+    /// on, and resumes on, the UI thread — only the PDFium reads leave it, so the caches are
+    /// never touched concurrently.</summary>
+    private async Task LoadLinkDataAsync(List<int> pages)
+    {
+        pages.RemoveAll(p => !_linkLoadsInFlight.Add(p));
+        if (pages.Count == 0)
+        {
+            return;
+        }
+
+        int generation = _pageDataGeneration;
+        IReadOnlyDictionary<string, int> clauseMap = _clausePageMap;
+        var work = pages
+            .Select(p => (Page: p, NeedLinks: !_linkCache.ContainsKey(p),
+                NeedCrossRefs: clauseMap.Count > 0 && !_crossRefCache.ContainsKey(p)))
+            .ToList();
+        PdfDocument document = _document;
+
+        List<(int Page, IReadOnlyList<PdfLink>? Links, IReadOnlyList<PdfCrossRef>? CrossRefs)>? results = null;
+        try
+        {
+            results = await Task.Run(() => work.Select(w => (
+                    w.Page,
+                    w.NeedLinks ? ReadOrEmpty(() => PdfLinks.Read(document, w.Page)) : null,
+                    w.NeedCrossRefs ? ReadOrEmpty(() => PdfCrossReferences.Scan(document, w.Page, clauseMap)) : null))
+                .ToList());
+        }
+        catch (Exception ex) when (ex is ObjectDisposedException or ArgumentOutOfRangeException)
+        {
+            // The tab closed, or pages were removed, mid-read — the result is moot either way.
+        }
+        finally
+        {
+            if (generation == _pageDataGeneration)
+            {
+                _linkLoadsInFlight.ExceptWith(pages);
+            }
+        }
+
+        if (results is null || _disposed || generation != _pageDataGeneration)
+        {
+            return; // superseded — whatever invalidated the caches has already asked for a rebuild
+        }
+
+        foreach ((int page, IReadOnlyList<PdfLink>? links, IReadOnlyList<PdfCrossRef>? crossRefs) in results)
+        {
+            if (links is not null)
+            {
+                _linkCache[page] = links;
+            }
+
+            if (crossRefs is not null)
+            {
+                _crossRefCache[page] = crossRefs;
+            }
+        }
+
+        BuildLinkOverlays();
+    }
+
+    /// <summary>A page whose links / text can't be read just contributes nothing.</summary>
+    private static IReadOnlyList<T> ReadOrEmpty<T>(Func<IReadOnlyList<T>> read)
+    {
+        try
+        {
+            return read();
+        }
+        catch (PdfException)
+        {
+            return [];
         }
     }
 
@@ -2522,15 +2634,56 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         }
 
         boxes = PdfTextExtractor.GetCharBoxes(_document, pageIndex);
+        CacheCharBoxes(pageIndex, boxes);
+        return boxes;
+    }
+
+    private void CacheCharBoxes(int pageIndex, IReadOnlyList<PdfCharBox> boxes)
+    {
         _charBoxCache[pageIndex] = boxes;
+        _charBoxOrder.Remove(pageIndex);
         _charBoxOrder.AddLast(pageIndex);
         while (_charBoxOrder.Count > MaxCharBoxPages && _charBoxOrder.First is { } oldest)
         {
             _charBoxCache.Remove(oldest.Value);
             _charBoxOrder.RemoveFirst();
         }
+    }
 
-        return boxes;
+    /// <summary>Read a page's char boxes on a worker thread and cache them. Used by the hover
+    /// hit-test, which runs on every mouse move: a cold synchronous read there would wait on the
+    /// global PDFium lock behind whatever page the render worker is rasterising.</summary>
+    private async Task PrefetchCharBoxesAsync(int pageIndex)
+    {
+        if (!_charBoxLoadsInFlight.Add(pageIndex))
+        {
+            return;
+        }
+
+        int generation = _pageDataGeneration;
+        PdfDocument document = _document;
+        IReadOnlyList<PdfCharBox>? boxes = null;
+        try
+        {
+            boxes = await Task.Run(() => ReadOrEmpty(() => PdfTextExtractor.GetCharBoxes(document, pageIndex)));
+        }
+        catch (Exception ex) when (ex is ObjectDisposedException or ArgumentOutOfRangeException)
+        {
+            // The tab closed, or pages were removed, mid-read.
+        }
+        finally
+        {
+            if (generation == _pageDataGeneration)
+            {
+                _charBoxLoadsInFlight.Remove(pageIndex);
+            }
+        }
+
+        if (boxes is not null && !_disposed && generation == _pageDataGeneration
+            && !_charBoxCache.ContainsKey(pageIndex))
+        {
+            CacheCharBoxes(pageIndex, boxes);
+        }
     }
 
     /// <summary>True when <paramref name="pt"/> (unrotated page space) sits on or just beside a
@@ -2542,15 +2695,15 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             return false;
         }
 
-        IReadOnlyList<PdfCharBox> boxes;
-        try
+        if (!_charBoxCache.ContainsKey(pageIndex))
         {
-            boxes = CharBoxes(pageIndex);
-        }
-        catch (PdfException)
-        {
+            // Not read yet: fetch it in the background and report "not text" for now — the cursor
+            // catches up on the next mouse move, rather than the UI thread blocking on PDFium.
+            _ = PrefetchCharBoxesAsync(pageIndex);
             return false;
         }
+
+        IReadOnlyList<PdfCharBox> boxes = CharBoxes(pageIndex); // cached — just bumps the LRU
 
         const double pad = 1.5; // points of slack so the gaps between glyphs still count
         foreach (PdfCharBox c in boxes)
@@ -2865,8 +3018,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             double dipScale = PdfCoordinates.PointToDip * Zoom;
             foreach (PageSlotViewModel slot in Pages)
             {
-                slot.LayoutWidth = SnapToDevicePixels(slot.SizePoints.Width * dipScale);
-                slot.LayoutHeight = SnapToDevicePixels(slot.SizePoints.Height * dipScale);
+                SetLayoutSize(slot, slot.SizePoints.Width * dipScale, slot.SizePoints.Height * dipScale);
             }
         }
 
@@ -2906,8 +3058,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
         foreach (PageSlotViewModel slot in Pages)
         {
-            slot.LayoutWidth = SnapToDevicePixels(slot.SizePoints.Width * scale);
-            slot.LayoutHeight = SnapToDevicePixels(slot.SizePoints.Height * scale);
+            SetLayoutSize(slot, slot.SizePoints.Width * scale, slot.SizePoints.Height * scale);
         }
     }
 
@@ -2926,10 +3077,25 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             double aspect = slot.SizePoints.Width > 0
                 ? slot.SizePoints.Height / slot.SizePoints.Width
                 : 1.294;
-            slot.LayoutWidth = SnapToDevicePixels(tile);
-            slot.LayoutHeight = SnapToDevicePixels(tile * aspect);
+            SetLayoutSize(slot, tile, tile * aspect);
         }
     }
+
+    /// <summary>Size a slot's layout box (snapped to the device-pixel grid) and re-check whether its
+    /// current bitmap still fits it 1:1.</summary>
+    private void SetLayoutSize(PageSlotViewModel slot, double widthDip, double heightDip)
+    {
+        slot.LayoutWidth = SnapToDevicePixels(widthDip);
+        slot.LayoutHeight = SnapToDevicePixels(heightDip);
+        UpdatePixelExact(slot);
+    }
+
+    /// <summary>A bitmap is pixel-exact when it was rendered at the box's full device-pixel size —
+    /// not an older zoom's size still being stretched, and not capped at <see cref="MaxRenderEdge"/>.</summary>
+    private void UpdatePixelExact(PageSlotViewModel slot) =>
+        slot.IsPixelExact = slot.Image is not null
+            && !NeedsDetailRender(slot)
+            && slot.RenderedPixelWidth == (int)Math.Round(slot.LayoutWidth * _deviceScale);
 
     /// <summary>Recompute the auto-fit column count, regroup the rows, and re-lay-out.</summary>
     private void RebuildGrid()
@@ -3030,6 +3196,19 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             return;
         }
 
+        // Already rendered (scrolling back to a page whose bitmap was freed, the other pane showing
+        // it at the same zoom, …): show it now rather than queue behind the worker's current render.
+        if (_queue.TryGetCached(_document, slot.PageIndex, pixelWidth, pixelHeight, _deviceScale) is { } cached)
+        {
+            ShowPageImage(slot, pixelWidth, cached);
+            return;
+        }
+
+        if (slot.Image is null)
+        {
+            RequestPlaceholder(slot, pixelWidth);
+        }
+
         _queue.Enqueue(new RenderRequest
         {
             Owner = this,
@@ -3040,6 +3219,51 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             DeviceScale = _deviceScale,
             OnRendered = OnPageRendered,
         });
+    }
+
+    /// <summary>
+    /// Give a page that has nothing to show yet a cheap stand-in: its thumbnail-sized render,
+    /// stretched. The queue serves thumbnail-sized requests ahead of page renders, so this lands
+    /// well before the full-size bitmap and the page shows its layout instead of blank white. It's
+    /// rendered at exactly the thumbnail strip's size, so the two share cache entries.
+    /// </summary>
+    private void RequestPlaceholder(PageSlotViewModel slot, int fullPixelWidth)
+    {
+        if (slot.PlaceholderImage is not null)
+        {
+            return;
+        }
+
+        (int w, int h) = ThumbnailStripViewModel.ThumbnailPixelSize(slot.SizePoints, _deviceScale);
+        if (w <= 0 || h <= 0 || fullPixelWidth <= w * 2)
+        {
+            return; // the real render is barely bigger (a small grid tile) — no point
+        }
+
+        if (_queue.TryGetCached(_document, slot.PageIndex, w, h, _deviceScale) is { } cached)
+        {
+            slot.PlaceholderImage = cached;
+            return;
+        }
+
+        _queue.Enqueue(new RenderRequest
+        {
+            Owner = this,
+            Document = _document,
+            PageIndex = slot.PageIndex,
+            PixelWidth = w,
+            PixelHeight = h,
+            DeviceScale = _deviceScale,
+            OnRendered = OnPlaceholderRendered,
+        });
+    }
+
+    private void OnPlaceholderRendered(int pageIndex, int pixelWidth, ImageSource image)
+    {
+        if (pageIndex >= 0 && pageIndex < Pages.Count && Pages[pageIndex] is { Image: null } slot)
+        {
+            slot.PlaceholderImage = image; // ignored once the real image has beaten it
+        }
     }
 
     private void OnPageRendered(int pageIndex, int pixelWidth, ImageSource image)
@@ -3055,8 +3279,15 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             return; // stale (zoom/DPI changed since this was queued)
         }
 
+        ShowPageImage(slot, pixelWidth, image);
+    }
+
+    private void ShowPageImage(PageSlotViewModel slot, int pixelWidth, ImageSource image)
+    {
         slot.RenderedPixelWidth = pixelWidth;
         slot.Image = image;
+        slot.PlaceholderImage = null;
+        UpdatePixelExact(slot);
     }
 
     // --- Viewport (detail) render --------------------------------------------------------------
@@ -3125,6 +3356,16 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         int fullW = (int)Math.Round(slot.LayoutWidth * ds);
         int fullH = (int)Math.Round(slot.LayoutHeight * ds);
 
+        // The tile is padded (below) precisely so small scrolls stay inside it — so while the tile
+        // on screen covers the visible rect plus a little margin, there's nothing to do.
+        // Re-rendering on every scroll stop, as this used to (any pixel of movement changed the
+        // tile's offset), cost a render of up to MaxRenderEdge² for a view that already looked right.
+        if (slot.DetailImage is not null
+            && DetailTileCovers(slot.DetailShownKey, fullW, fullH, regionDip, slot.LayoutWidth, slot.LayoutHeight, ds))
+        {
+            return;
+        }
+
         // Pad the visible rect so a small scroll doesn't immediately expose the soft base layer.
         const double padDip = 120;
         double x0 = Math.Clamp(regionDip.X - padDip, 0, slot.LayoutWidth);
@@ -3168,6 +3409,29 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         });
     }
 
+    /// <summary>Whether a detail tile (<paramref name="tileKey"/> = offsetX, offsetY, tileW, tileH,
+    /// fullW, fullH in device px) rendered for the current full page size still covers the visible
+    /// <paramref name="regionDip"/> plus a small margin (clamped to the page, since the tile is too).</summary>
+    internal static bool DetailTileCovers(
+        (int, int, int, int, int, int) tileKey, int fullW, int fullH,
+        System.Windows.Rect regionDip, double pageWidthDip, double pageHeightDip, double deviceScale)
+    {
+        (int kx, int ky, int kw, int kh, int kfw, int kfh) = tileKey;
+        if (kw <= 0 || kh <= 0 || kfw != fullW || kfh != fullH)
+        {
+            return false; // no tile, or one rendered for a different zoom / DPI
+        }
+
+        const double marginDip = 32;
+        double x0 = Math.Clamp(regionDip.X - marginDip, 0, pageWidthDip) * deviceScale;
+        double y0 = Math.Clamp(regionDip.Y - marginDip, 0, pageHeightDip) * deviceScale;
+        double x1 = Math.Clamp(regionDip.Right + marginDip, 0, pageWidthDip) * deviceScale;
+        double y1 = Math.Clamp(regionDip.Bottom + marginDip, 0, pageHeightDip) * deviceScale;
+
+        const double slop = 0.5; // the tile's edges were rounded to whole pixels
+        return x0 >= kx - slop && y0 >= ky - slop && x1 <= kx + kw + slop && y1 <= ky + kh + slop;
+    }
+
     private void OnDetailRendered(
         int pageIndex, (int, int, int, int, int, int) key,
         double left, double top, double width, double height, ImageSource image)
@@ -3187,6 +3451,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         slot.DetailTop = top;
         slot.DetailWidth = width;
         slot.DetailHeight = height;
+        slot.DetailShownKey = key;
         slot.DetailImage = image;
     }
 
@@ -3223,6 +3488,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
     public void Dispose()
     {
+        _disposed = true;
         _rerenderTimer?.Stop();
         _detailTimer?.Stop();
         _searchCts?.Cancel();

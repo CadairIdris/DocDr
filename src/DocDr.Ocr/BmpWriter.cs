@@ -2,7 +2,7 @@ using DocDr.Pdf;
 
 namespace DocDr.Ocr;
 
-/// <summary>Encodes a <see cref="RenderedPage"/>'s BGRA buffer as an uncompressed 24-bit BMP —
+/// <summary>Encodes a <see cref="RenderedPage"/>'s BGRx buffer as an uncompressed 24-bit BMP —
 /// the simplest format Leptonica reads from memory, and enough for an opaque scan.</summary>
 internal static class BmpWriter
 {

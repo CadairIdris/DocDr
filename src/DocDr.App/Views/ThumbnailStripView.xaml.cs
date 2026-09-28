@@ -58,8 +58,39 @@ public partial class ThumbnailStripView : UserControl
             return;
         }
 
+        FollowCurrentPage(pageIndex);
+
         Dispatcher.BeginInvoke(() => ThumbList.ScrollIntoView(ThumbList.Items[pageIndex]),
             System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    /// <summary>Move the ListBox selection to the pane's current page as it scrolls. Without this
+    /// the (much more visible) selection highlight stayed on whichever thumbnail was last clicked
+    /// — and since page edits target the strip's selection, the toolbar's rotate/delete acted on
+    /// that stale page rather than the one on screen. A deliberate multi-page pick is left alone.</summary>
+    private void FollowCurrentPage(int pageIndex)
+    {
+        if (_vm is null || ThumbList.SelectedItems.Count > 1)
+        {
+            return;
+        }
+
+        object item = ThumbList.Items[pageIndex];
+        if (ReferenceEquals(ThumbList.SelectedItem, item))
+        {
+            return;
+        }
+
+        _syncingSelection = true;
+        try
+        {
+            ThumbList.SelectedItem = item;
+            _vm.SetSelection(ThumbList.SelectedItems, activate: false);
+        }
+        finally
+        {
+            _syncingSelection = false;
+        }
     }
 
     private void ThumbList_SelectionChanged(object sender, SelectionChangedEventArgs e)

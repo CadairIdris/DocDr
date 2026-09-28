@@ -84,4 +84,35 @@ public sealed class PdfPaneViewModelTests
         PdfAnnotation squashed = PdfPaneViewModel.ResizeShape(a, BoxHandle.BottomRight, -400, 0);
         Assert.True(squashed.Box.Width >= 24);
     }
+
+    [Fact]
+    public void DetailTileCovers_skips_a_rerender_until_the_view_nears_the_tile_edge()
+    {
+        // A 2000x1500 DIP page at 1.5x → 3000x2250 px; the tile spans px [300,1800) x [300,1500).
+        var tile = (300, 300, 1500, 1200, 3000, 2250);
+        var inside = new System.Windows.Rect(300, 300, 500, 400);   // px [450,1200) x [450,1050) + margin
+        var nearEdge = new System.Windows.Rect(700, 300, 500, 400); // right edge + margin → 1848 px > 1800
+
+        Assert.True(PdfPaneViewModel.DetailTileCovers(tile, 3000, 2250, inside, 2000, 1500, 1.5));
+        Assert.False(PdfPaneViewModel.DetailTileCovers(tile, 3000, 2250, nearEdge, 2000, 1500, 1.5));
+    }
+
+    [Fact]
+    public void DetailTileCovers_rejects_a_tile_from_another_zoom_or_no_tile_at_all()
+    {
+        var region = new System.Windows.Rect(300, 300, 100, 100);
+
+        Assert.False(PdfPaneViewModel.DetailTileCovers((0, 0, 3000, 2250, 3000, 2250), 3001, 2250, region, 2000, 1500, 1.5));
+        Assert.False(PdfPaneViewModel.DetailTileCovers(default, 3000, 2250, region, 2000, 1500, 1.5));
+    }
+
+    [Fact]
+    public void DetailTileCovers_clamps_the_margin_at_the_page_edge()
+    {
+        // Viewing the page's top-left corner: the margin can't reach past 0, and the tile starts at 0.
+        var tile = (0, 0, 900, 900, 3000, 2250);
+        var corner = new System.Windows.Rect(0, 0, 400, 400);
+
+        Assert.True(PdfPaneViewModel.DetailTileCovers(tile, 3000, 2250, corner, 2000, 1500, 1.5));
+    }
 }

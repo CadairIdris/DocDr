@@ -3,7 +3,8 @@ using PDFiumCore;
 
 namespace DocDr.Pdf;
 
-/// <summary>A rasterised page: a tightly-packed BGRA32 (premultiplied-alpha-free, opaque) buffer.</summary>
+/// <summary>A rasterised page: a tightly-packed 32-bit BGRx buffer (B, G, R, then an unused
+/// fourth byte — the page is always opaque, so there is no alpha channel to honour).</summary>
 public sealed class RenderedPage
 {
     public RenderedPage(int pageIndex, int pixelWidth, int pixelHeight, int stride, byte[] pixels)
@@ -22,7 +23,7 @@ public sealed class RenderedPage
     /// <summary>Row length in bytes (<see cref="PixelWidth"/> * 4).</summary>
     public int Stride { get; }
 
-    /// <summary>BGRA, top row first. Length is <see cref="Stride"/> * <see cref="PixelHeight"/>.</summary>
+    /// <summary>BGRx, top row first. Only the first three bytes of each pixel are meaningful. Length is <see cref="Stride"/> * <see cref="PixelHeight"/>.</summary>
     public byte[] Pixels { get; }
 
     public long ByteCount => Pixels.LongLength;
@@ -37,15 +38,16 @@ public readonly record struct PageRenderRegion(int FullWidth, int FullHeight, in
 
 public interface IPageRenderer
 {
-    /// <summary>Render one page to a BGRA buffer of exactly <paramref name="pixelWidth"/> x
+    /// <summary>Render one page to a BGRx buffer of exactly <paramref name="pixelWidth"/> x
     /// <paramref name="pixelHeight"/>. With <paramref name="region"/> set, only that slice of the
     /// (notionally much larger) page lands in the buffer.</summary>
     RenderedPage Render(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, CancellationToken cancellationToken = default, PageRenderRegion? region = null);
 }
 
 /// <summary>
-/// Renders pages via PDFium into a caller-owned pinned buffer. No caching — compose with
-/// <see cref="CachingPageRenderer"/> for that. All PDFium work runs under the document lock.
+/// Renders pages via PDFium into a pinned managed buffer (<see cref="Render"/>) or caller-owned
+/// memory (<see cref="RenderInto"/>). No caching — the App caches finished bitmaps above this
+/// (<see cref="SizedLruCache{TKey,TValue}"/>). All PDFium work runs under the document lock.
 /// </summary>
 public sealed class PageRenderer : IPageRenderer
 {
@@ -57,19 +59,58 @@ public sealed class PageRenderer : IPageRenderer
     // they smear into visible fuzz and colour fringing. Greyscale AA resamples cleanly.
     private const PdfiumRenderFlags DefaultFlags = PdfiumRenderFlags.Annotations;
 
+    // Opaque BGRx, not BGRA. A page is always painted onto opaque white, so an alpha channel buys
+    // nothing and costs twice: PDFium's compositing paths for an alpha bitmap are slower, and the
+    // App would otherwise hand WPF a Bgra32 image that it format-converts on upload and then
+    // alpha-blends on every frame. (PDFium also only permits LCD text on a bitmap without alpha.)
+    private const PdfiumBitmapFormat BitmapFormat = PdfiumBitmapFormat.Bgrx;
+
     public RenderedPage Render(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, CancellationToken cancellationToken = default, PageRenderRegion? region = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         document.ValidatePageIndex(pageIndex);
-        if (pixelWidth <= 0 || pixelHeight <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(pixelWidth), "Render size must be positive.");
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
+        ValidateSize(pixelWidth, pixelHeight);
 
         int stride = checked(pixelWidth * 4);
         var pixels = new byte[checked(stride * pixelHeight)];
+
+        var pinned = GCHandle.Alloc(pixels, GCHandleType.Pinned);
+        try
+        {
+            RenderInto(document, pageIndex, pixelWidth, pixelHeight, pinned.AddrOfPinnedObject(), stride, cancellationToken, region);
+        }
+        finally
+        {
+            pinned.Free();
+        }
+
+        return new RenderedPage(pageIndex, pixelWidth, pixelHeight, stride, pixels);
+    }
+
+    /// <summary>
+    /// Render one page into caller-owned memory (BGRx, top row first) — the same output as
+    /// <see cref="Render"/>, without allocating a managed buffer. The App uses this to rasterise
+    /// into short-lived native memory that WPF copies straight into its bitmap, rather than a
+    /// fresh multi-megabyte large-object-heap array per page. <paramref name="buffer"/> must hold
+    /// at least <paramref name="stride"/> × <paramref name="pixelHeight"/> bytes and stay valid
+    /// for the duration of the call.
+    /// </summary>
+    public void RenderInto(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, IntPtr buffer, int stride, CancellationToken cancellationToken = default, PageRenderRegion? region = null)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        document.ValidatePageIndex(pageIndex);
+        ValidateSize(pixelWidth, pixelHeight);
+        if (buffer == IntPtr.Zero)
+        {
+            throw new ArgumentNullException(nameof(buffer));
+        }
+
+        if (stride < pixelWidth * 4)
+        {
+            throw new ArgumentOutOfRangeException(nameof(stride), "Stride is smaller than one row of pixels.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         document.Locked(() =>
         {
@@ -82,12 +123,10 @@ public sealed class PageRenderer : IPageRenderer
                     $"Could not load page {pageIndex}.");
             }
 
-            var pinned = GCHandle.Alloc(pixels, GCHandleType.Pinned);
             try
             {
                 FpdfBitmapT? bitmap = fpdfview.FPDFBitmapCreateEx(
-                    pixelWidth, pixelHeight, (int)PdfiumBitmapFormat.Bgra,
-                    pinned.AddrOfPinnedObject(), stride);
+                    pixelWidth, pixelHeight, (int)BitmapFormat, buffer, stride);
                 if (bitmap is null || bitmap.__Instance == IntPtr.Zero)
                 {
                     throw new PdfException("PDFium refused to create the render bitmap.");
@@ -116,11 +155,16 @@ public sealed class PageRenderer : IPageRenderer
             }
             finally
             {
-                pinned.Free();
                 fpdfview.FPDF_ClosePage(page);
             }
         });
+    }
 
-        return new RenderedPage(pageIndex, pixelWidth, pixelHeight, stride, pixels);
+    private static void ValidateSize(int pixelWidth, int pixelHeight)
+    {
+        if (pixelWidth <= 0 || pixelHeight <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pixelWidth), "Render size must be positive.");
+        }
     }
 }

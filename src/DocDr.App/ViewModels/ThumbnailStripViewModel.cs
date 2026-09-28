@@ -20,6 +20,16 @@ public sealed partial class ThumbnailStripViewModel : ObservableObject
     /// <summary>Thumbnail width in DIP. Kept small and fixed.</summary>
     public const double ThumbnailWidth = 118.0;
 
+    /// <summary>Height / width of a page for its thumbnail box (a portrait A4-ish guess if unknown).</summary>
+    public static double AspectOf(PdfSize page) => page.Width > 0 ? page.Height / page.Width : 1.294;
+
+    /// <summary>The pixel size a thumbnail of <paramref name="page"/> is rendered at. The page panes
+    /// render their loading placeholders at exactly this size too, so the two share render-cache
+    /// entries: a thumbnail the strip has drawn is a free placeholder, and vice versa.</summary>
+    public static (int Width, int Height) ThumbnailPixelSize(PdfSize page, double deviceScale) =>
+        ((int)System.Math.Round(ThumbnailWidth * deviceScale),
+         (int)System.Math.Round(ThumbnailWidth * AspectOf(page) * deviceScale));
+
     private readonly PdfDocument _document;
     private readonly IRenderQueue _queue;
     private double _deviceScale = 1.0;
@@ -76,8 +86,11 @@ public sealed partial class ThumbnailStripViewModel : ObservableObject
         SelectedPageIndices = [];
     }
 
-    /// <summary>The view pushes its ListBox selection here on SelectionChanged.</summary>
-    public void SetSelection(IEnumerable selectedItems)
+    /// <summary>The view pushes its ListBox selection here on SelectionChanged. With
+    /// <paramref name="activate"/> false (the view moving the selection to follow the pane's
+    /// current page) the selection is recorded but no navigation is triggered — the pane is
+    /// already there, and re-navigating would yank it to the top of that page mid-scroll.</summary>
+    public void SetSelection(IEnumerable selectedItems, bool activate = true)
     {
         var indices = selectedItems
             .OfType<ThumbnailViewModel>()
@@ -88,7 +101,7 @@ public sealed partial class ThumbnailStripViewModel : ObservableObject
         SelectedPageIndices = indices;
 
         // A single-item selection is a navigation gesture; a multi-item selection is a page pick.
-        if (indices.Length == 1)
+        if (activate && indices.Length == 1)
         {
             PageActivated?.Invoke(indices[0]);
         }
@@ -126,8 +139,7 @@ public sealed partial class ThumbnailStripViewModel : ObservableObject
         for (int i = first; i <= last; i++)
         {
             ThumbnailViewModel thumb = Thumbnails[i];
-            int pixelWidth = (int)System.Math.Round(ThumbnailWidth * _deviceScale);
-            int pixelHeight = (int)System.Math.Round(ThumbnailWidth * thumb.Aspect * _deviceScale);
+            (int pixelWidth, int pixelHeight) = ThumbnailPixelSize(thumb.SizePoints, _deviceScale);
             if (pixelWidth <= 0 || pixelHeight <= 0)
             {
                 continue;
@@ -135,6 +147,13 @@ public sealed partial class ThumbnailStripViewModel : ObservableObject
 
             if (thumb.Image is not null && thumb.RenderedPixelWidth == pixelWidth)
             {
+                continue;
+            }
+
+            if (_queue.TryGetCached(_document, thumb.PageIndex, pixelWidth, pixelHeight, _deviceScale) is { } cached)
+            {
+                thumb.RenderedPixelWidth = pixelWidth; // e.g. already drawn as a page pane's placeholder
+                thumb.Image = cached;
                 continue;
             }
 
@@ -156,7 +175,7 @@ public sealed partial class ThumbnailStripViewModel : ObservableObject
         for (int i = 0; i < pageSizes.Count; i++)
         {
             PdfSize size = pageSizes[i];
-            Thumbnails.Add(new ThumbnailViewModel(i, size.Width > 0 ? size.Height / size.Width : 1.294));
+            Thumbnails.Add(new ThumbnailViewModel(i, size, AspectOf(size)));
         }
     }
 
