@@ -47,6 +47,16 @@ public sealed class PageImageService
     /// <summary>Entries and bytes the bitmap cache holds (zero without one) — for diagnostics.</summary>
     public (int Entries, long Bytes) CacheStats => _cache?.Stats ?? (0, 0);
 
+    /// <summary>The cached bitmap for exactly this page / size / scale at the document's current
+    /// content, or null. Cheap (a dictionary lookup) — safe to call on the UI thread, so a page
+    /// that's already cached is shown immediately instead of waiting its turn on the render worker.</summary>
+    public ImageSource? TryGetCached(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, double deviceScale)
+    {
+        double dpi = 96.0 * (deviceScale > 0 ? deviceScale : 1.0);
+        var key = new PageImageKey(document, document.ContentVersion, pageIndex, pixelWidth, pixelHeight, dpi);
+        return _cache is not null && _cache.TryGet(key, out BitmapSource? hit) ? hit : null;
+    }
+
     /// <summary>Drop every cached bitmap of <paramref name="document"/> (tab closed, or its pages changed).</summary>
     public void Purge(PdfDocument document) => _cache?.RemoveWhere(k => k.Document == document);
 

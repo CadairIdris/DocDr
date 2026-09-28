@@ -15,6 +15,13 @@ internal sealed class FakeRenderQueue : IRenderQueue
 
     public void Clear() => ClearCount++;
 
+    /// <summary>Bitmaps <see cref="TryGetCached"/> should report as already rendered, keyed by
+    /// (page, width, height).</summary>
+    public Dictionary<(int Page, int Width, int Height), System.Windows.Media.ImageSource> Cached { get; } = [];
+
+    public System.Windows.Media.ImageSource? TryGetCached(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, double deviceScale) =>
+        Cached.TryGetValue((pageIndex, pixelWidth, pixelHeight), out var image) ? image : null;
+
     /// <summary>Requests a <see cref="RemoveWhere"/> call dropped. <see cref="Enqueued"/> is left
     /// intact — it's the record of everything that was ever asked for.</summary>
     public List<RenderRequest> Removed { get; } = [];

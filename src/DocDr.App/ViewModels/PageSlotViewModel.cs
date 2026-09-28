@@ -37,6 +37,12 @@ public sealed partial class PageSlotViewModel : ObservableObject
     [ObservableProperty]
     private ImageSource? _image;
 
+    /// <summary>A low-resolution stand-in (the thumbnail-sized render) stretched over the page box
+    /// until <see cref="Image"/> first arrives, so a page scrolled into view shows its layout
+    /// straight away instead of sitting blank white. Cleared once the real image lands.</summary>
+    [ObservableProperty]
+    private ImageSource? _placeholderImage;
+
     /// <summary>Pixel width the current <see cref="Image"/> was rendered at (0 if none).</summary>
     public int RenderedPixelWidth { get; set; }
 

@@ -98,6 +98,11 @@
                         <DropShadowEffect BlurRadius="6" ShadowDepth="0" Opacity="0.3" />
                     </Border.Effect>
                 </Border>
+                <!-- Low-res stand-in until the page's first real render lands (the opaque page image
+                     draws over it). Heavily upscaled, so plain bilinear: cheap, and softness is
+                     expected of a placeholder. -->
+                <Image Source="{Binding PlaceholderImage}" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="Linear" />
                 <!-- A 1:1 bitmap is drawn nearest-neighbour: any smoothing filter can only blur it
                      (a sub-pixel layout or scroll offset gets interpolated across neighbouring
                      pixels). Stretched mid-zoom or past the render cap, smooth it instead. -->

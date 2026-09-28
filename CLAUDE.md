@@ -463,6 +463,17 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   `BitmapScalingMode=NearestNeighbor` (a style `DataTrigger`), so a sub-pixel layout/scroll offset
   can't be interpolated into blur; `HighQuality` otherwise (mid zoom gesture, stale size, capped).
   The detail tile is always 1:1, so it's `NearestNeighbor` outright.
+- **Loading placeholders + synchronous cache hits.** `PdfPaneViewModel.RequestRender` first asks
+  `IRenderQueue.TryGetCached` (→ `PageImageService.TryGetCached`, a lock + dictionary lookup, fine
+  on the UI thread): a hit is shown at once via `ShowPageImage`, never queued behind the worker's
+  current render. On a miss, a page with no `Image` yet also gets `RequestPlaceholder` — a render at
+  exactly `ThumbnailStripViewModel.ThumbnailPixelSize` (118 DIP wide × scale), which the queue serves
+  first (it's ≤ 320 px, i.e. thumbnail priority) — shown stretched in `PageSlotViewModel.
+  PlaceholderImage` (an `Image` under the page `Image`, `Linear` scaling) until the real image lands,
+  then dropped. Same pixel size as the strip's thumbnails ⇒ **shared cache entries**: a thumbnail
+  the strip drew is a free placeholder and vice versa (the strip also checks `TryGetCached` first).
+  Skipped when the full render is < 2× the placeholder (small grid tiles). Placeholder requests are
+  owned by the pane, so `RemoveWhere` drops them for pages that scroll away like any other.
 - **Queued renders for pages outside the realised window are dropped** —
   `UpdateVisibleRange` calls `IRenderQueue.RemoveWhere(owner == this && page outside [first,last])`.
   Without it a fast fling left the worker rasterising every page it passed (holding the global lock)

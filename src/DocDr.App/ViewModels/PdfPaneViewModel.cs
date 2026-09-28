@@ -306,6 +306,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             else if ((i < keepFrom || i > keepTo) && Pages[i].Image is not null)
             {
                 Pages[i].Image = null;
+                Pages[i].PlaceholderImage = null;
                 Pages[i].RenderedPixelWidth = 0;
                 Pages[i].IsPixelExact = false;
             }
@@ -3195,6 +3196,19 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             return;
         }
 
+        // Already rendered (scrolling back to a page whose bitmap was freed, the other pane showing
+        // it at the same zoom, …): show it now rather than queue behind the worker's current render.
+        if (_queue.TryGetCached(_document, slot.PageIndex, pixelWidth, pixelHeight, _deviceScale) is { } cached)
+        {
+            ShowPageImage(slot, pixelWidth, cached);
+            return;
+        }
+
+        if (slot.Image is null)
+        {
+            RequestPlaceholder(slot, pixelWidth);
+        }
+
         _queue.Enqueue(new RenderRequest
         {
             Owner = this,
@@ -3205,6 +3219,51 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             DeviceScale = _deviceScale,
             OnRendered = OnPageRendered,
         });
+    }
+
+    /// <summary>
+    /// Give a page that has nothing to show yet a cheap stand-in: its thumbnail-sized render,
+    /// stretched. The queue serves thumbnail-sized requests ahead of page renders, so this lands
+    /// well before the full-size bitmap and the page shows its layout instead of blank white. It's
+    /// rendered at exactly the thumbnail strip's size, so the two share cache entries.
+    /// </summary>
+    private void RequestPlaceholder(PageSlotViewModel slot, int fullPixelWidth)
+    {
+        if (slot.PlaceholderImage is not null)
+        {
+            return;
+        }
+
+        (int w, int h) = ThumbnailStripViewModel.ThumbnailPixelSize(slot.SizePoints, _deviceScale);
+        if (w <= 0 || h <= 0 || fullPixelWidth <= w * 2)
+        {
+            return; // the real render is barely bigger (a small grid tile) — no point
+        }
+
+        if (_queue.TryGetCached(_document, slot.PageIndex, w, h, _deviceScale) is { } cached)
+        {
+            slot.PlaceholderImage = cached;
+            return;
+        }
+
+        _queue.Enqueue(new RenderRequest
+        {
+            Owner = this,
+            Document = _document,
+            PageIndex = slot.PageIndex,
+            PixelWidth = w,
+            PixelHeight = h,
+            DeviceScale = _deviceScale,
+            OnRendered = OnPlaceholderRendered,
+        });
+    }
+
+    private void OnPlaceholderRendered(int pageIndex, int pixelWidth, ImageSource image)
+    {
+        if (pageIndex >= 0 && pageIndex < Pages.Count && Pages[pageIndex] is { Image: null } slot)
+        {
+            slot.PlaceholderImage = image; // ignored once the real image has beaten it
+        }
     }
 
     private void OnPageRendered(int pageIndex, int pixelWidth, ImageSource image)
@@ -3220,8 +3279,14 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             return; // stale (zoom/DPI changed since this was queued)
         }
 
+        ShowPageImage(slot, pixelWidth, image);
+    }
+
+    private void ShowPageImage(PageSlotViewModel slot, int pixelWidth, ImageSource image)
+    {
         slot.RenderedPixelWidth = pixelWidth;
         slot.Image = image;
+        slot.PlaceholderImage = null;
         UpdatePixelExact(slot);
     }
 

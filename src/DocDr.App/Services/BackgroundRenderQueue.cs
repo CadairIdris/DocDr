@@ -81,6 +81,9 @@ public sealed class BackgroundRenderQueue : IDisposable, IRenderQueue
         }
     }
 
+    public ImageSource? TryGetCached(PdfDocument document, int pageIndex, int pixelWidth, int pixelHeight, double deviceScale) =>
+        _images.TryGetCached(document, pageIndex, pixelWidth, pixelHeight, deviceScale);
+
     public void RemoveWhere(Func<RenderRequest, bool> predicate)
     {
         lock (_gate)
