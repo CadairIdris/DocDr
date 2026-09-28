@@ -76,8 +76,11 @@ public sealed partial class ThumbnailStripViewModel : ObservableObject
         SelectedPageIndices = [];
     }
 
-    /// <summary>The view pushes its ListBox selection here on SelectionChanged.</summary>
-    public void SetSelection(IEnumerable selectedItems)
+    /// <summary>The view pushes its ListBox selection here on SelectionChanged. With
+    /// <paramref name="activate"/> false (the view moving the selection to follow the pane's
+    /// current page) the selection is recorded but no navigation is triggered — the pane is
+    /// already there, and re-navigating would yank it to the top of that page mid-scroll.</summary>
+    public void SetSelection(IEnumerable selectedItems, bool activate = true)
     {
         var indices = selectedItems
             .OfType<ThumbnailViewModel>()
@@ -88,7 +91,7 @@ public sealed partial class ThumbnailStripViewModel : ObservableObject
         SelectedPageIndices = indices;
 
         // A single-item selection is a navigation gesture; a multi-item selection is a page pick.
-        if (indices.Length == 1)
+        if (activate && indices.Length == 1)
         {
             PageActivated?.Invoke(indices[0]);
         }
