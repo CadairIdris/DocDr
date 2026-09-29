@@ -32,21 +32,259 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _settings = settings;
         AnnotationColors.CustomColorArgb = settings.LastCustomColor;
         Tabs.CollectionChanged += OnTabsChanged;
+        LeftGroup.IsActive = true;
+        _activeGroup = LeftGroup;
+        LeftGroup.PropertyChanged += OnGroupPropertyChanged;
+        RightGroup.PropertyChanged += OnGroupPropertyChanged;
         RebuildRecentFiles();
     }
 
+    /// <summary>Every open tab, whichever side it's docked on (save-on-exit, title de-duplication,
+    /// "is this file already open"). <see cref="LeftGroup"/> / <see cref="RightGroup"/> hold the
+    /// same tabs split by side.</summary>
     public ObservableCollection<DocumentTabViewModel> Tabs { get; } = [];
+
+    // --- Side-by-side tab groups ------------------------------------------------------------
+
+    /// <summary>The main (left) tab strip. Never empty while any tab is open.</summary>
+    public TabGroupViewModel LeftGroup { get; } = new(isPrimary: true);
+
+    /// <summary>The right tab strip — only has tabs while documents are docked side by side.</summary>
+    public TabGroupViewModel RightGroup { get; } = new(isPrimary: false);
+
+    private TabGroupViewModel _activeGroup;
+
+    /// <summary>The side the toolbar acts on — the one last clicked or focused into.</summary>
+    public TabGroupViewModel ActiveGroup => _activeGroup;
+
+    /// <summary>Two documents are docked side by side.</summary>
+    public bool IsSideBySide => RightGroup.HasTabs;
+
+    /// <summary>Read mode shows only the tab being read; otherwise both sides show when docked.</summary>
+    public bool ShowLeftGroup => !IsReadMode || _activeGroup == LeftGroup;
+
+    public bool ShowRightGroup => IsSideBySide && (!IsReadMode || _activeGroup == RightGroup);
+
+    /// <summary>The tab the toolbar, title bar and shortcuts act on: the active side's selected tab.</summary>
+    public DocumentTabViewModel? SelectedTab
+    {
+        get => _activeGroup.SelectedTab;
+        set
+        {
+            if (value is null)
+            {
+                _activeGroup.SelectedTab = null;
+                return;
+            }
+
+            TabGroupViewModel group = GroupOf(value) ?? _activeGroup;
+            ActivateGroup(group);
+            group.SelectedTab = value;
+        }
+    }
+
+    public TabGroupViewModel? GroupOf(DocumentTabViewModel tab) =>
+        LeftGroup.Tabs.Contains(tab) ? LeftGroup
+        : RightGroup.Tabs.Contains(tab) ? RightGroup
+        : null;
+
+    /// <summary>Make <paramref name="group"/> the side the toolbar acts on (the view calls this when
+    /// the user clicks or tabs into it).</summary>
+    public void ActivateGroup(TabGroupViewModel group)
+    {
+        if (group == _activeGroup || (!group.IsPrimary && !group.HasTabs))
+        {
+            return;
+        }
+
+        _activeGroup.IsActive = false;
+        _activeGroup = group;
+        group.IsActive = true;
+        OnPropertyChanged(nameof(ActiveGroup));
+        OnPropertyChanged(nameof(ShowLeftGroup));
+        OnPropertyChanged(nameof(ShowRightGroup));
+        RaiseSelectedTabChanged();
+    }
+
+    /// <summary>Whether dragging / moving <paramref name="tab"/> to <paramref name="target"/> would
+    /// do anything useful. Splitting the only open tab off to the right would leave the left side
+    /// empty (and it would just slide back), so that's refused; moving the last right-hand tab
+    /// back to the left is allowed — it ends side-by-side.</summary>
+    public bool CanMoveTab(DocumentTabViewModel tab, TabGroupViewModel target)
+    {
+        TabGroupViewModel? source = GroupOf(tab);
+        return source is not null && source != target
+            && !(source.IsPrimary && source.Tabs.Count == 1 && !target.HasTabs);
+    }
+
+    /// <summary>Dock <paramref name="tab"/> on the other side (context menu / toolbar).</summary>
+    public void MoveTabToOtherSide(DocumentTabViewModel tab)
+    {
+        if (GroupOf(tab) is { } source)
+        {
+            MoveTab(tab, source.IsPrimary ? RightGroup : LeftGroup);
+        }
+    }
+
+    /// <summary>Move <paramref name="tab"/> into <paramref name="target"/>, select it there and make
+    /// that side active. The side it left selects its neighbour; if the left side is emptied the
+    /// right side's tabs slide over, so the left strip is never empty while tabs are open.</summary>
+    public void MoveTab(DocumentTabViewModel tab, TabGroupViewModel target)
+    {
+        if (!CanMoveTab(tab, target) || GroupOf(tab) is not { } source)
+        {
+            return;
+        }
+
+        Rearranging(() =>
+        {
+            RemoveFromGroup(source, tab);
+            target.Tabs.Add(tab);
+            target.SelectedTab = tab;
+            ActivateGroup(target);
+            NormaliseGroups();
+        });
+        StatusText = IsSideBySide
+            ? "Side by side — drag a tab across, or use Link scrolling to keep the two in step."
+            : $"{Tabs.Count} tab(s) open.";
+    }
+
+    private static void RemoveFromGroup(TabGroupViewModel group, DocumentTabViewModel tab)
+    {
+        int index = group.Tabs.IndexOf(tab);
+        bool wasSelected = ReferenceEquals(group.SelectedTab, tab);
+        group.Tabs.Remove(tab);
+        if (wasSelected || group.SelectedTab is null)
+        {
+            group.SelectedTab = group.Tabs.Count > 0 ? group.Tabs[Math.Clamp(index, 0, group.Tabs.Count - 1)] : null;
+        }
+    }
+
+    /// <summary>Keep the left strip populated and the active side valid after tabs move or close.</summary>
+    private void NormaliseGroups()
+    {
+        if (!LeftGroup.HasTabs && RightGroup.HasTabs)
+        {
+            DocumentTabViewModel? selected = RightGroup.SelectedTab;
+            foreach (DocumentTabViewModel moved in RightGroup.Tabs.ToList())
+            {
+                RightGroup.Tabs.Remove(moved);
+                LeftGroup.Tabs.Add(moved);
+            }
+
+            RightGroup.SelectedTab = null;
+            LeftGroup.SelectedTab = selected ?? LeftGroup.Tabs.FirstOrDefault();
+        }
+
+        if (!RightGroup.HasTabs)
+        {
+            ActivateGroup(LeftGroup);
+        }
+
+        OnPropertyChanged(nameof(IsSideBySide));
+        OnPropertyChanged(nameof(ShowLeftGroup));
+        OnPropertyChanged(nameof(ShowRightGroup));
+        RelinkScrolling();
+    }
+
+    private void OnGroupPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(TabGroupViewModel.SelectedTab))
+        {
+            if (sender == _activeGroup)
+            {
+                RaiseSelectedTabChanged();
+            }
+
+            RelinkScrolling();
+        }
+    }
+
+    // --- Linked scrolling -------------------------------------------------------------------
+
+    /// <summary>Keep the two side-by-side documents scrolled and zoomed together (toolbar toggle).
+    /// Stays on as a preference while nothing is docked; it takes effect when two documents are.</summary>
+    [ObservableProperty]
+    private bool _isScrollLinked;
+
+    private ScrollLink? _scrollLink;
+    private int _relinkSuspended;
+
+    /// <summary>Run a multi-step tab rearrangement with relinking held off, then link once.</summary>
+    private void Rearranging(Action action)
+    {
+        _relinkSuspended++;
+        try
+        {
+            action();
+        }
+        finally
+        {
+            _relinkSuspended--;
+        }
+
+        RelinkScrolling();
+    }
+
+    /// <summary>The active link, for tests / diagnostics (null unless linked and side by side).</summary>
+    public ScrollLink? ActiveScrollLink => _scrollLink;
+
+    partial void OnIsScrollLinkedChanged(bool value) => RelinkScrolling();
+
+    /// <summary>(Re)build the link between the two visible documents. Called whenever either side's
+    /// visible tab changes, so the page pairing is re-taken from wherever the two now are.</summary>
+    private void RelinkScrolling()
+    {
+        if (_relinkSuspended > 0)
+        {
+            return; // mid-move: selection passes through intermediate states — link once at the end
+        }
+
+        PdfPaneViewModel? left = LeftGroup.SelectedTab?.LeftPane;
+        PdfPaneViewModel? right = RightGroup.SelectedTab?.LeftPane;
+        bool want = IsScrollLinked && left is not null && right is not null;
+
+        if (_scrollLink is not null && want
+            && ReferenceEquals(_scrollLink.A, left) && ReferenceEquals(_scrollLink.B, right))
+        {
+            return; // already linking exactly these two
+        }
+
+        _scrollLink?.Dispose();
+        _scrollLink = want ? new ScrollLink(left!, right!) : null;
+        OnPropertyChanged(nameof(ActiveScrollLink));
+        if (_scrollLink is not null && _scrollLink.PageOffset != 0)
+        {
+            StatusText = $"Scrolling linked — page offset {_scrollLink.PageOffset:+#;-#;0} (line the two up, then re-link to change it).";
+        }
+    }
+
+    private DocumentTabViewModel? _lastSelectedTab;
+
+    /// <summary>Re-publish <see cref="SelectedTab"/> after the active side or its selection moved,
+    /// doing what the old auto-property's change hooks did: follow the new tab's title, and leave
+    /// read mode if a different tab took over.</summary>
+    private void RaiseSelectedTabChanged()
+    {
+        DocumentTabViewModel? value = SelectedTab;
+        if (ReferenceEquals(value, _lastSelectedTab))
+        {
+            return;
+        }
+
+        OnSelectedTabChanging(_lastSelectedTab, value);
+        _lastSelectedTab = value;
+        OnPropertyChanged(nameof(SelectedTab));
+        OnPropertyChanged(nameof(WindowTitle));
+        OnSelectedTabChanged(value);
+    }
 
     /// <summary>Recent documents shown on the home screen (most recent first).</summary>
     public ObservableCollection<RecentFileViewModel> RecentFiles { get; } = [];
 
     public bool HasRecentFiles => RecentFiles.Count > 0;
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(WindowTitle))]
-    private DocumentTabViewModel? _selectedTab;
-
-    partial void OnSelectedTabChanging(DocumentTabViewModel? oldValue, DocumentTabViewModel? newValue)
+    private void OnSelectedTabChanging(DocumentTabViewModel? oldValue, DocumentTabViewModel? newValue)
     {
         if (oldValue is not null)
         {
@@ -107,6 +345,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     partial void OnIsReadModeChanged(bool value)
     {
+        OnPropertyChanged(nameof(ShowLeftGroup));
+        OnPropertyChanged(nameof(ShowRightGroup));
+
         if (value && SelectedTab is null)
         {
             return;
@@ -129,7 +370,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    partial void OnSelectedTabChanged(DocumentTabViewModel? value)
+    private void OnSelectedTabChanged(DocumentTabViewModel? value)
     {
         // Switching documents leaves read mode — the reading view is tied to one tab.
         if (IsReadMode && !ReferenceEquals(value, _readingTab))
@@ -208,13 +449,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             UniqueTitle(title), document, document.GetPageSizes(), document.GetOutline(),
             _renderQueue, _images);
         tab.CloseRequested += (_, _) => CloseTab(tab);
+        tab.MoveToOtherSideRequested += (_, _) => MoveTabToOtherSide(tab);
         tab.CustomColorChanged += argb =>
         {
             _settings.LastCustomColor = argb;
             _settings.Save();
         };
-        Tabs.Add(tab);
-        SelectedTab = tab;
+        Rearranging(() =>
+        {
+            Tabs.Add(tab);
+            _activeGroup.Tabs.Add(tab); // opens on whichever side is active
+            SelectedTab = tab;
+            NormaliseGroups();
+        });
         StatusText = $"{document.PageCount} page(s) — {Tabs.Count} tab(s) open.";
     }
 
@@ -433,24 +680,22 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        int index = Tabs.IndexOf(tab);
-        if (index < 0)
+        if (!Tabs.Contains(tab) || !tab.ConfirmClose())
         {
             return;
         }
 
-        if (!tab.ConfirmClose())
+        Rearranging(() =>
         {
-            return;
-        }
+            if (GroupOf(tab) is { } group)
+            {
+                RemoveFromGroup(group, tab);
+            }
 
-        Tabs.Remove(tab);
+            Tabs.Remove(tab);
+            NormaliseGroups(); // may slide the right side over, end side-by-side, and drop the link
+        });
         _renderQueue.Clear();
-
-        if (ReferenceEquals(SelectedTab, tab) || SelectedTab is null)
-        {
-            SelectedTab = Tabs.Count > 0 ? Tabs[Math.Min(index, Tabs.Count - 1)] : null;
-        }
 
         tab.Dispose();
         StatusText = Tabs.Count > 0 ? $"{Tabs.Count} tab(s) open." : "Open a PDF to begin.";
@@ -496,6 +741,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        _scrollLink?.Dispose();
+        _scrollLink = null;
         foreach (DocumentTabViewModel tab in Tabs)
         {
             tab.Dispose();

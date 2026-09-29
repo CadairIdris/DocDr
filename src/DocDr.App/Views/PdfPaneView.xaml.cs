@@ -74,6 +74,7 @@ public partial class PdfPaneView : UserControl
         if (_pane is not null)
         {
             _pane.ScrollToPageRequested -= OnScrollToPageRequested;
+            _pane.ScrollToPositionRequested -= OnScrollToPositionRequested;
             _pane.PropertyChanged -= OnPanePropertyChanged;
             _pane.PagesReloaded -= OnPagesReloaded;
             _pane.SelectedFormatChanged -= OnSelectedFormatChanged;
@@ -87,6 +88,7 @@ public partial class PdfPaneView : UserControl
         }
 
         _pane.ScrollToPageRequested += OnScrollToPageRequested;
+        _pane.ScrollToPositionRequested += OnScrollToPositionRequested;
         _pane.PropertyChanged += OnPanePropertyChanged;
         _pane.PagesReloaded += OnPagesReloaded;
         _pane.SelectedFormatChanged += OnSelectedFormatChanged;
@@ -311,9 +313,66 @@ public partial class PdfPaneView : UserControl
         if (!_programmaticScroll && !_pane.IsPaged)
         {
             _pane.ReportScrolledToPage(TopVisiblePageIndex());
+            ReportViewportPosition(IsUserScrolling());
         }
     }
 
+    /// <summary>Whether a scroll that just happened came from the user — the pointer is over this
+    /// page list (wheel, scrollbar, trackpad, middle-drag) or it has keyboard focus (arrows,
+    /// PgUp/PgDn). A layout-driven offset change on a pane the user isn't touching (it re-flowed
+    /// after a linked zoom, pages realising) isn't, so it's not broadcast to a linked pane.</summary>
+    private bool IsUserScrolling() => PageList.IsMouseOver || PageList.IsKeyboardFocusWithin;
+
+    private void ReportViewportPosition(bool userInitiated)
+    {
+        if (_pane is { Mode: ViewMode.Continuous } && CurrentViewportPosition() is { } position)
+        {
+            _pane.ReportViewportPosition(position, userInitiated);
+        }
+    }
+
+    /// <summary>The page at the top edge of the viewport and how far down it the edge sits, read
+    /// from the realised containers (continuous mode only — one page per container).</summary>
+    private ViewportPosition? CurrentViewportPosition()
+    {
+        if (_scrollViewer is null || _pane is null)
+        {
+            return null;
+        }
+
+        double horizontal = _scrollViewer.ScrollableWidth > 0
+            ? _scrollViewer.HorizontalOffset / _scrollViewer.ScrollableWidth
+            : 0;
+        ItemContainerGenerator generator = PageList.ItemContainerGenerator;
+        (int Page, double Top)? firstVisible = null;
+
+        foreach (object item in PageList.Items)
+        {
+            if (item is not PageSlotViewModel slot
+                || generator.ContainerFromItem(item) is not FrameworkElement { IsVisible: true } container
+                || container.ActualHeight <= 0)
+            {
+                continue;
+            }
+
+            double top;
+            try { top = container.TransformToVisual(_scrollViewer).Transform(new Point(0, 0)).Y; }
+            catch (InvalidOperationException) { continue; }
+
+            double height = container.ActualHeight;
+            if (top <= 0.5 && top + height > 0.5)
+            {
+                return new ViewportPosition(slot.PageIndex, Math.Clamp(-top / height, 0, 1), horizontal);
+            }
+
+            if (top > 0.5 && top < _scrollViewer.ViewportHeight && (firstVisible is null || top < firstVisible.Value.Top))
+            {
+                firstVisible = (slot.PageIndex, top);
+            }
+        }
+
+        return firstVisible is { } f ? new ViewportPosition(f.Page, 0, horizontal) : null;
+    }
     private int TopVisiblePageIndex() =>
         VisiblePageRange()?.First ?? (_pane!.CurrentPage - 1);
 
@@ -481,10 +540,30 @@ public partial class PdfPaneView : UserControl
         // on-screen position, refining as neighbours realise.
         _programmaticScroll = true;
         PageList.ScrollIntoView(item);
-        AlignPageToTop(pageIndex, attempts: 4);
+        AlignPage(pageIndex, fraction: 0, horizontalFraction: null, fromSync: false, attempts: 4);
     }
 
-    private void AlignPageToTop(int pageIndex, int attempts)
+    /// <summary>A linked pane moved: put the same relative spot of the (mapped) page at the top of
+    /// this viewport. Treated as programmatic throughout, so it's never reported back.</summary>
+    private void OnScrollToPositionRequested(ViewportPosition position)
+    {
+        if (_scrollViewer is null || _pane is null || _pane.IsPaged || PageItem(position.PageIndex) is not { } item)
+        {
+            return;
+        }
+
+        _programmaticScroll = true;
+        PageList.ScrollIntoView(item);
+        AlignPage(position.PageIndex, position.Fraction, position.HorizontalFraction, fromSync: true, attempts: 4);
+    }
+
+    /// <summary>
+    /// Scroll so <paramref name="fraction"/> of the way down page <paramref name="pageIndex"/>'s
+    /// container sits at the viewport top (0 = top-align the page), refining from the container's
+    /// real position as neighbours realise. When done, the new position is reported — as a user
+    /// move for a jump the user asked for (so a linked pane follows), silently for a sync.
+    /// </summary>
+    private void AlignPage(int pageIndex, double fraction, double? horizontalFraction, bool fromSync, int attempts)
     {
         Dispatcher.BeginInvoke(
             () =>
@@ -501,24 +580,41 @@ public partial class PdfPaneView : UserControl
                 double top = container is null
                     ? double.NaN
                     : container.TransformToVisual(_scrollViewer).Transform(new Point(0, 0)).Y;
+                double wanted = container is null ? 0 : -fraction * container.ActualHeight;
 
-                bool aligned = !double.IsNaN(top) && Math.Abs(top) <= 1.0;
+                bool aligned = !double.IsNaN(top) && Math.Abs(top - wanted) <= 1.0;
                 if (!aligned && attempts > 0)
                 {
                     if (!double.IsNaN(top))
                     {
-                        _scrollViewer.ScrollToVerticalOffset(Math.Max(0, _scrollViewer.VerticalOffset + top));
+                        _scrollViewer.ScrollToVerticalOffset(Math.Max(0, _scrollViewer.VerticalOffset + top - wanted));
                     }
                     else
                     {
                         PageList.ScrollIntoView(PageItem(pageIndex));
                     }
 
-                    AlignPageToTop(pageIndex, attempts - 1);
+                    AlignPage(pageIndex, fraction, horizontalFraction, fromSync, attempts - 1);
                     return;
                 }
 
-                Dispatcher.BeginInvoke(() => _programmaticScroll = false,
+                if (horizontalFraction is { } h && _scrollViewer.ScrollableWidth > 0)
+                {
+                    _scrollViewer.ScrollToHorizontalOffset(h * _scrollViewer.ScrollableWidth);
+                }
+
+                Dispatcher.BeginInvoke(
+                    () =>
+                    {
+                        _programmaticScroll = false;
+                        if (fromSync)
+                        {
+                            // Keep the page counter in step with where the sync put us.
+                            _pane?.ReportScrolledToPage(pageIndex);
+                        }
+
+                        ReportViewportPosition(userInitiated: !fromSync);
+                    },
                     System.Windows.Threading.DispatcherPriority.Background);
             },
             System.Windows.Threading.DispatcherPriority.Loaded);

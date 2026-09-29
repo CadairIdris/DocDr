@@ -99,6 +99,81 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     /// <summary>Raised after <see cref="ReloadPages"/> rebuilds the page list (the view re-initialises).</summary>
     public event Action? PagesReloaded;
 
+    /// <summary>Raised when the user moves a continuous-scroll pane (scrolling, or a jump they asked
+    /// for) — never for a move another pane's sync caused. Scroll linking listens to this.</summary>
+    public event Action<PdfPaneViewModel, ViewportPosition>? ViewportScrolled;
+
+    /// <summary>Raised when the pane wants the view to put a page at a precise spot (continuous mode).</summary>
+    public event Action<ViewportPosition>? ScrollToPositionRequested;
+
+    /// <summary>The position the view last reported (or was last asked to show).</summary>
+    public ViewportPosition LastViewportPosition { get; private set; }
+
+    /// <summary>The view reports where it is. <paramref name="userInitiated"/> is false for moves
+    /// the view made on its own (layout settling, a sync from the other pane) — those update
+    /// <see cref="LastViewportPosition"/> but aren't broadcast, so two linked panes can't echo.</summary>
+    public void ReportViewportPosition(ViewportPosition position, bool userInitiated)
+    {
+        LastViewportPosition = position;
+        if (userInitiated)
+        {
+            ViewportScrolled?.Invoke(this, position);
+        }
+    }
+
+    /// <summary>Follow another pane: in continuous mode, put <paramref name="position"/>'s page
+    /// at the same relative spot; in the paged / grid modes (no fine position), just go to the page.</summary>
+    public void SyncTo(ViewportPosition position)
+    {
+        if (PageCount == 0)
+        {
+            return;
+        }
+
+        ViewportPosition clamped = position with
+        {
+            PageIndex = Math.Clamp(position.PageIndex, 0, PageCount - 1),
+            Fraction = Math.Clamp(position.Fraction, 0, 1),
+            HorizontalFraction = Math.Clamp(position.HorizontalFraction, 0, 1),
+        };
+
+        if (Mode == ViewMode.Continuous)
+        {
+            LastViewportPosition = clamped;
+            ScrollToPositionRequested?.Invoke(clamped);
+        }
+        else if (clamped.PageIndex != CurrentPage - 1)
+        {
+            GoToPage(clamped.PageIndex + 1);
+        }
+    }
+
+    /// <summary>Match another pane's zoom: the same fit mode, or the same custom scale. Re-rendering
+    /// is debounced like a wheel zoom, since a linked pane follows every step of a pinch.</summary>
+    public void ApplyZoom(double zoom, ZoomMode mode)
+    {
+        _deferRerender = true;
+        try
+        {
+            switch (mode)
+            {
+                case ZoomMode.FitWidth:
+                    FitWidth();
+                    break;
+                case ZoomMode.FitPage:
+                    FitPage();
+                    break;
+                default:
+                    SetZoom(zoom, ZoomMode.Custom);
+                    break;
+            }
+        }
+        finally
+        {
+            _deferRerender = false;
+        }
+    }
+
     /// <summary>
     /// Rebuild the page list after the document's pages changed (rotate / delete / insert / undo).
     /// Search state is dropped because hit coordinates and page indices are no longer valid.

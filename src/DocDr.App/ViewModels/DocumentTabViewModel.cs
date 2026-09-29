@@ -256,6 +256,9 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     /// <summary>Raised when the tab's own close affordance is used.</summary>
     public event EventHandler? CloseRequested;
 
+    /// <summary>Raised from the tab's context menu: dock it on the other side of the window.</summary>
+    public event EventHandler? MoveToOtherSideRequested;
+
     // --- Navigation panel ----------------------------------------------------------------
 
     /// <summary>
@@ -875,6 +878,9 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
     [RelayCommand]
     private void Close() => CloseRequested?.Invoke(this, EventArgs.Empty);
+
+    [RelayCommand]
+    private void MoveToOtherSide() => MoveToOtherSideRequested?.Invoke(this, EventArgs.Empty);
 
     public void Dispose()
     {

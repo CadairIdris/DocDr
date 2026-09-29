@@ -505,6 +505,44 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   slots more than `ImageKeepMargin` (6) pages outside that span** — the bitmap is otherwise held
   for the session and a long standard retains every page it has shown (~4 MB each → GBs).
 
+## Side-by-side documents (`TabGroupViewModel` / `ScrollLink`)
+
+- **Two docked tab strips.** `MainViewModel.LeftGroup` / `RightGroup` (`TabGroupViewModel`: `Tabs`,
+  `SelectedTab`, `IsActive`) split the open tabs by side; `MainViewModel.Tabs` is still the flat list of
+  every tab (save-on-exit, `UniqueTitle`, "already open?"). The right group only has tabs while docked
+  (`IsSideBySide`). Rules (`MoveTab` / `CanMoveTab` / `NormaliseGroups`): the left strip is never empty
+  while tabs are open — empty it and the right side's tabs slide over; the only open tab can't be split
+  off on its own; moving the last right-hand tab back ends side-by-side. New tabs open on the active side.
+- **`MainViewModel.SelectedTab` is no longer an auto-property** — it's the *active group's* selected tab
+  (setter activates the tab's group). That one change makes every toolbar / shortcut / title binding
+  (all `SelectedTab.*`) follow the side the user last clicked or focused into (`MainWindow`
+  `GroupHost_PreviewMouseDown` / `PreviewGotKeyboardFocus` → `ActivateGroup`). `RaiseSelectedTabChanged`
+  re-does what the old property's change hooks did (title follow, leave read mode).
+- **View:** both sides are the same `DocumentTabControl` style (`MainWindow.xaml` resources) in
+  `LeftGroupHost` / `RightGroupHost`, `DataContext` = the group; active side gets an accent top rule
+  while docked. Column widths are set in code-behind (`ApplyGroupLayout`, from `ShowLeftGroup` /
+  `ShowRightGroup` — read mode shows only the active side) and remember the splitter's split.
+- **Drag a tab to dock it.** `TabItem` `EventSetter`s start a `DragDrop.DoDragDrop` (format
+  `"DocDr.DocumentTab"`) past the system drag threshold (never from the ✕); `TabDropOverlay` (a
+  transparent `Canvas` over `TabArea`, visible only during the drag) shows one zone — the right half
+  when nothing is docked, else the other side's area — and `Drop` calls `MoveTab` via
+  `Dispatcher.BeginInvoke` (moving inside the drag loop would detach the drag source). **The window's
+  file-drop `Preview*` handlers must ignore that format** — they mark every drag handled otherwise.
+  Also: tab context menu / toolbar "⇆ Side by side" → `DocumentTabViewModel.MoveToOtherSideCommand`.
+- **Linked scrolling** (`MainViewModel.IsScrollLinked`, toolbar "🔗 Link scrolling"): `RelinkScrolling`
+  builds a `ScrollLink` between the two visible tabs' `LeftPane`s whenever either side's visible tab
+  changes (held off during multi-step moves by `Rearranging`, so intermediate pairings never copy
+  zoom). Alignment is **by page + fraction, not pixels** — `ViewportPosition(PageIndex, Fraction,
+  HorizontalFraction)`, zoom- and page-size-independent — with the page offset the two had when
+  linked (line them up, then link). Zoom (incl. fit modes) follows too (`PdfPaneViewModel.ApplyZoom`,
+  render debounced like a wheel zoom). Paged / grid modes follow `CurrentPage` instead.
+- **Echo control** (the part that's easy to break): `PdfPaneView` reports its position after every
+  non-programmatic `ScrollChanged` but flags it user-initiated only if `PageList.IsMouseOver ||
+  IsKeyboardFocusWithin`; a jump the user asked for (`OnScrollToPageRequested` → `AlignPage`) reports
+  as user-initiated when it settles; a sync (`OnScrollToPositionRequested` → `AlignPage(fromSync:
+  true)`) never does. `PdfPaneViewModel.ViewportScrolled` only fires for user-initiated reports, and
+  `ScrollLink` also drops a report that `IsNear` what it just pushed to that pane.
+
 ## Printing (`PrintService`, Stage 1)
 
 - `DocumentTabViewModel.PrintCommand` → `PrintService.Print(document, jobName)`: a WPF
