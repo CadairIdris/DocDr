@@ -40,6 +40,102 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <ContextMenu x:Key="TabContextMenu" x:Shared="False">
+            <MenuItem Header="Move to other side" Command="{Binding MoveToOtherSideCommand}"
+                      ToolTip="Dock this document on the other side of the window (or drag its tab across)" />
+            <Separator />
+            <MenuItem Header="Close" Command="{Binding CloseCommand}" />
+        </ContextMenu>
+
+        <!-- One docked tab strip + its documents. Both sides of the window use it; each side's
+             DataContext is a TabGroupViewModel. -->
+        <Style x:Key="DocumentTabControl" TargetType="TabControl" BasedOn="{StaticResource {x:Type TabControl}}">
+            <Setter Property="ItemsSource" Value="{Binding Tabs}" />
+            <Setter Property="SelectedItem" Value="{Binding SelectedTab, Mode=TwoWay}" />
+            <Setter Property="Visibility" Value="{Binding HasTabs, Converter={StaticResource BoolToVisibility}}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <DockPanel>
+                            <TabPanel DockPanel.Dock="Top" IsItemsHost="True" Margin="2,2,2,0" Panel.ZIndex="1"
+                                      Visibility="{Binding DataContext.IsReadMode, RelativeSource={RelativeSource AncestorType=Window},
+                                                   Converter={StaticResource InverseBoolToVisibility}}" />
+                            <Border Background="{DynamicResource PageBackgroundBrush}">
+                                <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent" />
+                            </Border>
+                        </DockPanel>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="TabItem" BasedOn="{StaticResource {x:Type TabItem}}">
+                        <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="ContextMenu" Value="{StaticResource TabContextMenu}" />
+                        <!-- Drag a tab across to dock it side by side (MainWindow.xaml.cs). -->
+                        <EventSetter Event="PreviewMouseLeftButtonDown" Handler="TabItem_PreviewMouseLeftButtonDown" />
+                        <EventSetter Event="PreviewMouseMove" Handler="TabItem_PreviewMouseMove" />
+                        <EventSetter Event="PreviewMouseLeftButtonUp" Handler="TabItem_PreviewMouseLeftButtonUp" />
+                    </Style>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="ItemTemplate">
+                <Setter.Value>
+                    <DataTemplate DataType="{x:Type vm:DocumentTabViewModel}">
+                        <!-- Fluent's tab strip has almost no contrast in dark mode; give each
+                             header its own chrome so the tabs read as tabs. -->
+                        <Border x:Name="TabChrome" CornerRadius="4,4,0,0" Padding="8,3"
+                                Margin="0,2,1,0" BorderThickness="1,1,1,0"
+                                MinWidth="150" MaxWidth="260"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                Background="{DynamicResource TabItemBrush}">
+                            <DockPanel LastChildFill="True">
+                                <Button DockPanel.Dock="Right" Content="✕" Margin="8,0,0,0" Padding="3,0"
+                                        FontSize="10" VerticalAlignment="Center"
+                                        Background="Transparent" BorderThickness="0"
+                                        Command="{Binding CloseCommand}" ToolTip="Close tab" />
+                                <TextBlock Text="{Binding Title}" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding FilePath}" />
+                            </DockPanel>
+                        </Border>
+                        <DataTemplate.Triggers>
+                            <DataTrigger Value="True"
+                                         Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType={x:Type TabItem}}}">
+                                <Setter TargetName="TabChrome" Property="Background" Value="{DynamicResource TabItemActiveBrush}" />
+                                <Setter TargetName="TabChrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="TabChrome" Property="BorderThickness" Value="1,2,1,0" />
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="ContentTemplate">
+                <Setter.Value>
+                    <DataTemplate DataType="{x:Type vm:DocumentTabViewModel}">
+                        <views:DocumentTabView />
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- A docked side. While two are docked, the active one (what the toolbar acts on) gets an
+             accent rule along its top edge. -->
+        <Style x:Key="TabGroupHost" TargetType="Border">
+            <Setter Property="BorderThickness" Value="0,2,0,0" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Style.Triggers>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsActive}" Value="True" />
+                        <Condition Binding="{Binding DataContext.IsSideBySide, RelativeSource={RelativeSource AncestorType=Window}}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                </MultiDataTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -75,6 +171,15 @@
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.IsSplitView, Mode=TwoWay}"
                               ToolTip="Show a second, independent pane for this document" />
+                <Button Content="⇆ Side by side" Padding="8,3" Margin="4,0,0,0"
+                        Command="{Binding SelectedTab.MoveToOtherSideCommand}" IsEnabled="{Binding HasTabs}"
+                        AutomationProperties.Name="Move to other side"
+                        ToolTip="Dock this document on the other side of the window — or drag its tab to the right edge" />
+                <ToggleButton Content="🔗 Link scrolling" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
+                              IsEnabled="{Binding IsSideBySide}"
+                              IsChecked="{Binding IsScrollLinked, Mode=TwoWay}"
+                              AutomationProperties.Name="Link scrolling"
+                              ToolTip="Scroll and zoom the two side-by-side documents together. Line them up first — the page offset between them is kept." />
                 <ToggleButton Content="💬 Note" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.CommentToolActive, Mode=TwoWay}"
@@ -256,62 +361,50 @@
         </Border>
 
         <Grid>
-            <TabControl ItemsSource="{Binding Tabs}"
-                        SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
-                        Visibility="{Binding HasTabs, Converter={StaticResource BoolToVisibility}}">
-                <TabControl.Template>
-                    <ControlTemplate TargetType="TabControl">
-                        <DockPanel>
-                            <TabPanel DockPanel.Dock="Top" IsItemsHost="True" Margin="2,2,2,0" Panel.ZIndex="1"
-                                      Visibility="{Binding DataContext.IsReadMode, RelativeSource={RelativeSource AncestorType=Window},
-                                                   Converter={StaticResource InverseBoolToVisibility}}" />
-                            <Border Background="{DynamicResource PageBackgroundBrush}">
-                                <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent" />
-                            </Border>
-                        </DockPanel>
-                    </ControlTemplate>
-                </TabControl.Template>
-                <TabControl.ItemContainerStyle>
-                    <Style TargetType="TabItem" BasedOn="{StaticResource {x:Type TabItem}}">
-                        <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                    </Style>
-                </TabControl.ItemContainerStyle>
-                <TabControl.ItemTemplate>
-                    <DataTemplate DataType="{x:Type vm:DocumentTabViewModel}">
-                        <!-- Fluent's tab strip has almost no contrast in dark mode; give each
-                             header its own chrome so the tabs read as tabs. -->
-                        <Border x:Name="TabChrome" CornerRadius="4,4,0,0" Padding="8,3"
-                                Margin="0,2,1,0" BorderThickness="1,1,1,0"
-                                MinWidth="150" MaxWidth="260"
-                                BorderBrush="{DynamicResource BorderBrush}"
-                                Background="{DynamicResource TabItemBrush}">
-                            <DockPanel LastChildFill="True">
-                                <Button DockPanel.Dock="Right" Content="✕" Margin="8,0,0,0" Padding="3,0"
-                                        FontSize="10" VerticalAlignment="Center"
-                                        Background="Transparent" BorderThickness="0"
-                                        Command="{Binding CloseCommand}" ToolTip="Close tab" />
-                                <TextBlock Text="{Binding Title}" VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis"
-                                           ToolTip="{Binding FilePath}" />
-                            </DockPanel>
+            <!-- Two docked tab strips. The right one only has tabs while documents are side by side;
+                 column widths are driven from code-behind (ApplyGroupLayout). -->
+            <Grid x:Name="TabArea" Visibility="{Binding HasTabs, Converter={StaticResource BoolToVisibility}}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="LeftGroupColumn" Width="*" MinWidth="0" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition x:Name="RightGroupColumn" Width="0" MinWidth="0" />
+                </Grid.ColumnDefinitions>
+
+                <Border x:Name="LeftGroupHost" Grid.Column="0" DataContext="{Binding LeftGroup}"
+                        Style="{StaticResource TabGroupHost}"
+                        PreviewMouseDown="GroupHost_PreviewMouseDown"
+                        PreviewGotKeyboardFocus="GroupHost_PreviewGotKeyboardFocus">
+                    <TabControl Style="{StaticResource DocumentTabControl}" />
+                </Border>
+
+                <GridSplitter x:Name="GroupSplitter" Grid.Column="1" Width="5" HorizontalAlignment="Stretch"
+                              Background="{DynamicResource BorderBrush}" ResizeBehavior="PreviousAndNext"
+                              Visibility="Collapsed" />
+
+                <Border x:Name="RightGroupHost" Grid.Column="2" DataContext="{Binding RightGroup}"
+                        Style="{StaticResource TabGroupHost}"
+                        PreviewMouseDown="GroupHost_PreviewMouseDown"
+                        PreviewGotKeyboardFocus="GroupHost_PreviewGotKeyboardFocus">
+                    <TabControl Style="{StaticResource DocumentTabControl}" />
+                </Border>
+
+                <!-- Shown only while a tab is being dragged: the zone it can be dropped on. -->
+                <Canvas x:Name="TabDropOverlay" Grid.ColumnSpan="3" Visibility="Collapsed"
+                        Background="Transparent" AllowDrop="True"
+                        DragOver="TabDropOverlay_DragOver" DragLeave="TabDropOverlay_DragLeave"
+                        Drop="TabDropOverlay_Drop">
+                    <Grid x:Name="TabDropZone">
+                        <Rectangle x:Name="TabDropZoneFill" Fill="{DynamicResource AccentBrush}" Opacity="0.15"
+                                   RadiusX="6" RadiusY="6" />
+                        <Border BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2" CornerRadius="6" />
+                        <Border HorizontalAlignment="Center" VerticalAlignment="Center" Padding="18,10"
+                                Background="{DynamicResource OverlayCardBrush}" CornerRadius="6"
+                                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1">
+                            <TextBlock x:Name="TabDropZoneText" FontSize="15" FontWeight="SemiBold" />
                         </Border>
-                        <DataTemplate.Triggers>
-                            <DataTrigger Value="True"
-                                         Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType={x:Type TabItem}}}">
-                                <Setter TargetName="TabChrome" Property="Background" Value="{DynamicResource TabItemActiveBrush}" />
-                                <Setter TargetName="TabChrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                                <Setter TargetName="TabChrome" Property="BorderThickness" Value="1,2,1,0" />
-                            </DataTrigger>
-                        </DataTemplate.Triggers>
-                    </DataTemplate>
-                </TabControl.ItemTemplate>
-                <TabControl.ContentTemplate>
-                    <DataTemplate DataType="{x:Type vm:DocumentTabViewModel}">
-                        <views:DocumentTabView />
-                    </DataTemplate>
-                </TabControl.ContentTemplate>
-            </TabControl>
+                    </Grid>
+                </Canvas>
+            </Grid>
 
             <!-- Home screen (shown when no document is open) -->
             <ScrollViewer VerticalScrollBarVisibility="Auto"
