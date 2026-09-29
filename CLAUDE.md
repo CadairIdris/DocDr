@@ -690,6 +690,12 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   / layout). Overlay = transparent `Button`s (so a click follows the link, not starts a
   selection — `PageList_MouseLeftButtonDown` already skips `ButtonBase`). `FollowLinkCommand`
   → `GoToPage`, or `Process.Start` for `http`/`https`/`mailto`.
+- **`BuildLinkOverlays` runs on every scroll event, so it must not replace an unchanged page's
+  `Links`.** It memoises per slot (`PageSlotViewModel.LinkOverlayKey` = the cached link / cross-ref
+  lists by reference + scale, unrotated size, rotation, crop) and skips a page whose inputs match.
+  Replacing the list made WPF recreate every link `Button` on the page each tick — a contents page
+  with hundreds of links stuttered scrolling (`LinkOverlayTests`). Empty inputs use `Array.Empty`
+  so "still loading" keys stay stable too.
 - **`PdfLinks.Read` also merges bare URLs** found by PDFium's text web-link detector
   (`FPDFLinkLoadWebLinks` → `FPDFLinkCountWebLinks` / `GetURL` / `CountRects` / `GetRect`, inside
   `PdfTextExtractor.WithTextPage`). One `PdfLink` per on-page rect; web links overlapping an

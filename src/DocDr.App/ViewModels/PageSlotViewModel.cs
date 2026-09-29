@@ -93,6 +93,12 @@ public sealed partial class PageSlotViewModel : ObservableObject
     [ObservableProperty]
     private IReadOnlyList<LinkVisual> _links = [];
 
+    /// <summary>What <see cref="Links"/> was last built from (the link / cross-ref lists and the
+    /// page geometry). <see cref="PdfPaneViewModel.BuildLinkOverlays"/> runs on every scroll, so it
+    /// compares against this and leaves an unchanged page's overlay alone — replacing the list
+    /// makes WPF tear down and recreate every link button on the page.</summary>
+    internal object? LinkOverlayKey { get; set; }
+
     /// <summary>Live text-selection rectangles during a drag, in DIP space.</summary>
     [ObservableProperty]
     private IReadOnlyList<System.Windows.Rect> _selectionRects = [];

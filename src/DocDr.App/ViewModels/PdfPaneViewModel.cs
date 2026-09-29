@@ -1414,34 +1414,26 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         {
             if (!slot.IsRealized)
             {
-                if (slot.Links.Count > 0)
-                {
-                    slot.Links = [];
-                }
-
+                ClearLinkOverlay(slot);
                 continue;
             }
 
             bool haveLinks = _linkCache.TryGetValue(slot.PageIndex, out IReadOnlyList<PdfLink>? links);
-            IReadOnlyList<PdfCrossRef> crossRefs = [];
+            IReadOnlyList<PdfCrossRef> crossRefs = Array.Empty<PdfCrossRef>();
             bool haveCrossRefs = _clausePageMap.Count == 0
                 || _crossRefCache.TryGetValue(slot.PageIndex, out crossRefs!);
 
             if (!haveLinks || !haveCrossRefs)
             {
                 (toLoad ??= []).Add(slot.PageIndex);
-                crossRefs ??= [];
+                crossRefs ??= Array.Empty<PdfCrossRef>();
             }
 
-            links ??= [];
+            links ??= Array.Empty<PdfLink>();
 
             if (links.Count == 0 && crossRefs.Count == 0)
             {
-                if (slot.Links.Count > 0)
-                {
-                    slot.Links = [];
-                }
-
+                ClearLinkOverlay(slot);
                 continue;
             }
 
@@ -1449,6 +1441,19 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             PdfSize unrotated = _document.GetUnrotatedPageSize(slot.PageIndex);
             PdfRotation rotation = _document.GetPageRotation(slot.PageIndex);
             PdfPoint crop = _document.GetCropOrigin(slot.PageIndex);
+
+            // This runs on every scroll event. Rebuilding an unchanged page's overlay replaced its
+            // list with fresh LinkVisuals, which made WPF recreate every link button on the page —
+            // a contents page with hundreds of links did that many times a second, and scrolling
+            // stuttered wherever link-heavy pages were on screen. Only rebuild when the inputs
+            // (the cached lists, by reference, and the page geometry) actually changed.
+            var key = (links, crossRefs, scale, unrotated, rotation, crop);
+            if (slot.LinkOverlayKey is { } previous && previous.Equals(key))
+            {
+                continue;
+            }
+
+            slot.LinkOverlayKey = key;
 
             var visuals = new List<LinkVisual>(links.Count + crossRefs.Count);
             foreach (PdfLink link in links)
@@ -1476,6 +1481,15 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         if (toLoad is not null)
         {
             _ = LoadLinkDataAsync(toLoad);
+        }
+    }
+
+    private static void ClearLinkOverlay(PageSlotViewModel slot)
+    {
+        slot.LinkOverlayKey = null;
+        if (slot.Links.Count > 0)
+        {
+            slot.Links = [];
         }
     }
 
