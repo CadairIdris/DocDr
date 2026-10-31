@@ -37,9 +37,10 @@ public static class TestPdfBuilder
         int watermarkOnFirstNPages = int.MaxValue,
         IReadOnlyList<Link>? links = null,
         double cropInset = 0,
-        int romanFrontPages = 0)
+        int romanFrontPages = 0,
+        string? header = null)
     {
-        byte[] bytes = Build(pageLines, info, bookmarks ?? [], watermark, watermarkOnFirstNPages, links ?? [], cropInset, romanFrontPages);
+        byte[] bytes = Build(pageLines, info, bookmarks ?? [], watermark, watermarkOnFirstNPages, links ?? [], cropInset, romanFrontPages, header);
         File.WriteAllBytes(path, bytes);
         return path;
     }
@@ -47,7 +48,7 @@ public static class TestPdfBuilder
     private static byte[] Build(
         IReadOnlyList<string> pageLines, PdfInfo? info, IReadOnlyList<Bookmark> bookmarks,
         string? watermark, int watermarkOnFirstNPages, IReadOnlyList<Link> links, double cropInset,
-        int romanFrontPages)
+        int romanFrontPages, string? header)
     {
         int pageCount = pageLines.Count;
         var buffer = new MemoryStream();
@@ -117,7 +118,14 @@ public static class TestPdfBuilder
             Write($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {F(PageWidth)} {F(PageHeight)}]{cropBox} " +
                   $"/Resources << /Font << /F1 3 0 R >> >> /Contents {5 + (2 * i)} 0 R{annots} >>\nendobj\n");
 
-            string stream = $"BT /F1 24 Tf 72 {F(PageHeight - 96)} Td ({Escape(pageLines[i])}) Tj ET\n";
+            // A "\n" in a page's text starts a new line 30 pt lower (24 pt type).
+            string stream = string.Concat(pageLines[i].Split('\n').Select((line, k) =>
+                $"BT /F1 24 Tf 72 {F(PageHeight - 96 - (30 * k))} Td ({Escape(line)}) Tj ET\n"));
+            if (header is not null)
+            {
+                stream += $"BT /F1 9 Tf 72 {F(PageHeight - 30)} Td ({Escape(header.Replace("#", (i + 1).ToString(CultureInfo.InvariantCulture)))}) Tj ET\n";
+            }
+
             if (watermark is not null && i < watermarkOnFirstNPages)
             {
                 stream += $"BT /F1 8 Tf 40 40 Td ({Escape(watermark)}) Tj ET\n";

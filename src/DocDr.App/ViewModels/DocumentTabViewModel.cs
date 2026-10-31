@@ -463,17 +463,25 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
             int check = result.Chunks.Count(c => c.Quality == "check");
             if (suspect > 0)
             {
-                string pages = string.Join(", ", result.SuspectPages.Take(12).Select(PageLabelFor))
-                    + (result.SuspectPages.Count > 12 ? ", …" : string.Empty);
+                var suspectPages = result.Chunks.Where(c => c.Quality == "suspect").Select(c => c.PageStart).Distinct().ToList();
+                string pages = string.Join(", ", suspectPages.Take(12).Select(PageLabelFor))
+                    + (suspectPages.Count > 12 ? ", …" : string.Empty);
                 summary += $"\n\n{suspect} chunk(s) are marked \"suspect\": their text contains symbols the PDF doesn't "
-                    + $"map to real characters (pages {pages}). The real symbols can't be recovered from the text "
-                    + "layer — check those pages against the page images.";
+                    + $"map to real characters, letters repeated by a broken subscript map, or equations the text layer "
+                    + $"scrambles (pages {pages}). Each chunk's \"issues\" says which — check against the page images.";
             }
 
             if (check > 0)
             {
                 summary += $"\n\n{check} chunk(s) contain equations and are marked \"check\": fractions, roots and "
                     + "exponents are flattened to one line.";
+            }
+
+            if (result.EquationCount > 0)
+            {
+                summary += $"\n\n{result.EquationCount:N0} numbered equation(s) located, each with its page box in the "
+                    + $"chunk's \"equations\"; {result.EquationsFlagged:N0} are stacked or garbled in the text layer and "
+                    + "must be read from the page image.";
             }
 
             if (result.DoubledGlyphsRemoved > 0)

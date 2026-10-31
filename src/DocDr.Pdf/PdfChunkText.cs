@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using PDFiumCore;
 
 namespace DocDr.Pdf;
@@ -8,8 +9,18 @@ namespace DocDr.Pdf;
 /// <param name="InMargin">Every glyph sits in the page's top or bottom band — where running
 /// headers, footers and page numbers live. Only such a line may be dropped as a page number.</param>
 /// <param name="HasMath">The line carries maths: mathematical letters (𝜏, 𝑐), operators (⋅ √ ∑),
-/// or super/subscripts — its 2-D layout (fractions, roots, indices) is flattened in plain text.</param>
-internal readonly record struct ChunkLine(string Text, bool InMargin, bool HasMath);
+/// super/subscripts or assembled bracket / fraction-bar pieces — its 2-D layout is flattened.</param>
+/// <param name="Bounds">Union of the line's glyph boxes (page space); zero-size when it has none.</param>
+internal readonly record struct ChunkLine(string Text, bool InMargin, bool HasMath, PdfRect Bounds = default);
+
+/// <summary>A numbered display equation found on a page: the "(8.94)" label at the right margin
+/// plus the lines drawn in its band.</summary>
+/// <param name="Label">The label as printed, e.g. "(8.94)".</param>
+/// <param name="Bounds">Union of the equation's glyph boxes and its label (page space).</param>
+/// <param name="RawText">The equation as extracted (label excluded), in drawing order.</param>
+/// <param name="Stacked">Parts of it sit on different baselines (a fraction, root or stacked
+/// index), which plain text can't represent — the linear text is unreliable.</param>
+internal sealed record ChunkEquation(string Label, PdfRect Bounds, string RawText, bool Stacked);
 
 /// <summary>A page's lines plus what extraction had to repair.</summary>
 internal sealed record ChunkPage(IReadOnlyList<ChunkLine> Lines, int DoubledGlyphsRemoved)
@@ -17,6 +28,11 @@ internal sealed record ChunkPage(IReadOnlyList<ChunkLine> Lines, int DoubledGlyp
     public bool IsBlank => Lines.All(l => string.IsNullOrWhiteSpace(l.Text));
 
     public string Text => string.Join('\n', Lines.Select(l => l.Text));
+
+    public IReadOnlyList<ChunkEquation> Equations { get; init; } = [];
+
+    /// <summary>The page box the glyphs were measured against (CropBox in page space).</summary>
+    public PdfRect PageBox { get; init; }
 }
 
 /// <summary>
@@ -30,9 +46,11 @@ internal sealed record ChunkPage(IReadOnlyList<ChunkLine> Lines, int DoubledGlyp
 /// boxes let the chunker only treat a line as a page number when it sits in the header / footer band.</item>
 /// <item>Mathematical alphanumerics (U+1D400–1D7FF) are outside the BMP: PDFium reports each as two
 /// chars (one per UTF-16 surrogate) that must be re-paired — see <see cref="BuildPage"/>.</item>
+/// <item>Numbered display equations are located (label + box) so a consumer can crop the page image
+/// — see <see cref="FindEquations"/>.</item>
 /// </list>
 /// </summary>
-internal static class PdfChunkText
+internal static partial class PdfChunkText
 {
     /// <summary>Fraction of the page height at the top and bottom treated as the header / footer band.</summary>
     internal const double MarginBand = 0.08;
@@ -45,6 +63,14 @@ internal static class PdfChunkText
 
     /// <summary>One PDFium text-page char: its UTF-16 unit (FPDFText_GetUnicode) and box.</summary>
     internal readonly record struct RawChar(int Unit, PdfRect Box);
+
+    /// <summary>An equation label at the end of a line: "(8.94)", "(O.7)", "(6.2.a)", "(6.2a)", "(B.11)".</summary>
+    [GeneratedRegex(@"\(\s*(?:[A-Z]\.)?\d{1,3}(?:\.\d{1,3})*(?:\.?[a-z])?\s*\)\s*$")]
+    private static partial Regex EquationLabel();
+
+    // A word of 4+ lowercase letters — two or more make a line prose, not an equation fragment.
+    [GeneratedRegex(@"\b\p{Ll}{4,}\b")]
+    private static partial Regex ProseWord();
 
     public static ChunkPage ReadPage(PdfDocument document, int pageIndex)
     {
@@ -59,13 +85,45 @@ internal static class PdfChunkText
             {
                 double l = 0, r = 0, b = 0, t = 0;
                 fpdf_text.FPDFTextGetCharBox(textPage, i, ref l, ref r, ref b, ref t);
-                raw[i] = new RawChar((int)fpdf_text.FPDFTextGetUnicode(textPage, i), new PdfRect(l, t, r, b));
+                int unit = (int)fpdf_text.FPDFTextGetUnicode(textPage, i);
+                if (unit == 0xA5 && IsSymbolFont(textPage, i))
+                {
+                    unit = 0xD7; // "¥": a maths-pi font's × read through the Latin-1 fallback
+                }
+
+                raw[i] = new RawChar(unit, new PdfRect(l, t, r, b));
             }
 
             return raw;
         }));
 
-        return BuildPage(chars, bottom: crop.Y, top: crop.Y + size.Height);
+        return BuildPage(chars, bottom: crop.Y, top: crop.Y + size.Height, left: crop.X, right: crop.X + size.Width);
+    }
+
+    /// <summary>A symbolic / maths font (Mathematical Pi, Symbol, MT Extra…): its codes aren't
+    /// Latin-1, so a "¥" from it is really the font's multiplication sign.</summary>
+    private static bool IsSymbolFont(FpdfTextpageT textPage, int index)
+    {
+        int flags = 0;
+        uint length = fpdf_text.FPDFTextGetFontInfo(textPage, index, IntPtr.Zero, 0, ref flags);
+        string name = string.Empty;
+        if (length is > 1 and < 512)
+        {
+            IntPtr buffer = System.Runtime.InteropServices.Marshal.AllocHGlobal((int)length);
+            try
+            {
+                fpdf_text.FPDFTextGetFontInfo(textPage, index, buffer, length, ref flags);
+                name = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(buffer) ?? string.Empty;
+            }
+            finally
+            {
+                System.Runtime.InteropServices.Marshal.FreeHGlobal(buffer);
+            }
+        }
+
+        const int Symbolic = 4; // PDF font descriptor flag bit 3
+        return (flags & Symbolic) != 0
+            || Regex.IsMatch(name, "Pi|Symbol|Math|Extra|Universal", RegexOptions.IgnoreCase);
     }
 
     /// <summary>
@@ -74,33 +132,46 @@ internal static class PdfChunkText
     /// <list type="bullet">
     /// <item>PDFium returns a character outside the BMP (𝑘 U+1D458) as <b>two chars, one per UTF-16
     /// surrogate</b>, sharing the glyph's box — they're re-paired into one code point here.</item>
-    /// <item>A <b>non-ASCII</b> code point repeating one of the last few kept on the line at (nearly) the
-    /// same box is dropped: Word's maths export writes ToUnicode entries like
-    /// <c>&lt;0747&gt; &lt;D835DC58D835DC58&gt;</c> — one glyph, "𝑘𝑘" — and some files really do draw glyphs
-    /// twice. ASCII is exempt because a ligature glyph legitimately expands to repeated letters at one
-    /// box ("ff" in "effect").</item>
+    /// <item>A code point repeating one of the last few kept on the line at (nearly) the same box is
+    /// dropped: Word's maths export writes ToUnicode entries like
+    /// <c>&lt;0747&gt; &lt;D835DC58D835DC58&gt;</c> — one glyph, "𝑘𝑘" — and fake-bold / overprinted text
+    /// draws glyphs twice. The one exception is a second 'f' at one box: an "ff" / "ffi" ligature glyph
+    /// legitimately expands to two f's ("effect").</item>
+    /// <item>Adobe Symbol / MT Extra private-use pieces get their meaning: assembled bracket pieces
+    /// (top / extender / bottom) → one "(" / ")" / "[" / "]" / "{" / "}", the horizontal extender used
+    /// as a fraction bar → "/". U+0002 between two letters (a hyphen glyph some fonts leave unmapped)
+    /// → "-"; non-breaking / Unicode hyphens (U+2010–2012) → "-".</item>
     /// </list>
     /// </summary>
-    internal static ChunkPage BuildPage(IReadOnlyList<RawChar> chars, double bottom, double top)
+    internal static ChunkPage BuildPage(IReadOnlyList<RawChar> chars, double bottom, double top,
+        double left = double.NaN, double right = double.NaN)
     {
         double band = (top - bottom) * MarginBand;
         var lines = new List<ChunkLine>();
+        var glyphsPerLine = new List<List<(int TextIndex, PdfRect Box)>>();
         var line = new StringBuilder();
+        var lineGlyphs = new List<(int TextIndex, PdfRect Box)>();
         double lineLow = double.MaxValue, lineHigh = double.MinValue;
+        double lineLeft = double.MaxValue, lineRight = double.MinValue;
         bool lineMath = false;
         var recent = new List<(int Cp, PdfRect Box)>(DuplicateWindow);
         int doubled = 0;
+        int lastPiece = 0; // family of the bracket / bar piece just emitted (0 = none)
 
         void EndLine()
         {
             bool hasGlyphs = lineLow <= lineHigh;
             bool inMargin = hasGlyphs && (lineHigh <= bottom + band || lineLow >= top - band);
-            lines.Add(new ChunkLine(line.ToString(), inMargin, lineMath));
+            PdfRect bounds = hasGlyphs ? new PdfRect(lineLeft, lineHigh, lineRight, lineLow) : default;
+            lines.Add(new ChunkLine(line.ToString(), inMargin, lineMath, bounds));
+            glyphsPerLine.Add([.. lineGlyphs]);
             line.Clear();
-            lineLow = double.MaxValue;
-            lineHigh = double.MinValue;
+            lineGlyphs.Clear();
+            lineLow = lineLeft = double.MaxValue;
+            lineHigh = lineRight = double.MinValue;
             lineMath = false;
             recent.Clear();
+            lastPiece = 0;
         }
 
         for (int i = 0; i < chars.Count; i++)
@@ -130,10 +201,16 @@ internal static class PdfChunkText
                 continue;
             }
 
+            string text;
             bool blank = cp == ' ' || cp == '\t' || cp == 0xA0;
-            if (!blank)
+            if (blank)
             {
-                if (cp > 0x7F && IsDuplicate(cp, box, recent))
+                text = char.ConvertFromUtf32(cp);
+                lastPiece = 0;
+            }
+            else
+            {
+                if (IsDuplicate(cp, box, recent))
                 {
                     doubled++;
                     continue;
@@ -145,56 +222,220 @@ internal static class PdfChunkText
                     recent.RemoveAt(0);
                 }
 
-                if (box.Top > box.Bottom)
+                (string? piece, int family) = SymbolPiece(cp);
+                if (piece is not null)
+                {
+                    lineMath = true;
+                    if (family == lastPiece)
+                    {
+                        continue; // the next piece of the same assembled bracket / bar
+                    }
+
+                    lastPiece = family;
+                    text = piece;
+                }
+                else
+                {
+                    lastPiece = 0;
+                    if (cp == 0x02 && line.Length > 0 && char.IsLetter(line[^1])
+                        && i + 1 < chars.Count && chars[i + 1].Unit is < 0xD800 or > 0xDFFF
+                        && char.IsLetter((char)chars[i + 1].Unit))
+                    {
+                        cp = '-'; // an unmapped hyphen glyph: "y\x02direction" → "y-direction"
+                    }
+
+                    text = cp is 0x2010 or 0x2011 or 0x2012 ? "-" : PdfTextQuality.NormaliseMathLetter(cp);
+                    lineMath |= PdfTextQuality.IsMathCodePoint(cp);
+                }
+
+                if (box.Top >= box.Bottom && box.Right >= box.Left)
                 {
                     lineLow = Math.Min(lineLow, box.Bottom);
                     lineHigh = Math.Max(lineHigh, box.Top);
+                    lineLeft = Math.Min(lineLeft, box.Left);
+                    lineRight = Math.Max(lineRight, box.Right);
+                    lineGlyphs.Add((line.Length, box));
                 }
-
-                lineMath |= PdfTextQuality.IsMathCodePoint(cp);
             }
 
-            line.Append(PdfTextQuality.NormaliseMathLetter(cp));
+            line.Append(text);
         }
 
         EndLine();
-        return new ChunkPage(lines, doubled);
+        return new ChunkPage(lines, doubled)
+        {
+            Equations = FindEquations(lines, glyphsPerLine, left, right),
+            PageBox = new PdfRect(double.IsNaN(left) ? 0 : left, top, double.IsNaN(right) ? 0 : right, bottom),
+        };
     }
+
+    /// <summary>Adobe Symbol / MT Extra private-use glyphs with a standard meaning → (text, family);
+    /// consecutive pieces of one family are one symbol. (null, 0) for anything else.</summary>
+    private static (string? Text, int Family) SymbolPiece(int cp) => cp switch
+    {
+        >= 0xF8EB and <= 0xF8ED or >= 0x239B and <= 0x239D => ("(", 1),
+        >= 0xF8F6 and <= 0xF8F8 or >= 0x239E and <= 0x23A0 => (")", 2),
+        >= 0xF8EE and <= 0xF8F0 or >= 0x23A1 and <= 0x23A3 => ("[", 3),
+        >= 0xF8F9 and <= 0xF8FB or >= 0x23A4 and <= 0x23A6 => ("]", 4),
+        >= 0xF8F1 and <= 0xF8F4 or >= 0x23A7 and <= 0x23AA => ("{", 5),
+        >= 0xF8FC and <= 0xF8FE or >= 0x23AB and <= 0x23AD => ("}", 6),
+        0xF8E7 or 0x23AF => ("/", 7), // horizontal extender — in an equation, a fraction bar
+        _ => (null, 0),
+    };
 
     private static bool IsDuplicate(int cp, PdfRect box, List<(int Cp, PdfRect Box)> recent)
     {
-        double area = Area(box);
-        if (area <= 0)
+        for (int k = recent.Count - 1; k >= 0; k--)
         {
-            return false;
-        }
-
-        foreach ((int prevCp, PdfRect prevBox) in recent)
-        {
-            if (prevCp != cp)
+            (int prevCp, PdfRect prevBox) = recent[k];
+            if (prevCp != cp || !SameSpot(box, prevBox))
             {
                 continue;
             }
 
-            double ix = Math.Min(box.Right, prevBox.Right) - Math.Max(box.Left, prevBox.Left);
-            double iy = Math.Min(box.Top, prevBox.Top) - Math.Max(box.Bottom, prevBox.Bottom);
-            if (ix <= 0 || iy <= 0)
+            // "ff" / "ffi" / "ffl" ligatures expand to two f's at one box — keep the second f,
+            // unless that box already holds two.
+            if (cp == 'f')
             {
-                continue;
+                int fs = recent.Count(r => r.Cp == 'f' && SameSpot(box, r.Box));
+                return fs >= 2;
             }
 
-            double inter = ix * iy;
-            double union = area + Area(prevBox) - inter;
-            if (union > 0 && inter / union >= DuplicateOverlap)
-            {
-                return true;
-            }
+            return true;
         }
 
         return false;
     }
 
+    /// <summary>The same drawing position: box IoU ≥ 0.6, or — for the zero-height boxes some fonts
+    /// report — the same baseline and ≥ 60 % horizontal overlap.</summary>
+    private static bool SameSpot(PdfRect a, PdfRect b)
+    {
+        double ix = Math.Min(a.Right, b.Right) - Math.Max(a.Left, b.Left);
+        if (ix <= 0)
+        {
+            return false;
+        }
+
+        double areaA = Area(a), areaB = Area(b);
+        if (areaA <= 0 || areaB <= 0)
+        {
+            double union = Math.Max(a.Right, b.Right) - Math.Min(a.Left, b.Left);
+            return Math.Abs(a.Bottom - b.Bottom) < 0.5 && union > 0 && ix / union >= DuplicateOverlap;
+        }
+
+        double iy = Math.Min(a.Top, b.Top) - Math.Max(a.Bottom, b.Bottom);
+        if (iy <= 0)
+        {
+            return false;
+        }
+
+        double inter = ix * iy;
+        double all = areaA + areaB - inter;
+        return all > 0 && inter / all >= DuplicateOverlap;
+    }
+
     private static double Area(PdfRect r) => Math.Max(0, r.Right - r.Left) * Math.Max(0, r.Top - r.Bottom);
+
+    /// <summary>
+    /// Numbered display equations: a line ending in a label like "(8.94)" that sits in the right part
+    /// of the page and isn't the end of a prose sentence ("…given in (8.94)"). The equation is that
+    /// line plus the neighbouring lines (in drawing order) whose vertical centre lies within ~1.6
+    /// label heights of the label — a fraction's numerator and denominator, a stacked exponent —
+    /// stopping at prose or another label. <see cref="ChunkEquation.Stacked"/> when those parts sit
+    /// on different baselines: PDFium emits them as separate lines in drawing order, without the
+    /// fraction bar, so the linear text can't be trusted.
+    /// </summary>
+    private static IReadOnlyList<ChunkEquation> FindEquations(
+        List<ChunkLine> lines, List<List<(int TextIndex, PdfRect Box)>> glyphs, double left, double right)
+    {
+        var result = new List<ChunkEquation>();
+        for (int li = 0; li < lines.Count; li++)
+        {
+            Match m = EquationLabel().Match(lines[li].Text);
+            if (!m.Success)
+            {
+                continue;
+            }
+
+            var labelBoxes = glyphs[li].Where(g => g.TextIndex >= m.Index).Select(g => g.Box).ToList();
+            if (labelBoxes.Count == 0)
+            {
+                continue;
+            }
+
+            PdfRect label = Union(labelBoxes);
+            if (!double.IsNaN(left) && !double.IsNaN(right) && right > left
+                && label.Left < left + ((right - left) * 0.55))
+            {
+                continue; // not at the right margin — a reference in running text
+            }
+
+            string before = lines[li].Text[..m.Index];
+            if (IsProse(before))
+            {
+                continue;
+            }
+
+            double h = label.Height > 1 ? label.Height : 10;
+            double cy = (label.Top + label.Bottom) / 2;
+            bool InBand(int k) =>
+                lines[k].Bounds.Height >= 0 && lines[k].Bounds.Width > 0
+                && Math.Abs(((lines[k].Bounds.Top + lines[k].Bounds.Bottom) / 2) - cy) <= 1.6 * h
+                && !EquationLabel().IsMatch(lines[k].Text) && !IsProse(lines[k].Text)
+                && !string.IsNullOrWhiteSpace(lines[k].Text);
+
+            int first = li, last = li;
+            while (first - 1 >= 0 && InBand(first - 1))
+            {
+                first--;
+            }
+
+            while (last + 1 < lines.Count && InBand(last + 1))
+            {
+                last++;
+            }
+
+            var parts = new List<string>();
+            var centres = new List<double>();
+            var boxes = new List<PdfRect>(labelBoxes);
+            for (int k = first; k <= last; k++)
+            {
+                IEnumerable<(int TextIndex, PdfRect Box)> body = k == li
+                    ? glyphs[k].Where(g => g.TextIndex < m.Index)
+                    : glyphs[k];
+                var bodyBoxes = body.Select(g => g.Box).ToList();
+                string text = (k == li ? before : lines[k].Text).Trim();
+                if (text.Length > 0)
+                {
+                    parts.Add(text);
+                }
+
+                if (bodyBoxes.Count > 0)
+                {
+                    boxes.AddRange(bodyBoxes);
+                    PdfRect u = Union(bodyBoxes);
+                    centres.Add((u.Top + u.Bottom) / 2);
+                }
+            }
+
+            if (parts.Count == 0)
+            {
+                continue;
+            }
+
+            bool stacked = centres.Count > 1 && centres.Max() - centres.Min() > 0.5 * h;
+            string raw = string.Join(' ', parts);
+            result.Add(new ChunkEquation(Regex.Replace(m.Value, @"\s+", string.Empty), Union(boxes), raw, stacked));
+        }
+
+        return result;
+    }
+
+    private static bool IsProse(string text) => ProseWord().Count(text) >= 2;
+
+    private static PdfRect Union(IReadOnlyList<PdfRect> boxes) => new(
+        boxes.Min(b => b.Left), boxes.Max(b => b.Top), boxes.Max(b => b.Right), boxes.Min(b => b.Bottom));
 }
 
 /// <summary>
@@ -203,7 +444,7 @@ internal static class PdfChunkText
 /// out as U+FFFD / private-use characters or as letters from unrelated scripts (Syriac, Oriya…)
 /// — PDFium returns what the file claims, so it can't be repaired from the text layer, only flagged.
 /// </summary>
-internal static class PdfTextQuality
+internal static partial class PdfTextQuality
 {
     /// <summary>Unicode ranges expected in technical documents written in Latin, Greek or Cyrillic
     /// script: letters, punctuation, maths and technical symbols. Anything else is "unexpected"
@@ -323,14 +564,22 @@ internal static class PdfTextQuality
 
     /// <summary>A chunk's verdict: <c>suspect</c> (characters that can't be trusted), <c>check</c>
     /// (maths whose layout is flattened — verify against the page), or <c>ok</c>; with reasons.</summary>
-    public static (string Quality, IReadOnlyList<string> Issues) Assess(string text, bool hasMath, ScriptProfile profile)
+    public static (string Quality, IReadOnlyList<string> Issues) Assess(string text, bool hasMath, ScriptProfile profile) =>
+        Assess(text, hasMath, profile, []);
+
+    /// <inheritdoc cref="Assess(string, bool, ScriptProfile)"/>
+    /// <param name="equations">The chunk's located equations; any not <c>check</c> makes it suspect.</param>
+    public static (string Quality, IReadOnlyList<string> Issues) Assess(
+        string text, bool hasMath, ScriptProfile profile, IReadOnlyList<RagEquation> equations)
     {
         (int unmapped, int unexpected) = Count(text, profile);
         var issues = new List<string>();
+        bool suspect = unmapped > 0 || unexpected > 0;
         if (unmapped > 0)
         {
-            issues.Add($"unmapped_glyphs: {unmapped} character(s) the PDF gives no meaning for (shown as � or "
-                + "private-use) — usually a symbol/maths font without a usable character map; check the page image");
+            issues.Add($"unmapped_glyphs: {unmapped} character(s) the PDF gives no meaning for (shown as �, "
+                + "private-use or control characters) — usually a symbol/maths font without a usable character map; "
+                + "check the page image");
         }
 
         if (unexpected > 0)
@@ -339,13 +588,119 @@ internal static class PdfTextQuality
                 + "(e.g. Syriac, Oriya) — almost always maths symbols from a mis-mapped font; the real symbols are unknown");
         }
 
-        if (hasMath)
+        IReadOnlyList<string> repeated = RepeatedLetterTokens(text);
+        if (repeated.Count > 0)
+        {
+            suspect = true;
+            issues.Add($"duplicated_glyphs: {string.Join(", ", repeated)} — a letter repeated three or more times is "
+                + "almost always a subscript / maths glyph the font maps to the wrong or a repeated letter "
+                + "(fccc for fck, MEEEE for MEd); the real symbols are unknown, check the page image");
+        }
+
+        var bad = equations.Where(e => e.Quality == "suspect").ToList();
+        if (bad.Count > 0)
+        {
+            suspect = true;
+            issues.Add("scrambled_equation: " + string.Join(", ", bad.Select(e => $"{e.Label} p{e.PdfPage}"))
+                + " — stacked or garbled in the text layer (see the chunk's equations for each one's page box); "
+                + "read them from the page image");
+        }
+
+        if (FlattenedTable(text) is { } caption)
+        {
+            issues.Add($"table_flattened: {caption} — the table's rows and columns are run together into one "
+                + "stream of values; read it from the page image or extract it as a table");
+        }
+
+        if (hasMath || equations.Count > 0)
         {
             issues.Add("equations: contains maths flattened to a line — fractions, roots, exponents and indices lose "
                 + "their structure (e.g. a/b·c vs a/(b·c)); verify any expression against the page image");
         }
 
-        string quality = unmapped > 0 || unexpected > 0 ? "suspect" : hasMath ? "check" : "ok";
+        bool check = hasMath || equations.Count > 0 || issues.Count > 0;
+        string quality = suspect ? "suspect" : check ? "check" : "ok";
         return (quality, issues);
+    }
+
+    // A token holding one letter three or more times in a row: "fccc", "M0EEEE", "Asss".
+    [GeneratedRegex(@"[\p{L}\p{N},]*(\p{L})\1\1[\p{L}\p{N},]*")]
+    private static partial Regex RepeatedLetterToken();
+
+    // Roman numerals ("III", "xxx") and "www" are real tokens.
+    [GeneratedRegex(@"^(?:[IVXLCDM]+|[ivxlcdm]+|www|WWW)$")]
+    private static partial Regex RomanOrWww();
+
+    internal static IReadOnlyList<string> RepeatedLetterTokens(string text) =>
+        [.. RepeatedLetterToken().Matches(text).Select(m => m.Value).Where(t => !RomanOrWww().IsMatch(t))
+            .Distinct(StringComparer.Ordinal).Take(8)];
+
+    [GeneratedRegex(@"^[(]?[≤≥<>±+−–-]?\d+(?:[.,]\d+)*[%)]?$|^[≤≥<>–—-]$")]
+    private static partial Regex TableValue();
+
+    [GeneratedRegex(@"\bTable\s+[A-Z]?\.?\d+(?:\.\d+)*[a-z]?")]
+    private static partial Regex TableCaption();
+
+    /// <summary>A run of ≥ 12 consecutive bare values ("≤ 12 47 42 38 …") — a table read row by row
+    /// into one line. Returns its caption ("Table 11.1", the last one named before the run) or
+    /// "unnamed table"; null when there's no such run.</summary>
+    internal static string? FlattenedTable(string text)
+    {
+        string[] tokens = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        int run = 0, runStart = -1;
+        for (int i = 0; i < tokens.Length; i++)
+        {
+            if (TableValue().IsMatch(tokens[i]))
+            {
+                if (run++ == 0)
+                {
+                    runStart = i;
+                }
+
+                if (run >= 12)
+                {
+                    string before = string.Join(' ', tokens.Take(runStart));
+                    Match last = TableCaption().Matches(before).LastOrDefault() ?? TableCaption().Match(text);
+                    return last.Success ? last.Value : "unnamed table";
+                }
+            }
+            else
+            {
+                run = 0;
+            }
+        }
+
+        return null;
+    }
+
+    // Operators with nothing between them ("≥+", "= +", "+ ≤"), or an empty "()".
+    [GeneratedRegex(@"[=+≤≥<>×·−]\s*[=+≤≥<>×·]|\(\s*\)")]
+    private static partial Regex DanglingOperator();
+
+    /// <summary>
+    /// Why an extracted display equation can't be read linearly, or null. Stacked layouts (fractions,
+    /// roots, stacked indices) come out of the text layer in drawing order: "v C k f k σ … Rd,c Rd,c
+    /// … = (100 ) ρ + ≥+". Signals: parts on different baselines; operators with nothing to operate
+    /// on or an empty "()"; a subscript token repeated (each symbol's subscript printed apart from
+    /// it); or mostly 1–2 character tokens.
+    /// </summary>
+    internal static string? ScrambleReason(string raw, bool stacked)
+    {
+        if (stacked)
+        {
+            return "stacked layout (fraction, root or stacked index) flattened in drawing order";
+        }
+
+        if (DanglingOperator().IsMatch(raw))
+        {
+            return "operators with nothing to operate on — terms are out of order";
+        }
+
+        string[] tokens = raw.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        bool repeatedSubscript = tokens.Where(t => t.Length >= 3 && t.Contains(',') && t.Any(char.IsLetter))
+            .GroupBy(t => t, StringComparer.Ordinal).Any(g => g.Count() > 1);
+        bool fragments = tokens.Length >= 6 && tokens.Count(t => t.Length <= 2) >= tokens.Length * 0.6;
+        return repeatedSubscript && fragments ? "subscripts printed apart from their symbols"
+            : fragments && tokens.Length >= 10 ? "mostly one- and two-character fragments" : null;
     }
 }

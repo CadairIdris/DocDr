@@ -27,10 +27,31 @@ Generated flat bindings. Static classes `fpdfview`, `fpdf_text`, `fpdf_doc`, `fp
 wrapper classes — check `handle is null || handle.__Instance == IntPtr.Zero`; close with the
 explicit `FPDF_Close*` functions, don't dispose the wrapper.
 
+## PDFium native build (bindings 4688, binary current)
+
+- **The bindings and the native library come from different packages.** `DocDr.Pdf.csproj` takes
+  `PDFiumCore` 4688.0.0 (its last release) with **`ExcludeAssets="native"`**, and the binary from
+  bblanchon's `bblanchon.PDFium.Win32` / `.Linux` (158.0.8125 = chromium/8125). Linux is there so
+  `dotnet test` runs in a Linux container; `ExcludeAssets` stops PDFiumCore's old `pdfium.dll`
+  reaching `DocDr.App` too (check `runtimes/win-x64/native/pdfium.dll` is the bblanchon one).
+- Why: the old 4688 binary drops some ToUnicode entries — Word's maths font's
+  `<0747> <D835DC58D835DC58>` came out as the raw CID (Syriac/Oriya/Ethiopic letters). See the RAG
+  section. Annex O sample: 190 → 21 garbage chars in chunk export (the 21 are U+FFFD the font itself
+  maps), "(O.5)" no longer lost. A plain non-embedded synthetic font with the same doubled entry
+  extracts fine on *both* builds, so there's no fixture test for it — the failure needs the embedded
+  TrueType font.
+- **ABI check when bumping the binary:** diff `nm -D` exports against the old one. 8125 removed only
+  `FPDFFont_GetFontName` and `FPDFText_GetTextRenderMode` (DocDr calls neither); `FPDFBitmap_FillRect`
+  now returns `FPDF_BOOL` instead of `void` (harmless). Any new function the bindings don't
+  declare needs a hand-written `[DllImport("pdfium")]`.
+- Re-checked quirks on 8125: `FPDF_GetPageSizeByIndex` still returns the *rotated* size.
+  `FPDF_ImportPages` into a `FPDF_LoadMemDocument` destination **now works**, but the rebuild-from-
+  sources model below stays — it's what undo is built on.
+
 ## Page editing (`PdfDocument`, Stage 2)
 
-- **`FPDF_ImportPages` / `FPDF_ImportPagesByIndex` fail (return 0) when the destination is a
-  `FPDF_LoadMemDocument` document** in this build — only a fresh `FPDF_CreateNewDocument`
+- **`FPDF_ImportPages` / `FPDF_ImportPagesByIndex` failed (returned 0) when the destination was a
+  `FPDF_LoadMemDocument` document** in the old 4688 build (works on 8125, design kept) — only a fresh `FPDF_CreateNewDocument`
   works as a dest. So a `PdfDocument` is modelled as an ordered `List<PageRef>` (source id +
   page index + rotation) plus its loaded source docs; structural edits **rebuild** the live
   handle with `FPDF_CreateNewDocument` + `FPDF_ImportPages` from the sources. Rotation and
@@ -885,7 +906,43 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   `ଵ`, 1246 → Ethiopic `ቆ`. PDFium 4763 reproduces the agent's exact output; current PDFium
   (pypdfium2 / chromium 8076) extracts the same pages correctly except glyphs the map itself sends to
   U+FFFD (big parentheses, the radical). Annex O: 166 garbage chars on 4763 vs 16 on current, and
-  4763 also loses "(O.5)". Upgrading PDFiumCore is the real fix. `RagChunkResult.SuspectPages` / `DoubledGlyphsRemoved` feed the export summary dialog.
+  4763 also loses "(O.5)". **Fixed by moving to a current native PDFium** (see "PDFium native
+  build"); the quality flags still catch what the font itself leaves unmapped. `RagChunkResult.SuspectPages` / `DoubledGlyphsRemoved` feed the export summary dialog.
+- **Review fixes (independent check against page images + a textbook run):**
+  - **Sections are per paragraph, not per page.** `SectionMarkers`: the PDF's **bookmarks win when ≥ 3**
+    (a textbook's clause scan mistook "1.35 Gk" for a heading and swallowed the book), else the clause
+    tree minus titles with no 3-letter word. A heading switches `current` at the paragraph that prints
+    it (`SectionMarker.StartsParagraph`: clause number, or the bookmark title's first 40 chars); one not
+    found on its page applies from the page top. `section_title` = the first unit's; `sections` = all
+    spanned. A section start opens a new chunk (once ≥ `MinChars`) **with no overlap**.
+  - **Overlap is `context_before`, not inline** — `text` never repeats the previous chunk.
+  - **Boilerplate** (`Boilerplate.Detect`): verbatim on ≥ 50 % of pages, or a header/footer-band line
+    on ≥ 30 % with digits blanked (`MarginKey`); `LicenceStamp` (Licensed copy / Provided by … under
+    licence / Not for Resale…) is always cut from the marker to line end — it leaked on near-blank pages.
+  - **Title**: metadata unless `PlaceholderTitle` ("untitled", "30187350.pdf", "Microsoft Word - …") →
+    the most frequent top-band running line with ≥ 2 words (`RunningTitle`, end page numbers stripped)
+    → file stem. `CleanTitle` normalises U+2010–2012 and trailing dots. `source_path` = file name only.
+    `pdf_page_start/end` (1-based) + `page_label_start/end` (`GetPageLabel` or the 1-based number).
+  - **Glyph repairs** (`BuildPage`): same-spot duplicates dropped for ASCII too (fake bold), except a
+    second `f` at one box (ff/ffi ligature); zero-height boxes compare by baseline + x-overlap
+    (`SameSpot`). Symbol / MT Extra PUA pieces → one `(` `)` `[` `]` `{` `}` per run of the same family,
+    U+F8E7 / U+23AF extender → `/` (`SymbolPiece`). U+0002 between letters → `-`; U+2010–2012 → `-`.
+    `ReadPage` maps `¥` (U+00A5) → `×` when `FPDFTextGetFontInfo` says the font is symbolic or named
+    *Pi/Symbol/Math/Extra* (a maths-pi font read through the Latin-1 fallback) — no fixture can make
+    PDFium produce that, so it's untested.
+  - **Equations** (`PdfChunkText.FindEquations`): a line ending in `(8.94)` / `(O.7)` / `(6.2.a)`, label
+    in the right 45 % of the page, the rest of the line not prose (< 2 words of 4+ lowercase letters),
+    plus contiguous lines whose centre is within 1.6 label heights. `Stacked` when parts' centres differ
+    by > ½ label height — PDFium emits a fraction's numerator / denominator as separate lines with no bar,
+    so the linear text is wrong. Each becomes a `RagEquation` (label, page, `bbox` = [l, t, r, b] points
+    from the CropBox top-left, raw text, `quality` `check`/`suspect`, issues) on every chunk whose body
+    holds the label. `PdfTextQuality.ScrambleReason`: stacked, dangling operators (`≥+`, `= +`, `()`),
+    a repeated subscript token + mostly 1–2-char tokens, or ≥ 10 tokens that are mostly fragments.
+  - **New chunk issues**: `duplicated_glyphs` (a letter 3+ times in a token — `fccc`, `MEEEE`; Roman
+    numerals / `www` exempt) → suspect; `scrambled_equation` (labels + pages) → suspect; `table_flattened`
+    (≥ 12 consecutive bare values, with the last "Table n.n" before them) → check. Chunk quality is the
+    worst of everything; equations carry their own grade. Not done: re-ordering equation glyphs, OCR to
+    LaTeX, real table extraction into the chunk (`PdfTableExtractor` still not wired in).
 - App: `DocumentTabViewModel.ExportRagChunksCommand` (async — `Task.Run(Chunk + WriteJsonl)`),
   toolbar "Export chunks…". Batch/folder mode and catalog persistence are not built yet. Not done
   yet: page-image references for suspect chunks, tables as rows (`PdfTableExtractor` not wired in).

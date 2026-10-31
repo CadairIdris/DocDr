@@ -54,19 +54,21 @@ public sealed class PdfRagChunkerTests
     }
 
     [Fact]
-    public void Chunk_overlaps_adjacent_windows()
+    public void Chunk_overlap_goes_in_context_before_not_inline()
     {
         using var ws = new TempWorkspace();
         string path = TestPdfBuilder.WritePdf(ws.Path("ov.pdf"), Pages(30, "durability"));
         using var doc = PdfDocument.Load(path);
 
-        var chunks = PdfRagChunker.Chunk(doc, new RagChunkOptions { TargetTokens = 70 }).Chunks;
+        var chunks = PdfRagChunker.Chunk(doc, new RagChunkOptions { TargetTokens = 70, IncludeSectionHeading = false }).Chunks;
 
         Assert.True(chunks.Count > 2);
+        Assert.Equal(string.Empty, chunks[0].ContextBefore);
         for (int i = 1; i < chunks.Count; i++)
         {
-            string prevTail = chunks[i - 1].Text[^20..];
-            Assert.Contains(prevTail[..12], chunks[i].Text);
+            Assert.NotEmpty(chunks[i].ContextBefore);
+            Assert.EndsWith(chunks[i].ContextBefore, chunks[i - 1].Text, StringComparison.Ordinal);
+            Assert.False(chunks[i].Text.StartsWith(chunks[i].ContextBefore, StringComparison.Ordinal));
         }
     }
 
@@ -140,6 +142,12 @@ public sealed class PdfRagChunkerTests
         Assert.True(root.TryGetProperty("page_start", out _));
         Assert.True(root.TryGetProperty("section_title", out _));
         Assert.True(root.TryGetProperty("token_estimate", out _));
+        Assert.Equal("j.pdf", root.GetProperty("source_path").GetString());
+        Assert.Equal(root.GetProperty("page_start").GetInt32() + 1, root.GetProperty("pdf_page_start").GetInt32());
+        Assert.True(root.TryGetProperty("page_label_start", out _));
+        Assert.Equal(JsonValueKind.Array, root.GetProperty("sections").ValueKind);
+        Assert.True(root.TryGetProperty("context_before", out _));
+        Assert.Equal(JsonValueKind.Array, root.GetProperty("equations").ValueKind);
         Assert.Equal(0, root.GetProperty("chunk_index").GetInt32());
         Assert.Equal("ok", root.GetProperty("quality").GetString());
         Assert.Equal(JsonValueKind.Array, root.GetProperty("issues").ValueKind);
