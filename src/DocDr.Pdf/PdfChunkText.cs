@@ -28,8 +28,8 @@ internal sealed record ChunkPage(IReadOnlyList<ChunkLine> Lines, int DoubledGlyp
 /// <item>A lone "3", "d" or "v" on its own line is usually an equation fragment (an exponent, a
 /// variable under a fraction bar), not a page number — but the old filter dropped them all. Line
 /// boxes let the chunker only treat a line as a page number when it sits in the header / footer band.</item>
-/// <item>Mathematical alphanumerics (U+1D400–1D7FF) are outside the BMP, so PDFium's char count and
-/// its UTF-16 text don't line up on exactly the pages that need care; per-char code points do.</item>
+/// <item>Mathematical alphanumerics (U+1D400–1D7FF) are outside the BMP: PDFium reports each as two
+/// chars (one per UTF-16 surrogate) that must be re-paired — see <see cref="BuildPage"/>.</item>
 /// </list>
 /// </summary>
 internal static class PdfChunkText
@@ -43,83 +43,122 @@ internal static class PdfChunkText
     /// <summary>Intersection-over-union above which two identical glyphs are the same drawing.</summary>
     private const double DuplicateOverlap = 0.6;
 
+    /// <summary>One PDFium text-page char: its UTF-16 unit (FPDFText_GetUnicode) and box.</summary>
+    internal readonly record struct RawChar(int Unit, PdfRect Box);
+
     public static ChunkPage ReadPage(PdfDocument document, int pageIndex)
     {
         PdfSize size = document.GetUnrotatedPageSize(pageIndex);
         PdfPoint crop = document.GetCropOrigin(pageIndex);
-        double bottom = crop.Y, top = crop.Y + size.Height;
-        double band = size.Height * MarginBand;
 
-        return document.Locked(() => PdfTextExtractor.WithTextPage(document, pageIndex, textPage =>
+        RawChar[] chars = document.Locked(() => PdfTextExtractor.WithTextPage(document, pageIndex, textPage =>
         {
             int count = fpdf_text.FPDFTextCountChars(textPage);
-            var lines = new List<ChunkLine>();
-            var line = new StringBuilder();
-            double lineLow = double.MaxValue, lineHigh = double.MinValue;
-            bool lineMath = false;
-            var recent = new List<(int Cp, PdfRect Box)>(DuplicateWindow);
-            int doubled = 0;
-
-            void EndLine()
-            {
-                bool hasGlyphs = lineLow <= lineHigh;
-                bool inMargin = hasGlyphs && (lineHigh <= bottom + band || lineLow >= top - band);
-                lines.Add(new ChunkLine(line.ToString(), inMargin, lineMath));
-                line.Clear();
-                lineLow = double.MaxValue;
-                lineHigh = double.MinValue;
-                lineMath = false;
-                recent.Clear();
-            }
-
+            var raw = new RawChar[Math.Max(0, count)];
             for (int i = 0; i < count; i++)
             {
-                int cp = (int)fpdf_text.FPDFTextGetUnicode(textPage, i);
-                if (cp == '\r')
-                {
-                    continue;
-                }
-
-                if (cp == '\n')
-                {
-                    EndLine();
-                    continue;
-                }
-
-                bool blank = cp == ' ' || cp == '\t' || cp == 0xA0;
-                if (!blank)
-                {
-                    double l = 0, r = 0, b = 0, t = 0;
-                    fpdf_text.FPDFTextGetCharBox(textPage, i, ref l, ref r, ref b, ref t);
-                    var box = new PdfRect(l, t, r, b);
-
-                    if (IsDuplicate(cp, box, recent))
-                    {
-                        doubled++;
-                        continue;
-                    }
-
-                    recent.Add((cp, box));
-                    if (recent.Count > DuplicateWindow)
-                    {
-                        recent.RemoveAt(0);
-                    }
-
-                    if (t > b)
-                    {
-                        lineLow = Math.Min(lineLow, b);
-                        lineHigh = Math.Max(lineHigh, t);
-                    }
-
-                    lineMath |= PdfTextQuality.IsMathCodePoint(cp);
-                }
-
-                line.Append(PdfTextQuality.NormaliseMathLetter(cp));
+                double l = 0, r = 0, b = 0, t = 0;
+                fpdf_text.FPDFTextGetCharBox(textPage, i, ref l, ref r, ref b, ref t);
+                raw[i] = new RawChar((int)fpdf_text.FPDFTextGetUnicode(textPage, i), new PdfRect(l, t, r, b));
             }
 
-            EndLine();
-            return new ChunkPage(lines, doubled);
+            return raw;
         }));
+
+        return BuildPage(chars, bottom: crop.Y, top: crop.Y + size.Height);
+    }
+
+    /// <summary>
+    /// Turn PDFium's chars into lines. Pure (no PDFium), so it's tested directly with real char
+    /// sequences.
+    /// <list type="bullet">
+    /// <item>PDFium returns a character outside the BMP (𝑘 U+1D458) as <b>two chars, one per UTF-16
+    /// surrogate</b>, sharing the glyph's box — they're re-paired into one code point here.</item>
+    /// <item>A <b>non-ASCII</b> code point repeating one of the last few kept on the line at (nearly) the
+    /// same box is dropped: Word's maths export writes ToUnicode entries like
+    /// <c>&lt;0747&gt; &lt;D835DC58D835DC58&gt;</c> — one glyph, "𝑘𝑘" — and some files really do draw glyphs
+    /// twice. ASCII is exempt because a ligature glyph legitimately expands to repeated letters at one
+    /// box ("ff" in "effect").</item>
+    /// </list>
+    /// </summary>
+    internal static ChunkPage BuildPage(IReadOnlyList<RawChar> chars, double bottom, double top)
+    {
+        double band = (top - bottom) * MarginBand;
+        var lines = new List<ChunkLine>();
+        var line = new StringBuilder();
+        double lineLow = double.MaxValue, lineHigh = double.MinValue;
+        bool lineMath = false;
+        var recent = new List<(int Cp, PdfRect Box)>(DuplicateWindow);
+        int doubled = 0;
+
+        void EndLine()
+        {
+            bool hasGlyphs = lineLow <= lineHigh;
+            bool inMargin = hasGlyphs && (lineHigh <= bottom + band || lineLow >= top - band);
+            lines.Add(new ChunkLine(line.ToString(), inMargin, lineMath));
+            line.Clear();
+            lineLow = double.MaxValue;
+            lineHigh = double.MinValue;
+            lineMath = false;
+            recent.Clear();
+        }
+
+        for (int i = 0; i < chars.Count; i++)
+        {
+            int cp = chars[i].Unit;
+            PdfRect box = chars[i].Box;
+
+            // Re-pair a surrogate pair split across two PDFium chars; a lone half is unrecoverable.
+            if (cp is >= 0xD800 and <= 0xDBFF && i + 1 < chars.Count && chars[i + 1].Unit is >= 0xDC00 and <= 0xDFFF)
+            {
+                cp = char.ConvertToUtf32((char)cp, (char)chars[i + 1].Unit);
+                i++;
+            }
+            else if (cp is >= 0xD800 and <= 0xDFFF)
+            {
+                cp = 0xFFFD;
+            }
+
+            if (cp == '\r')
+            {
+                continue;
+            }
+
+            if (cp == '\n')
+            {
+                EndLine();
+                continue;
+            }
+
+            bool blank = cp == ' ' || cp == '\t' || cp == 0xA0;
+            if (!blank)
+            {
+                if (cp > 0x7F && IsDuplicate(cp, box, recent))
+                {
+                    doubled++;
+                    continue;
+                }
+
+                recent.Add((cp, box));
+                if (recent.Count > DuplicateWindow)
+                {
+                    recent.RemoveAt(0);
+                }
+
+                if (box.Top > box.Bottom)
+                {
+                    lineLow = Math.Min(lineLow, box.Bottom);
+                    lineHigh = Math.Max(lineHigh, box.Top);
+                }
+
+                lineMath |= PdfTextQuality.IsMathCodePoint(cp);
+            }
+
+            line.Append(PdfTextQuality.NormaliseMathLetter(cp));
+        }
+
+        EndLine();
+        return new ChunkPage(lines, doubled);
     }
 
     private static bool IsDuplicate(int cp, PdfRect box, List<(int Cp, PdfRect Box)> recent)

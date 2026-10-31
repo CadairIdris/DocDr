@@ -246,4 +246,61 @@ public sealed class PdfRagChunkerTests
         Assert.True(PdfTextQuality.IsMathCodePoint(0x22C5));             // ⋅
         Assert.False(PdfTextQuality.IsMathCodePoint('x'));
     }
+
+    // --- Char-level line building (real PDFium char sequences from BS EN 1992-1-1 (8.94)) ---
+
+    private static PdfChunkText.RawChar C(int unit, double x, double y = 400) =>
+        new(unit, new PdfRect(x, y + 8, x + 5, y));
+
+    private static IEnumerable<PdfChunkText.RawChar> Text(string s, double x, double y = 400) =>
+        s.Select((ch, k) => C(ch, x + (k * 6), y));
+
+    [Fact]
+    public void A_maths_glyph_mapped_to_a_doubled_surrogate_pair_comes_out_once_as_a_plain_letter()
+    {
+        // Word's ToUnicode maps glyph 0747 to "𝑘𝑘" (D835 DC58 D835 DC58): four PDFium chars, one box.
+        var chars = new List<PdfChunkText.RawChar>
+        {
+            C(0xD835, 100), C(0xDC58, 100), C(0xD835, 100), C(0xDC58, 100),
+        };
+        chars.AddRange(Text("pb", 106));
+
+        ChunkPage page = PdfChunkText.BuildPage(chars, bottom: 0, top: 792);
+
+        Assert.Equal("kpb", page.Lines.Single().Text);
+        Assert.True(page.Lines.Single().HasMath);
+        Assert.Equal(1, page.DoubledGlyphsRemoved);
+    }
+
+    [Fact]
+    public void A_ligature_split_into_repeated_ascii_letters_is_left_alone()
+    {
+        // An "ff" ligature glyph expands to two 'f' chars sharing one box: "effect" must stay intact.
+        var chars = new List<PdfChunkText.RawChar> { C('e', 100), C('f', 106), C('f', 106) };
+        chars.AddRange(Text("ect", 112));
+
+        Assert.Equal("effect", PdfChunkText.BuildPage(chars, 0, 792).Lines.Single().Text);
+    }
+
+    [Fact]
+    public void A_lone_surrogate_becomes_a_replacement_character_not_an_exception()
+    {
+        ChunkPage page = PdfChunkText.BuildPage([C(0xD835, 100), C('x', 106)], 0, 792);
+        Assert.Equal("\uFFFDx", page.Lines.Single().Text);
+    }
+
+    [Fact]
+    public void Lines_split_on_newlines_and_only_header_or_footer_lines_count_as_margin()
+    {
+        var chars = new List<PdfChunkText.RawChar>();
+        chars.AddRange(Text("3", 300, 600));      // mid-page exponent
+        chars.Add(C('\r', 0)); chars.Add(C('\n', 0));
+        chars.AddRange(Text("142", 72, 30));      // footer page number
+
+        ChunkPage page = PdfChunkText.BuildPage(chars, 0, 792);
+
+        Assert.Equal(["3", "142"], page.Lines.Select(l => l.Text).ToArray());
+        Assert.False(page.Lines[0].InMargin);
+        Assert.True(page.Lines[1].InMargin);
+    }
 }

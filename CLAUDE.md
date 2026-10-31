@@ -859,12 +859,14 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 - `RagChunkOptions.IncludeSectionHeading` (default true) prefixes `text` with
   "`{doc title} — {section}\n\n`" (contextual-retrieval-lite). The windower reserves 160 chars
   for it (`maxChars = MaxChars − 160`) so the finished text still lands ≤ `MaxChars`.
-- **Text comes from `PdfChunkText.ReadPage`, not `GetPageText`** — per char: `FPDFTextGetUnicode` (code
-  point; maths alphanumerics U+1D400+ are non-BMP, so the UTF-16 page string doesn't line up with
-  char indices on exactly the pages that matter) + `FPDFTextGetCharBox`. Per page it yields
-  `ChunkLine(Text, InMargin, HasMath)`: **doubled glyphs** (same code point at IoU ≥ 0.6 with one of
-  the last 12 kept glyphs on the line — Word-exported equations draw each maths glyph twice, "𝜏𝜏") are
-  dropped; maths letters / ℎ are NFKC-normalised to plain ones (𝜏→τ, 𝑐→c); `InMargin` = every glyph in
+- **Text comes from `PdfChunkText.ReadPage`, not `GetPageText`** — per char `FPDFTextGetUnicode` +
+  `FPDFTextGetCharBox`, then the pure `BuildPage` (unit-tested with real char sequences). **PDFium
+  returns a non-BMP character (𝑘 U+1D458) as two chars, one per UTF-16 surrogate, sharing the glyph's
+  box** — `BuildPage` re-pairs them (a lone half → U+FFFD). Per page it yields
+  `ChunkLine(Text, InMargin, HasMath)`: **doubled glyphs** — a *non-ASCII* code point at IoU ≥ 0.6 with
+  one of the last 12 kept on the line — are dropped. The cause is usually the font's own ToUnicode:
+  Word's maths export maps one glyph to a doubled string (`<0747> <D835DC58D835DC58>` = "𝑘𝑘"). ASCII
+  is exempt because a ligature glyph legitimately expands to repeated letters at one box ("ff"); maths letters / ℎ are NFKC-normalised to plain ones (𝜏→τ, 𝑐→c); `InMargin` = every glyph in
   the top/bottom 8 % band. **`PageNumberLine` only drops a line when `InMargin`** — mid-page a lone
   "1"/"3"/"d"/"v" is an equation fragment (a stacked ⅓ exponent, a variable under a fraction bar), and
   the old filter (digits + roman numerals `[ivxlcdm]`) silently deleted them.
@@ -875,8 +877,15 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   A 128-code-point block holding ≥ 20 % of the document's otherwise-unexpected letters is the
   document's own script (`ScriptProfile`), not flagged. `check` = the chunk has maths
   (`IsMathCodePoint`: maths alphanumerics, operators, super/subscripts) whose 2-D layout is flattened.
-  These **can't be repaired from the text layer** (PDFium returns what the file's map says) — only
-  flagged. `RagChunkResult.SuspectPages` / `DoubledGlyphsRemoved` feed the export summary dialog.
+  Only flagged, not repaired.
+- **Most of that garbage is DocDr's PDFium (4688), not the PDF.** Checked against BS EN 1992-1-1:2023
+  p.143 / Annex O: the Word-made `CambriaMath` Type0 font's ToUnicode *does* map 𝑘, 𝑓, 𝑑 and the
+  script-size `1`/`3` of a ⅓ exponent, but PDFium ~4700 ignores some of those entries (others written
+  identically work) and falls back to the raw CID as Unicode — CID 0747 → U+0747 Syriac, 0B35 → Oriya
+  `ଵ`, 1246 → Ethiopic `ቆ`. PDFium 4763 reproduces the agent's exact output; current PDFium
+  (pypdfium2 / chromium 8076) extracts the same pages correctly except glyphs the map itself sends to
+  U+FFFD (big parentheses, the radical). Annex O: 166 garbage chars on 4763 vs 16 on current, and
+  4763 also loses "(O.5)". Upgrading PDFiumCore is the real fix. `RagChunkResult.SuspectPages` / `DoubledGlyphsRemoved` feed the export summary dialog.
 - App: `DocumentTabViewModel.ExportRagChunksCommand` (async — `Task.Run(Chunk + WriteJsonl)`),
   toolbar "Export chunks…". Batch/folder mode and catalog persistence are not built yet. Not done
   yet: page-image references for suspect chunks, tables as rows (`PdfTableExtractor` not wired in).
