@@ -10,6 +10,10 @@ namespace DocDr.Pdf;
 /// keys (<c>source_path</c>, <c>page_start</c>, …). <see cref="Id"/> is stable across re-exports;
 /// <see cref="TokenEstimate"/> is <c>Text.Length / 4</c>.
 /// </summary>
+/// <param name="Quality"><c>ok</c>; <c>check</c> — contains maths whose 2-D layout (fractions, roots,
+/// exponents, indices) is flattened, verify expressions against the page; or <c>suspect</c> — contains
+/// characters the PDF can't vouch for (unmapped glyphs, symbols from a mis-mapped font).</param>
+/// <param name="Issues">Why, in plain words an agent can act on; empty when <c>ok</c>.</param>
 public sealed record RagChunk(
     string Id,
     string Text,
@@ -19,13 +23,19 @@ public sealed record RagChunk(
     int PageEnd,
     string SectionTitle,
     int ChunkIndex,
-    int TokenEstimate);
+    int TokenEstimate,
+    string Quality,
+    IReadOnlyList<string> Issues);
 
 /// <summary>Result of a chunk run: the chunks plus what could not be processed.</summary>
+/// <param name="SuspectPages">0-based pages whose text includes unmapped or mis-mapped characters.</param>
+/// <param name="DoubledGlyphsRemoved">Glyphs drawn twice at the same spot that were dropped.</param>
 public sealed record RagChunkResult(
     IReadOnlyList<RagChunk> Chunks,
     IReadOnlyList<int> PagesWithoutText,
-    int SectionCount);
+    int SectionCount,
+    IReadOnlyList<int> SuspectPages,
+    int DoubledGlyphsRemoved);
 
 /// <summary>Tuning for <see cref="PdfRagChunker.Chunk"/>. Token counts are approximated as chars / 4.</summary>
 public sealed record RagChunkOptions
@@ -90,24 +100,43 @@ public static partial class PdfRagChunker
         options ??= new RagChunkOptions();
 
         int pageCount = document.PageCount;
+        var pages = new ChunkPage?[pageCount];
         var pageText = new string?[pageCount];
         var pagesWithoutText = new List<int>();
+        int doubledGlyphs = 0;
         for (int p = 0; p < pageCount; p++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                string t = PdfTextExtractor.GetPageText(document, p);
-                pageText[p] = string.IsNullOrWhiteSpace(t) ? null : t;
+                ChunkPage page = PdfChunkText.ReadPage(document, p);
+                doubledGlyphs += page.DoubledGlyphsRemoved;
+                if (!page.IsBlank)
+                {
+                    pages[p] = page;
+                    pageText[p] = page.Text;
+                }
             }
             catch (PdfException)
             {
-                pageText[p] = null;
+                // unreadable page — reported below as having no text
             }
 
-            if (pageText[p] is null)
+            if (pages[p] is null)
             {
                 pagesWithoutText.Add(p);
+            }
+        }
+
+        // Which scripts the document is really written in (so a Greek standard isn't "suspect"),
+        // then which pages carry characters that can't be trusted.
+        var profile = PdfTextQuality.ScriptProfile.Build(pageText.OfType<string>());
+        var suspectPages = new List<int>();
+        for (int p = 0; p < pageCount; p++)
+        {
+            if (pageText[p] is { } t && PdfTextQuality.Count(t, profile) is var (u, x) && u + x > 0)
+            {
+                suspectPages.Add(p);
             }
         }
 
@@ -130,25 +159,25 @@ public static partial class PdfRagChunker
         for (int p = 0; p < pageCount; p++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (pageText[p] is not { } text)
+            if (pages[p] is not { } page)
             {
                 continue;
             }
 
-            string[] rawLines = text.ReplaceLineEndings("\n").Split('\n');
-            if (rawLines.Count(l => TocLeader().IsMatch(l)) >= 5)
+            if (page.Lines.Count(l => TocLeader().IsMatch(l.Text)) >= 5)
             {
                 continue; // a contents / list-of-figures page — navigation, not knowledge
             }
 
-            foreach (string para in ParagraphsFromPage(rawLines, boilerplate))
+            foreach ((string para, bool hasMath) in ParagraphsFromPage(page.Lines, boilerplate))
             {
-                paragraphs.Add(new Paragraph(para, p, sectionForPage[p]));
+                paragraphs.Add(new Paragraph(para, p, sectionForPage[p], hasMath));
             }
         }
 
-        var chunks = BuildChunks(paragraphs, options, sourcePath, docTitle);
-        return new RagChunkResult(chunks, pagesWithoutText, pageCount == 0 ? 0 : sectionCount);
+        var chunks = BuildChunks(paragraphs, options, sourcePath, docTitle, profile);
+        return new RagChunkResult(chunks, pagesWithoutText, pageCount == 0 ? 0 : sectionCount,
+            suspectPages, doubledGlyphs);
     }
 
     /// <summary>Serialise chunks as JSON Lines (one object per line, UTF-8, no BOM).</summary>
@@ -168,7 +197,7 @@ public static partial class PdfRagChunker
         WriteJsonl(chunks, writer);
     }
 
-    private readonly record struct Paragraph(string Text, int Page, string Section);
+    private readonly record struct Paragraph(string Text, int Page, string Section, bool HasMath);
 
     // --- Section boundaries --------------------------------------------------------------
 
@@ -326,28 +355,34 @@ public static partial class PdfRagChunker
 
     private static string Normalise(string line) => WhitespaceRun().Replace(line, " ").Trim();
 
-    private static IEnumerable<string> ParagraphsFromPage(string[] rawLines, HashSet<string> boilerplate)
+    private static IEnumerable<(string Text, bool HasMath)> ParagraphsFromPage(
+        IReadOnlyList<ChunkLine> pageLines, HashSet<string> boilerplate)
     {
-        var lines = new List<string>();
-        foreach (string raw in rawLines)
+        var lines = new List<(string Text, bool HasMath)>();
+        foreach (ChunkLine raw in pageLines)
         {
-            string line = Normalise(raw);
+            string line = Normalise(raw.Text);
+            // A bare number / roman numeral is only a page number in the header or footer band:
+            // mid-page it's an equation fragment (the "3" of a ⅓ exponent, a lone "d" under a
+            // fraction bar) and dropping it silently corrupts the expression.
             if (line.Length == 0 || boilerplate.Contains(line)
-                || PageNumberLine().IsMatch(line) || TocLeader().IsMatch(line))
+                || (raw.InMargin && PageNumberLine().IsMatch(line)) || TocLeader().IsMatch(line))
             {
                 continue;
             }
 
-            lines.Add(line);
+            lines.Add((line, raw.HasMath));
         }
 
-        var paragraphs = new List<string>();
+        var paragraphs = new List<(string, bool)>();
         var sb = new StringBuilder();
-        foreach (string line in lines)
+        bool math = false;
+        foreach ((string line, bool lineMath) in lines)
         {
             if (sb.Length == 0)
             {
                 sb.Append(line);
+                math = lineMath;
                 continue;
             }
 
@@ -359,19 +394,23 @@ public static partial class PdfRagChunker
             }
             else if (BlockStart().IsMatch(line) || last is '.' or '!' or '?' || LooksLikeHeading(sb.ToString()))
             {
-                paragraphs.Add(sb.ToString());
+                paragraphs.Add((sb.ToString(), math));
                 sb.Clear();
                 sb.Append(line);
+                math = lineMath;
+                continue;
             }
             else
             {
                 sb.Append(' ').Append(line); // wrapped line — join
             }
+
+            math |= lineMath;
         }
 
         if (sb.Length > 0)
         {
-            paragraphs.Add(sb.ToString());
+            paragraphs.Add((sb.ToString(), math));
         }
 
         return paragraphs;
@@ -386,7 +425,8 @@ public static partial class PdfRagChunker
     // --- Windowing ---------------------------------------------------------------------
 
     private static IReadOnlyList<RagChunk> BuildChunks(
-        List<Paragraph> paragraphs, RagChunkOptions opt, string sourcePath, string docTitle)
+        List<Paragraph> paragraphs, RagChunkOptions opt, string sourcePath, string docTitle,
+        PdfTextQuality.ScriptProfile profile)
     {
         int overlapChars = opt.OverlapChars;
         // Leave room for the "{title} — {section}" prefix so the finished text still lands ≤ MaxChars.
@@ -436,6 +476,7 @@ public static partial class PdfRagChunker
         int realUnits = 0;
         int firstPage = 0, lastPage = 0, index = 0;
         string section = "Front matter";
+        bool chunkHasMath = false;
 
         void Emit(bool force)
         {
@@ -449,13 +490,15 @@ public static partial class PdfRagChunker
                 ? $"{docTitle} — {section}\n\n{body}"
                 : body;
 
+            (string quality, IReadOnlyList<string> issues) = PdfTextQuality.Assess(body, chunkHasMath, profile);
             chunks.Add(new RagChunk(
                 $"{idStem}#c{index:D4}", text, sourcePath, docTitle,
-                firstPage, lastPage, section, index, text.Length / 4));
+                firstPage, lastPage, section, index, text.Length / 4, quality, issues));
             index++;
 
             buf.Clear();
             realUnits = 0;
+            chunkHasMath = false;
             if (overlapChars > 0 && text.Length > overlapChars)
             {
                 string tail = text[^overlapChars..];
@@ -485,6 +528,7 @@ public static partial class PdfRagChunker
             buf.Append(u.Text).Append(' ');
             lastPage = u.Page;
             realUnits++;
+            chunkHasMath |= u.HasMath;
         }
 
         Emit(force: true);

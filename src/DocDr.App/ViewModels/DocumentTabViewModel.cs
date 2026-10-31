@@ -458,6 +458,28 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
                 summary += $"\n\n{result.PagesWithoutText.Count} page(s) had no extractable text and were skipped — OCR is not available yet.";
             }
 
+            int suspect = result.Chunks.Count(c => c.Quality == "suspect");
+            int check = result.Chunks.Count(c => c.Quality == "check");
+            if (suspect > 0)
+            {
+                string pages = string.Join(", ", result.SuspectPages.Take(12).Select(PageLabelFor))
+                    + (result.SuspectPages.Count > 12 ? ", …" : string.Empty);
+                summary += $"\n\n{suspect} chunk(s) are marked \"suspect\": their text contains symbols the PDF doesn't "
+                    + $"map to real characters (pages {pages}). The real symbols can't be recovered from the text "
+                    + "layer — check those pages against the page images.";
+            }
+
+            if (check > 0)
+            {
+                summary += $"\n\n{check} chunk(s) contain equations and are marked \"check\": fractions, roots and "
+                    + "exponents are flattened to one line.";
+            }
+
+            if (result.DoubledGlyphsRemoved > 0)
+            {
+                summary += $"\n\n{result.DoubledGlyphsRemoved:N0} doubled glyph(s) (drawn twice at the same spot) were removed.";
+            }
+
             MessageBox.Show(summary, "DocDr", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex) when (ex is PdfException or IOException or UnauthorizedAccessException)
