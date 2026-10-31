@@ -32,7 +32,11 @@ public sealed record HtmlExportResult(
     int Tables,
     int Figures,
     int Images,
-    IReadOnlyList<int> PagesWithoutText);
+    IReadOnlyList<int> PagesWithoutText)
+{
+    /// <summary>Crops whose edges have ink on them (probably cut off) — marked crop_clipped.</summary>
+    public int ClippedImages { get; init; }
+}
 
 /// <summary>
 /// Exports a text-layer PDF as structured HTML for an agent to read: headings, paragraphs and notes
@@ -87,38 +91,51 @@ public static partial class PdfHtmlExporter
             return n == 1 ? id : $"{id}-{n}";
         }
 
-        int headings = 0, paragraphs = 0, suspectParagraphs = 0, equations = 0, flagged = 0, tables = 0, figures = 0, images = 0;
+        int headings = 0, paragraphs = 0, suspectParagraphs = 0, equations = 0, flagged = 0, tables = 0, figures = 0, images = 0, clippedImages = 0;
         var body = new StringBuilder();
         var toc = new StringBuilder();
         int lastPage = -1;
 
-        string? ImageSrc(int page, PageRegion region, string id)
+        (string? Src, IReadOnlyList<string> Clipped) ImageSrc(int page, PageRegion region, string id)
         {
-            byte[]? png;
+            RenderedPage? rendered;
             try
             {
-                png = RenderRegionPng(document, page, region.Bounds, options.ImageDpi, cancellationToken);
+                // An equation's block already spans the whitespace up to the text around it; padding would
+                // reach into that text.
+                rendered = RenderRegion(document, page, region.Bounds, options.ImageDpi, cancellationToken,
+                    padding: region.Kind == PageRegionKind.Equation ? 0 : 3);
             }
             catch (PdfException)
             {
-                return null;
+                return (null, []);
             }
 
-            if (png is null)
+            if (rendered is null)
             {
-                return null;
+                return (null, []);
             }
 
+            IReadOnlyList<string> clipped = InkAtEdges(rendered);
+            if (clipped.Count > 0)
+            {
+                clippedImages++;
+            }
+
+            byte[] png = PngWriter.EncodeBgrx(rendered.PixelWidth, rendered.PixelHeight, rendered.Stride, rendered.Pixels);
             images++;
             if (imageFolder is null)
             {
-                return "data:image/png;base64," + Convert.ToBase64String(png);
+                return ("data:image/png;base64," + Convert.ToBase64String(png), clipped);
             }
 
             string name = $"p{page + 1:D4}-{id}.png";
             File.WriteAllBytes(Path.Combine(imageFolder, name), png);
-            return $"{Uri.EscapeDataString(stem + "_files")}/{Uri.EscapeDataString(name)}";
+            return ($"{Uri.EscapeDataString(stem + "_files")}/{Uri.EscapeDataString(name)}", clipped);
         }
+
+        static string ClippedIssue(IReadOnlyList<string> edges) =>
+            $"crop_clipped: ink touches the {string.Join(" / ", edges)} edge of the image — part of it may be cut off; check the page";
 
         foreach (PdfRagChunker.FlowItem item in flow)
         {
@@ -194,25 +211,38 @@ public static partial class PdfHtmlExporter
                 {
                     equations++;
                     RagEquation eq = PdfRagChunker.ToRagEquation(region.Equation!, item.Page, a.Pages[item.Page]!.PageBox, a.Profile);
-                    flagged += eq.Quality == "suspect" ? 1 : 0;
                     string id = UniqueId("eq-" + region.Label.Trim('(', ')'));
-                    string? src = ImageSrc(item.Page, region, id);
-                    body.Append(CultureInfo.InvariantCulture,
-                        $"<figure class=\"equation\" id=\"{id}\" data-label=\"{Attr(region.Label)}\" data-pdf-page=\"{item.Page + 1}\" data-bbox=\"{bbox}\" data-quality=\"{eq.Quality}\"");
-                    if (eq.Issues.Count > 0)
+                    (string? src, IReadOnlyList<string> clipped) = ImageSrc(item.Page, region, id);
+                    var issues = new List<string>(eq.Issues);
+                    if (clipped.Count > 0)
                     {
-                        body.Append(CultureInfo.InvariantCulture, $" title=\"{Attr(string.Join("; ", eq.Issues))}\"");
+                        issues.Add(ClippedIssue(clipped));
+                    }
+
+                    string quality = issues.Count > 0 ? "suspect" : eq.Quality;
+                    if (src is not null && quality == "suspect" && clipped.Count == 0)
+                    {
+                        issues.Add("the image is the authority — the text layer is unreliable here");
+                    }
+
+                    flagged += quality == "suspect" ? 1 : 0;
+                    string raw = PdfRagChunker.StripLicence(eq.RawText);
+                    body.Append(CultureInfo.InvariantCulture,
+                        $"<figure class=\"equation\" id=\"{id}\" data-label=\"{Attr(region.Label)}\" data-pdf-page=\"{item.Page + 1}\" data-bbox=\"{bbox}\" data-quality=\"{quality}\" data-authority=\"image\"");
+                    if (issues.Count > 0)
+                    {
+                        body.Append(CultureInfo.InvariantCulture, $" title=\"{Attr(string.Join("; ", issues))}\"");
                     }
 
                     body.Append(">\n");
                     if (src is not null)
                     {
-                        body.Append(CultureInfo.InvariantCulture, $"<img src=\"{Attr(src)}\" alt=\"{Attr(eq.RawText)}\">\n");
+                        body.Append(CultureInfo.InvariantCulture, $"<img src=\"{Attr(src)}\" alt=\"{Attr(raw)}\">\n");
                     }
 
                     body.Append(CultureInfo.InvariantCulture, $"<figcaption>{Text(region.Label)}</figcaption>\n");
                     body.Append(CultureInfo.InvariantCulture,
-                        $"<details class=\"text-layer\"><summary>Text layer</summary><code>{Text(eq.RawText)}</code></details>\n</figure>\n");
+                        $"<details class=\"text-layer\"><summary>Text layer (the image is the authority)</summary><code>{Text(raw)}</code></details>\n</figure>\n");
                     break;
                 }
 
@@ -231,9 +261,12 @@ public static partial class PdfHtmlExporter
 
                     string kind = isTable ? "table" : "figure";
                     string id = UniqueId(region.Label.Replace(' ', '-').ToLowerInvariant());
-                    string? src = ImageSrc(item.Page, region, id);
+                    (string? src, IReadOnlyList<string> clipped) = ImageSrc(item.Page, region, id);
+                    string clippedAttr = clipped.Count > 0
+                        ? $" data-quality=\"suspect\" title=\"{Attr(ClippedIssue(clipped))}\""
+                        : string.Empty;
                     body.Append(CultureInfo.InvariantCulture,
-                        $"<figure class=\"{kind}\" id=\"{id}\" data-label=\"{Attr(region.Label)}\" data-pdf-page=\"{item.Page + 1}\" data-bbox=\"{bbox}\">\n");
+                        $"<figure class=\"{kind}\" id=\"{id}\" data-label=\"{Attr(region.Label)}\" data-pdf-page=\"{item.Page + 1}\" data-bbox=\"{bbox}\" data-authority=\"image\"{clippedAttr}>\n");
                     body.Append(CultureInfo.InvariantCulture, $"<figcaption>{Text(region.Caption)}</figcaption>\n");
                     if (src is not null)
                     {
@@ -247,9 +280,10 @@ public static partial class PdfHtmlExporter
                         foreach (IReadOnlyList<string> row in grid.Rows)
                         {
                             body.Append("<tr>");
-                            foreach (string cell in row)
+                            foreach ((string cell, int span) in MergeSplitCells(row))
                             {
-                                body.Append(CultureInfo.InvariantCulture, $"<td>{Text(cell)}</td>");
+                                string colspan = span > 1 ? $" colspan=\"{span}\"" : string.Empty;
+                                body.Append(CultureInfo.InvariantCulture, $"<td{colspan}>{Text(cell)}</td>");
                             }
 
                             body.Append("</tr>\n");
@@ -261,7 +295,7 @@ public static partial class PdfHtmlExporter
                     if (item.RegionText.Length > 0)
                     {
                         body.Append(CultureInfo.InvariantCulture,
-                            $"<details class=\"text-layer\"><summary>Text layer</summary><pre>{Text(item.RegionText)}</pre></details>\n");
+                            $"<details class=\"text-layer\"><summary>Text layer (the image is the authority)</summary><pre>{Text(item.RegionText)}</pre></details>\n");
                     }
 
                     body.Append("</figure>\n");
@@ -289,18 +323,25 @@ public static partial class PdfHtmlExporter
         File.WriteAllText(htmlPath, html.ToString(), new UTF8Encoding(false));
 
         return new HtmlExportResult(htmlPath, imageFolder, headings, paragraphs, suspectParagraphs,
-            equations, flagged, tables, figures, images, a.PagesWithoutText);
+            equations, flagged, tables, figures, images, a.PagesWithoutText)
+        {
+            ClippedImages = clippedImages,
+        };
     }
 
     /// <summary>A region of a page rendered at <paramref name="dpi"/> as PNG (3 pt padding), or null
     /// when it's empty.</summary>
-    internal static byte[]? RenderRegionPng(PdfDocument document, int page, PdfRect rect, double dpi, CancellationToken ct)
+    internal static byte[]? RenderRegionPng(PdfDocument document, int page, PdfRect rect, double dpi, CancellationToken ct) =>
+        RenderRegion(document, page, rect, dpi, ct) is { } r ? PngWriter.EncodeBgrx(r.PixelWidth, r.PixelHeight, r.Stride, r.Pixels) : null;
+
+    /// <summary>A region of a page rendered at <paramref name="dpi"/> (3 pt padding), or null when it's empty.</summary>
+    internal static RenderedPage? RenderRegion(PdfDocument document, int page, PdfRect rect, double dpi, CancellationToken ct, double padding = 3)
     {
         PdfSize size = document.GetUnrotatedPageSize(page);
         PdfRotation rotation = document.GetPageRotation(page);
         PdfPoint crop = document.GetCropOrigin(page);
         double scale = dpi / PdfCoordinates.PointsPerInch;
-        var padded = new PdfRect(rect.Left - 3, rect.Top + 3, rect.Right + 3, rect.Bottom - 3);
+        var padded = new PdfRect(rect.Left - padding, rect.Top + padding, rect.Right + padding, rect.Bottom - padding);
         DeviceRect d = PdfCoordinates.PageToDevice(padded, size, rotation, scale, crop);
         bool swap = rotation is PdfRotation.Clockwise90 or PdfRotation.CounterClockwise90;
         int fullW = (int)Math.Ceiling((swap ? size.Height : size.Width) * scale);
@@ -313,8 +354,65 @@ public static partial class PdfHtmlExporter
             return null;
         }
 
-        RenderedPage r = new PageRenderer().Render(document, page, w, h, ct, new PageRenderRegion(fullW, fullH, x0, y0));
-        return PngWriter.EncodeBgrx(r.PixelWidth, r.PixelHeight, r.Stride, r.Pixels);
+        return new PageRenderer().Render(document, page, w, h, ct, new PageRenderRegion(fullW, fullH, x0, y0));
+    }
+
+    /// <summary>
+    /// Edges of a crop that ink touches — past the padding / clearance, a sign the thing was cut off. The
+    /// right-hand 15 % is ignored on the top / bottom edges and the right edge isn't checked at all:
+    /// that's where an equation's label sits against the margin.
+    /// </summary>
+    internal static IReadOnlyList<string> InkAtEdges(RenderedPage r)
+    {
+        bool Dark(int x, int y)
+        {
+            int o = (y * r.Stride) + (x * 4);
+            return Math.Min(r.Pixels[o], Math.Min(r.Pixels[o + 1], r.Pixels[o + 2])) < 140;
+        }
+
+        int w = r.PixelWidth, h = r.PixelHeight, span = (int)(w * 0.85);
+        var edges = new List<string>();
+        if (Enumerable.Range(0, span).Any(x => Dark(x, 0)))
+        {
+            edges.Add("top");
+        }
+
+        if (Enumerable.Range(0, span).Any(x => Dark(x, h - 1)))
+        {
+            edges.Add("bottom");
+        }
+
+        if (Enumerable.Range(0, h).Any(y => Dark(0, y)))
+        {
+            edges.Add("left");
+        }
+
+        return edges;
+    }
+
+    /// <summary>
+    /// Re-joins a header that column detection cut through — a spanning cell like "Anchorage length
+    /// lbd/ϕ" comes back as "A" | "nchorage l" | "ength lbd/" | "ϕ" — into one cell with a colspan.
+    /// Two neighbouring cells join when the first ends mid-word (a letter or "/") and the next carries
+    /// on (starts lower-case, or follows a "/").
+    /// </summary>
+    internal static IReadOnlyList<(string Text, int Span)> MergeSplitCells(IReadOnlyList<string> row)
+    {
+        var result = new List<(string Text, int Span)>();
+        foreach (string raw in row)
+        {
+            string cell = raw.Trim();
+            if (result.Count > 0 && result[^1].Text is { Length: > 0 } prev && cell.Length > 0
+                && ((char.IsLetter(prev[^1]) && char.IsLower(cell[0])) || prev[^1] == '/'))
+            {
+                result[^1] = (prev + cell, result[^1].Span + 1);
+                continue;
+            }
+
+            result.Add((cell, 1));
+        }
+
+        return result;
     }
 
     private static TableGrid? ExtractGrid(PdfDocument document, int page, PdfRect bounds)
@@ -345,7 +443,8 @@ public static partial class PdfHtmlExporter
         <li>Text is the PDF's text layer, cleaned: running headers/footers and licence stamps removed, contents pages skipped.</li>
         <li><b>Equations, tables and figures are images cropped from the page — treat the image as authoritative.</b> The text layer under each is for searching; for stacked layouts (fractions, roots, indices) it is in drawing order and unreliable.</li>
         <li><code>data-quality="suspect"</code>: characters the font doesn't map, letters repeated by a broken subscript map, or an equation the text layer scrambles — read it from the image. <code>"check"</code>: maths flattened to one line.</li>
-        <li>Table grids under "Grid read from the text layer" are unverified.</li>
+        <li>Table grids under "Grid read from the text layer" are unverified; header cells the column split cut through are re-joined with <code>colspan</code>.</li>
+        <li>An issue <code>crop_clipped</code> means ink touches the edge of that image — part of it may be cut off; read it from the PDF page instead.</li>
         <li><code>data-pdf-page</code> is the 1-based PDF page; <code>data-page-label</code> the printed page number. <code>data-bbox</code> is [left, top, right, bottom] in points from the top-left of the page.</li>
         </ul></details>
 

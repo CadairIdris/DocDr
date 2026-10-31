@@ -316,7 +316,7 @@ public static partial class PdfRagChunker
             if (a.Pages[p] is { } page && !a.ContentsPage[p])
             {
                 IReadOnlyList<PageRegion> regions = regionsFor?.Invoke(p, page) ?? [];
-                foreach (var seg in Segments(page, regions))
+                foreach (var seg in Segments(page, regions, a.Boilerplate))
                 {
                     if (seg.Region is { } region)
                     {
@@ -391,7 +391,7 @@ public static partial class PdfRagChunker
     /// region's caption line); a region is placed where its first line was, or — with no text of
     /// its own (a drawing) — before the first line below it.</summary>
     private static IEnumerable<(List<ChunkLine> Lines, PageRegion? Region, string RegionText)> Segments(
-        ChunkPage page, IReadOnlyList<PageRegion> regions)
+        ChunkPage page, IReadOnlyList<PageRegion> regions, Boilerplate boilerplate)
     {
         if (regions.Count == 0)
         {
@@ -444,7 +444,8 @@ public static partial class PdfRagChunker
 
                 string text = string.Join('\n', page.Lines.Where((l, k) => owner[k] == region && k != region.CaptionLine
                         && !region.CaptionContinuation.Contains(k))
-                    .Select(l => Normalise(l.Text)).Where(t => t.Length > 0));
+                    .Where(l => !l.InMargin && !boilerplate.Contains(l, Normalise(l.Text)))
+                    .Select(l => StripLicence(Normalise(l.Text))).Where(t => t.Length > 0));
                 yield return ([], region, text);
             }
         }
@@ -737,6 +738,10 @@ public static partial class PdfRagChunker
     // Licence / distribution stamps: always removed, from the marker to the end of the line.
     [GeneratedRegex(@"Licensee=|Licensed cop(?:y|ies)\b|Uncontrolled Copy|Not for Resale|No reproduction or networking permitted|Provided by .{0,80}?under licen[cs]e", RegexOptions.IgnoreCase)]
     private static partial Regex LicenceStamp();
+
+    /// <summary>A line with any licence / distribution stamp cut off (from the marker to the end).</summary>
+    internal static string StripLicence(string line) =>
+        LicenceStamp().Match(line) is { Success: true } m ? line[..m.Index].TrimEnd(' ', ',', ';', '-', '–') : line;
 
     [GeneratedRegex(@"\d+")]
     private static partial Regex Digits();

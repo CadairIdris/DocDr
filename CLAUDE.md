@@ -1016,6 +1016,23 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   3 pt padding → `PageRenderer` with a `PageRenderRegion` → **`PngWriter`** (own encoder, `ZLibStream`,
   Up filter; greyscale when every pixel is grey — most of a standard). App: Tools ▾ "Export HTML…"
   (`DocumentTabViewModel.Html.cs`, wait cursor, `Task.Run`, summary dialog).
+- **Equation crops are the display block, not the char boxes** (review: 38 / 571 clipped — radicals,
+  fraction bars and big brackets are vector lines or glyphs without a usable box). `Detect` takes the
+  band from 1.5 pt under the nearest *text line* above the label (`IsTextLine`: prose, a "where /
+  with / for…" line, a "(n)" paragraph, a heading, a caption, or anything in the header/footer band) to
+  1.5 pt over the nearest one below, ≤ 100 pt from the label and never into the margin band, across the
+  text column (`TextColumn`: 10th / 90th percentile of long body lines' edges); never smaller than the
+  text layer's own box. Two stacked equations split at `Separator` — the middle of the widest blank gap
+  in the ink (glyph lines + graphics) between their labels (`ChunkEquation.LabelBounds`), so (B.11)'s
+  numerator no longer lands in (B.10). **Equation crops render with no padding** (the block already
+  holds the whitespace); tables / figures keep 3 pt.
+- **`InkAtEdges`** checks every rendered crop: dark (< 140) pixels on the top / bottom row (left 85 %)
+  or the left column → `crop_clipped` issue + `data-quality="suspect"` (`HtmlExportResult.ClippedImages`).
+  It caught the first version of the block crop running into the licence footer.
+- Region text layers drop margin / boilerplate lines and `StripLicence` the rest (128 watermark hits in
+  the review). Table header text the column split cut through ("A" | "nchorage l" | "ength lbd/" | "ϕ")
+  is re-joined with `colspan` (`MergeSplitCells`: previous cell ends in a letter / "/", next starts
+  lower-case or follows "/"). Every figure carries `data-authority="image"`; text-layer summaries say so.
 - `BlockStart` now also opens a paragraph at an annex number + capital ("O.7.1 General") — a long
   "O.7 …" heading was otherwise joined with the next heading (affects chunks too, for the better).
 

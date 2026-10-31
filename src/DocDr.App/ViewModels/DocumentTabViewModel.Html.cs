@@ -47,6 +47,12 @@ public sealed partial class DocumentTabViewModel
                     + "reliable version (marked data-quality=\"suspect\").";
             }
 
+            if (r.ClippedImages > 0)
+            {
+                summary += $"\n\n{r.ClippedImages:N0} image(s) have ink touching an edge and may be cut off (issue "
+                    + "\"crop_clipped\") — check those against the PDF page.";
+            }
+
             if (r.SuspectParagraphs > 0)
             {
                 summary += $"\n\n{r.SuspectParagraphs:N0} paragraph(s) contain characters the PDF doesn't map to real symbols "

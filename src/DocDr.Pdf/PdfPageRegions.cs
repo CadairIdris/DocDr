@@ -180,17 +180,120 @@ internal static partial class PdfPageRegions
             regions.Add(new PageRegion(cap.Kind, grown, cap.Label, cap.Caption) { CaptionLine = cap.Line, CaptionContinuation = cap.More });
         }
 
-        foreach (ChunkEquation e in page.Equations)
+        // Equations: crop the whole display block — the band between the text around it, across the
+        // text column — not the char boxes, which miss radicals, fraction bars and big brackets drawn
+        // as vector lines or as glyphs with no usable box.
+        var equations = page.Equations
+            .Where(e => !regions.Any(r => Contains(r.Bounds, Centre(e.Bounds))))
+            .OrderByDescending(e => Centre(e.LabelBounds).Y).ToList();
+        (double colLeft, double colRight) = TextColumn(page);
+        for (int i = 0; i < equations.Count; i++)
         {
-            double cx = (e.Bounds.Left + e.Bounds.Right) / 2, cy = (e.Bounds.Top + e.Bounds.Bottom) / 2;
-            if (!regions.Any(r => cx >= r.Bounds.Left && cx <= r.Bounds.Right && cy >= r.Bounds.Bottom && cy <= r.Bounds.Top))
+            ChunkEquation e = equations[i];
+            PdfRect label = e.LabelBounds.Width > 0 ? e.LabelBounds : e.Bounds;
+            double h = Math.Max(4, label.Height);
+            double cy = Centre(label).Y;
+
+            // Up to the nearest prose line above (or 100 pt), and no further than the blank gap that
+            // separates this equation from the one above it; likewise downwards.
+            // Never into the header / footer band (page number, licence stamp).
+            double top = Math.Min(Math.Min(cy + 100, box.Top - band), BoundaryAbove(page, label, h) ?? double.MaxValue);
+            double bottom = Math.Max(Math.Max(cy - 100, box.Bottom + band), BoundaryBelow(page, label, h) ?? double.MinValue);
+            if (i > 0)
             {
-                regions.Add(new PageRegion(PageRegionKind.Equation, e.Bounds, e.Label, e.Label) { Equation = e });
+                top = Math.Min(top, Separator(page, usable, equations[i - 1].LabelBounds, label));
             }
+
+            if (i + 1 < equations.Count)
+            {
+                bottom = Math.Max(bottom, Separator(page, usable, label, equations[i + 1].LabelBounds));
+            }
+
+            // Never smaller than what the text layer already saw.
+            top = Math.Max(top, e.Bounds.Top);
+            bottom = Math.Min(bottom, e.Bounds.Bottom);
+            var block = new PdfRect(Math.Min(colLeft, e.Bounds.Left), top, Math.Max(colRight, e.Bounds.Right), bottom);
+            regions.Add(new PageRegion(PageRegionKind.Equation, block, e.Label, e.Label) { Equation = e });
         }
 
         return regions;
     }
+
+    // A line that is running text, not part of a display formula: two or more real words, or one of
+    // the words that introduce / qualify a formula ("where", "with", "for"…), a paragraph number, a
+    // heading or a caption — or anything in the header / footer band.
+    [GeneratedRegex(@"^(?:where|with|for|in which|and|or|if|but|see|NOTE)\b|^\(\d{1,3}\)\s|^\d+(?:\.\d+)+\.?\s+\p{Lu}")]
+    private static partial Regex TextLineStart();
+
+    private static bool IsTextLine(ChunkLine line) =>
+        line.Bounds.Width > 0 && !string.IsNullOrWhiteSpace(line.Text)
+        && (line.InMargin || PdfChunkText.IsProse(line.Text) || TextLineStart().IsMatch(line.Text.Trim())
+            || CaptionStart().IsMatch(line.Text.Trim()));
+
+    /// <summary>Just under (1.5 pt clear of) the nearest text line above the label.</summary>
+    private static double? BoundaryAbove(ChunkPage page, PdfRect label, double h)
+    {
+        var above = page.Lines.Where(l => IsTextLine(l) && l.Bounds.Bottom >= label.Top + (h * 0.25)).ToList();
+        return above.Count == 0 ? null : above.Min(l => l.Bounds.Bottom) - 1.5;
+    }
+
+    private static double? BoundaryBelow(ChunkPage page, PdfRect label, double h)
+    {
+        var below = page.Lines.Where(l => IsTextLine(l) && l.Bounds.Top <= label.Bottom - (h * 0.25)).ToList();
+        return below.Count == 0 ? null : below.Max(l => l.Bounds.Top) + 1.5;
+    }
+
+    /// <summary>Where to split two stacked display equations: the middle of the widest blank gap in
+    /// the ink (glyphs and graphics) between their labels — so a tall fraction's numerator stays with
+    /// its own equation — or halfway between the labels when nothing is blank.</summary>
+    private static double Separator(ChunkPage page, List<PdfRect> graphics, PdfRect upperLabel, PdfRect lowerLabel)
+    {
+        double hi = Centre(upperLabel).Y, lo = Centre(lowerLabel).Y;
+        var ink = page.Lines.Where(l => l.Bounds.Width > 0 && !l.InMargin).Select(l => (l.Bounds.Bottom, l.Bounds.Top))
+            .Concat(graphics.Select(g => (g.Bottom, g.Top)))
+            .Where(r => r.Top > lo && r.Bottom < hi)
+            .Select(r => (Lo: Math.Max(lo, r.Bottom), Hi: Math.Min(hi, r.Top)))
+            .OrderByDescending(r => r.Hi).ToList();
+
+        double bestGap = 0, best = (hi + lo) / 2, cursor = hi;
+        foreach ((double rlo, double rhi) in ink)
+        {
+            if (cursor - rhi > bestGap)
+            {
+                bestGap = cursor - rhi;
+                best = (cursor + rhi) / 2;
+            }
+
+            cursor = Math.Min(cursor, rlo);
+        }
+
+        if (cursor - lo > bestGap)
+        {
+            best = (cursor + lo) / 2;
+        }
+
+        return best;
+    }
+
+    /// <summary>The page's text column: the 10th / 90th percentile of the left / right edges of its
+    /// longer body lines (so a rotated margin watermark doesn't widen it).</summary>
+    private static (double Left, double Right) TextColumn(ChunkPage page)
+    {
+        var lines = page.Lines.Where(l => !l.InMargin && l.Bounds.Width > 0 && l.Text.Trim().Length >= 15
+            && l.Bounds.Width > l.Bounds.Height).ToList();
+        if (lines.Count == 0)
+        {
+            return (page.PageBox.Left + 50, page.PageBox.Right - 50);
+        }
+
+        var lefts = lines.Select(l => l.Bounds.Left).Order().ToList();
+        var rights = lines.Select(l => l.Bounds.Right).Order().ToList();
+        return (lefts[(int)(lefts.Count * 0.1)], rights[Math.Min(rights.Count - 1, (int)(rights.Count * 0.9))]);
+    }
+
+    private static PdfPoint Centre(PdfRect r) => new((r.Left + r.Right) / 2, (r.Top + r.Bottom) / 2);
+
+    private static bool Contains(PdfRect r, PdfPoint p) => p.X >= r.Left && p.X <= r.Right && p.Y >= r.Bottom && p.Y <= r.Top;
 
     /// <summary>The cluster of graphics starting just under the caption (within 45 pt) and every
     /// graphic touching it, down to <paramref name="lowerLimit"/>.</summary>

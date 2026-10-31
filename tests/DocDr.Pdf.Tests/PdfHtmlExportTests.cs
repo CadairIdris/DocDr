@@ -141,6 +141,76 @@ public sealed class PdfHtmlExportTests
         Assert.Equal([1], figure.CaptionContinuation);
     }
 
+    [Fact]
+    public void An_equation_crop_is_the_display_block_between_the_text_around_it()
+    {
+        // Prose above, a fraction (numerator / main line + label / denominator), "where" below. The
+        // char boxes only cover the glyphs; the block must also cover the gaps where a fraction bar or
+        // radical (vector lines) would be.
+        ChunkPage page = Page(
+            Line("The elastic buckling load of the member should be taken as follows:", 72, 520),
+            Line("pi2 EI", 120, 488),
+            Line("NB =", 90, 476), Line("(O.7)", 520, 476),
+            Line("l0", 126, 462),
+            Line("where", 72, 420));
+
+        PageRegion eq = Assert.Single(PdfPageRegions.Detect(page, []));
+
+        Assert.Equal(PageRegionKind.Equation, eq.Kind);
+        Assert.InRange(eq.Bounds.Top, 517, 519);     // 1.5 pt under the prose line (bottom 520)
+        Assert.InRange(eq.Bounds.Bottom, 429, 431);  // 1.5 pt over "where" (top 428)
+        Assert.True(eq.Bounds.Left <= 72);           // the text column, not just the glyphs
+    }
+
+    [Fact]
+    public void Stacked_equations_split_at_the_blank_gap_so_a_numerator_stays_with_its_own()
+    {
+        ChunkPage page = Page(
+            Line("a = b", 90, 600), Line("(B.10)", 520, 600),
+            // (B.11)'s numerator sits close under (B.10), then a clear gap above it.
+            Line("1 - RH/100", 140, 560),
+            Line("c =", 90, 548), Line("(B.11)", 520, 548),
+            Line("0.1 hn", 140, 536));
+
+        var eqs = PdfPageRegions.Detect(page, []).OrderByDescending(r => r.Bounds.Top).ToList();
+
+        Assert.Equal(["(B.10)", "(B.11)"], eqs.Select(e => e.Label).ToArray());
+        Assert.True(eqs[0].Bounds.Bottom > 568);  // (B.10) stops above the numerator (top 568)…
+        Assert.True(eqs[1].Bounds.Top >= 568);    // …which (B.11) keeps
+    }
+
+    [Fact]
+    public void Header_text_cut_through_by_the_columns_is_rejoined_with_a_colspan()
+    {
+        // Table 11.1's header as the extractor returned it.
+        var cells = PdfHtmlExporter.MergeSplitCells(["ϕ", "", "", "A", "nchorage l", "ength lbd/", "ϕ"]);
+
+        Assert.Equal([("ϕ", 1), ("", 1), ("", 1), ("Anchorage length lbd/ϕ", 4)], cells);
+        Assert.Equal([("12", 1), ("47", 1), ("42", 1)], PdfHtmlExporter.MergeSplitCells(["12", "47", "42"]));
+    }
+
+    [Fact]
+    public void Ink_on_a_crops_edge_is_reported_but_the_label_side_is_ignored()
+    {
+        static RenderedPage Image(params (int X, int Y)[] dark)
+        {
+            const int w = 100, h = 40;
+            var px = Enumerable.Repeat((byte)255, w * 4 * h).ToArray();
+            foreach ((int x, int y) in dark)
+            {
+                int o = (y * w * 4) + (x * 4);
+                (px[o], px[o + 1], px[o + 2]) = (0, 0, 0);
+            }
+
+            return new RenderedPage(0, w, h, w * 4, px);
+        }
+
+        Assert.Empty(PdfHtmlExporter.InkAtEdges(Image((50, 20))));            // ink inside only
+        Assert.Equal(["top"], PdfHtmlExporter.InkAtEdges(Image((40, 0))));
+        Assert.Equal(["bottom", "left"], PdfHtmlExporter.InkAtEdges(Image((30, 39), (0, 10))));
+        Assert.Empty(PdfHtmlExporter.InkAtEdges(Image((95, 0), (99, 20))));   // the label's corner
+    }
+
     // --- Whole export -------------------------------------------------------------------------
 
     private static string WriteSample(TempWorkspace ws)
