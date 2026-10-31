@@ -100,6 +100,33 @@ public sealed record AnnotationVisual(
 
     public bool IsTick => Kind == PdfAnnotationKind.Tick;
 
+    /// <summary>A distance / perimeter (open line) measurement.</summary>
+    public bool IsMeasureLine => Kind is PdfAnnotationKind.MeasureDistance or PdfAnnotationKind.MeasurePerimeter;
+
+    /// <summary>An area measurement (closed, tinted polygon).</summary>
+    public bool IsMeasureArea => Kind == PdfAnnotationKind.MeasureArea;
+
+    /// <summary>A measurement's vertices in device space.</summary>
+    public PointCollection MeasurePoints { get; init; } = [];
+
+    /// <summary>A distance's two end bars (device space), or null.</summary>
+    public Geometry? MeasureEndTicks { get; init; }
+
+    /// <summary>The caption ("3.25 m"); empty for other kinds.</summary>
+    public string MeasureLabel { get; init; } = string.Empty;
+
+    public bool HasMeasureLabel => MeasureLabel.Length > 0;
+
+    /// <summary>The caption box in device space (centred on its anchor, sized from the Helvetica
+    /// metrics the saved appearance uses, so the two line up).</summary>
+    public Rect MeasureLabelBox { get; init; }
+
+    /// <summary>Caption font size in DIP (the page-space size × zoom).</summary>
+    public double MeasureLabelFontSize { get; init; } = 11;
+
+    /// <summary>Translucent fill for an area measurement.</summary>
+    public Brush MeasureFillBrush => new SolidColorBrush(Color) { Opacity = 0.2 };
+
     /// <summary>The tick's three points in device space (see <see cref="PdfAnnotation.TickPoints"/>).</summary>
     public PointCollection TickPoints { get; init; } = [];
 

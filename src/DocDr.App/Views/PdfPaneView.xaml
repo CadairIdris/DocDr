@@ -359,6 +359,28 @@
                                           IsHitTestVisible="False"
                                           Visibility="{Binding IsTick, Converter={StaticResource BoolToVisibility}}" />
 
+                                <!-- Measurements: the measured line / region, a distance's end bars, and the
+                                     caption on a white backing (same text + metrics as the saved appearance). -->
+                                <Polyline Points="{Binding MeasurePoints}"
+                                          Stroke="{Binding ShapeBrush}" StrokeThickness="{Binding ShapeStrokeThickness}"
+                                          StrokeLineJoin="Round" IsHitTestVisible="False"
+                                          Visibility="{Binding IsMeasureLine, Converter={StaticResource BoolToVisibility}}" />
+                                <Polygon Points="{Binding MeasurePoints}"
+                                         Stroke="{Binding ShapeBrush}" StrokeThickness="{Binding ShapeStrokeThickness}"
+                                         Fill="{Binding MeasureFillBrush}" StrokeLineJoin="Round" IsHitTestVisible="False"
+                                         Visibility="{Binding IsMeasureArea, Converter={StaticResource BoolToVisibility}}" />
+                                <Path Data="{Binding MeasureEndTicks}" Stroke="{Binding ShapeBrush}"
+                                      StrokeThickness="{Binding ShapeStrokeThickness}" IsHitTestVisible="False" />
+                                <Border Canvas.Left="{Binding MeasureLabelBox.X}" Canvas.Top="{Binding MeasureLabelBox.Y}"
+                                        Width="{Binding MeasureLabelBox.Width}" Height="{Binding MeasureLabelBox.Height}"
+                                        Background="#E6FFFFFF" BorderBrush="{Binding ShapeBrush}" BorderThickness="0.75"
+                                        IsHitTestVisible="False"
+                                        Visibility="{Binding HasMeasureLabel, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Text="{Binding MeasureLabel}" FontFamily="Arial"
+                                               FontSize="{Binding MeasureLabelFontSize}" Foreground="{Binding ShapeBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+
                                 <!-- Selection border for a box-shaped annotation (image / rectangle / ellipse / tick). -->
                                 <Rectangle Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
                                            Width="{Binding Box.Width}" Height="{Binding Box.Height}"
@@ -532,6 +554,30 @@
                               StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
                 </Canvas>
 
+                <!-- Measurement being drawn right now: placed vertices + the pointer, with the live value. -->
+                <Canvas IsHitTestVisible="False"
+                        Visibility="{Binding MeasurePreview, Converter={StaticResource NotNullToVisibility}}">
+                    <Polyline Points="{Binding MeasurePreview}" Stroke="{DynamicResource AccentBrush}"
+                              StrokeThickness="1.6" StrokeDashArray="5 3" StrokeLineJoin="Round" />
+                    <Polygon Points="{Binding MeasurePreview}" Fill="{DynamicResource AccentBrush}" Opacity="0.15"
+                             Visibility="{Binding MeasurePreviewClosed, Converter={StaticResource BoolToVisibility}}" />
+                    <Border Canvas.Left="{Binding MeasurePreviewLabelAt.X}" Canvas.Top="{Binding MeasurePreviewLabelAt.Y}"
+                            Background="{DynamicResource OverlayCardBrush}" BorderBrush="{DynamicResource AccentBrush}"
+                            BorderThickness="1" CornerRadius="4" Padding="6,2">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding MeasurePreviewLabel}" Value="">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding MeasurePreviewLabel}" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource PrimaryTextBrush}" />
+                    </Border>
+                </Canvas>
+
                 <!-- Shape being dragged out right now (box, plus a callout's leader + arrow). -->
                 <Canvas IsHitTestVisible="False"
                         Visibility="{Binding ShapePreview, Converter={StaticResource NotNullToVisibility}}">
@@ -593,6 +639,13 @@
                               AutomationProperties.Name="Find" ToolTip="Find in this document (Ctrl+F)">
                     <Path Style="{StaticResource ModeIcon}" Data="{StaticResource IconSearch}" />
                 </ToggleButton>
+                <!-- The page's drawing scale (what new measurements use); click to change it. -->
+                <Button DockPanel.Dock="Right" Content="{Binding ScaleText}" Command="{Binding RequestSetScaleCommand}"
+                        Padding="8,2" Margin="0,0,6,0" VerticalAlignment="Center" FontSize="11"
+                        Background="Transparent" BorderThickness="0" Cursor="Hand"
+                        Foreground="{DynamicResource SecondaryTextBrush}"
+                        AutomationProperties.Name="Drawing scale"
+                        ToolTip="Drawing scale for measurements on this page — click to change it or calibrate" />
                 <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal" Margin="2,0" VerticalAlignment="Center">
                         <Button Content="◄" Style="{StaticResource GlyphButton}" Command="{Binding PreviousPageCommand}" ToolTip="Previous page" />
@@ -685,6 +738,12 @@
                             <Setter Property="Cursor" Value="Cross" />
                         </DataTrigger>
                         <DataTrigger Binding="{Binding ShapeTool}" Value="Cloud">
+                            <Setter Property="Cursor" Value="Cross" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsMeasureTool}" Value="True">
+                            <Setter Property="Cursor" Value="Cross" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding ShapeTool}" Value="Tick">
                             <Setter Property="Cursor" Value="Cross" />
                         </DataTrigger>
                     </Style.Triggers>

@@ -1,0 +1,190 @@
+using DocDr.App.ViewModels;
+using DocDr.Pdf;
+
+namespace DocDr.App.Tests;
+
+public sealed class MeasureTests : IDisposable
+{
+    private readonly TempDir _dir = new();
+    private readonly PdfDocument _doc;
+
+    public MeasureTests() =>
+        _doc = PdfDocument.Load(TestPdfBuilder.WritePdf(_dir.File("m.pdf"), ["one", "two"]));
+
+    public void Dispose()
+    {
+        _doc.Dispose();
+        _dir.Dispose();
+    }
+
+    private PdfPaneViewModel Pane(ShapeTool tool, PdfMeasureScale? scale = null)
+    {
+        var pane = new PdfPaneViewModel("Left", _doc, _doc.GetPageSizes(), new FakeRenderQueue())
+        {
+            ShapeTool = tool,
+        };
+        if (scale is not null)
+        {
+            pane.ScaleProvider = _ => scale;
+        }
+
+        return pane;
+    }
+
+    private PdfAnnotation Only(int page = 0) => Assert.Single(_doc.GetAnnotations(page));
+
+    [Fact]
+    public void Distance_finishes_on_the_second_click_at_the_page_scale_and_stays_armed()
+    {
+        PdfMeasureScale scale = PdfMeasureScale.FromDrawingRatio(50, "m");
+        PdfPaneViewModel pane = Pane(ShapeTool.MeasureDistance, scale);
+
+        pane.MeasureClick(0, new PdfPoint(100, 100), constrain: false);
+        Assert.Empty(_doc.GetAnnotations(0));
+        pane.MeasureClick(0, new PdfPoint(300, 100), constrain: false);
+
+        PdfAnnotation a = Only();
+        Assert.Equal(PdfAnnotationKind.MeasureDistance, a.Kind);
+        Assert.Equal(2, a.Vertices.Count);
+        Assert.Equal(scale, a.Scale);
+        Assert.Equal(ShapeTool.MeasureDistance, pane.ShapeTool);
+        Assert.False(pane.HasMeasureInProgress);
+    }
+
+    [Fact]
+    public void Perimeter_takes_clicks_until_finished_and_backspace_drops_the_last_vertex()
+    {
+        PdfPaneViewModel pane = Pane(ShapeTool.MeasurePerimeter);
+        pane.MeasureClick(0, new PdfPoint(50, 50), false);
+        pane.MeasureClick(0, new PdfPoint(150, 50), false);
+        pane.MeasureClick(0, new PdfPoint(150, 150), false);
+        pane.MeasureClick(0, new PdfPoint(10, 10), false);
+        pane.MeasureUndoVertex();
+        pane.MeasureClick(0, new PdfPoint(150, 150), false); // same spot as the last vertex: ignored
+        pane.MeasureFinish();
+
+        PdfAnnotation a = Only();
+        Assert.Equal(PdfAnnotationKind.MeasurePerimeter, a.Kind);
+        Assert.Equal(3, a.Vertices.Count);
+    }
+
+    [Fact]
+    public void An_area_needs_three_points()
+    {
+        PdfPaneViewModel pane = Pane(ShapeTool.MeasureArea);
+        pane.MeasureClick(0, new PdfPoint(50, 50), false);
+        pane.MeasureClick(0, new PdfPoint(150, 50), false);
+        pane.MeasureFinish();
+        Assert.Empty(_doc.GetAnnotations(0));
+
+        pane.MeasureClick(0, new PdfPoint(50, 50), false);
+        pane.MeasureClick(0, new PdfPoint(150, 50), false);
+        pane.MeasureClick(0, new PdfPoint(150, 150), false);
+        pane.MeasureFinish();
+        Assert.Equal(PdfAnnotationKind.MeasureArea, Only().Kind);
+    }
+
+    [Fact]
+    public void Esc_abandons_and_switching_tools_clears_the_measurement_in_progress()
+    {
+        PdfPaneViewModel pane = Pane(ShapeTool.MeasurePerimeter);
+        pane.MeasureClick(0, new PdfPoint(50, 50), false);
+        pane.MeasureCancel();
+        Assert.False(pane.HasMeasureInProgress);
+
+        pane.MeasureClick(0, new PdfPoint(50, 50), false);
+        pane.ShapeTool = ShapeTool.None;
+        Assert.False(pane.HasMeasureInProgress);
+        Assert.Empty(_doc.GetAnnotations(0));
+    }
+
+    [Fact]
+    public void Shift_constrains_a_segment_to_45_degrees()
+    {
+        PdfPaneViewModel pane = Pane(ShapeTool.MeasureDistance);
+        pane.MeasureClick(0, new PdfPoint(100, 100), false);
+        pane.MeasureClick(0, new PdfPoint(300, 110), constrain: true);
+
+        Assert.Equal(100, Only().Vertices[1].Y, 6);
+    }
+
+    [Fact]
+    public void A_click_on_another_page_starts_over_there()
+    {
+        PdfPaneViewModel pane = Pane(ShapeTool.MeasurePerimeter);
+        pane.MeasureClick(0, new PdfPoint(50, 50), false);
+        pane.MeasureClick(1, new PdfPoint(60, 60), false);
+        pane.MeasureClick(1, new PdfPoint(160, 60), false);
+        pane.MeasureFinish();
+
+        Assert.Empty(_doc.GetAnnotations(0));
+        Assert.Equal(2, Only(1).Vertices.Count);
+    }
+
+    [Fact]
+    public void Calibration_reports_the_drawn_length_and_disarms()
+    {
+        PdfPaneViewModel pane = Pane(ShapeTool.Calibrate);
+        (int Page, double Points)? reported = null;
+        pane.CalibrationMeasured += (page, pts) => reported = (page, pts);
+
+        pane.MeasureClick(0, new PdfPoint(100, 100), false);
+        pane.MeasureClick(0, new PdfPoint(100, 300), false);
+
+        Assert.Equal((0, 200.0), reported);
+        Assert.Equal(ShapeTool.None, pane.ShapeTool);
+        Assert.Empty(_doc.GetAnnotations(0)); // calibrating adds nothing to the page
+    }
+
+    [Fact]
+    public void A_measurement_is_selectable_by_its_line_and_movable()
+    {
+        PdfPaneViewModel pane = Pane(ShapeTool.MeasureDistance);
+        pane.MeasureClick(0, new PdfPoint(100, 100), false);
+        pane.MeasureClick(0, new PdfPoint(300, 100), false);
+        PdfAnnotation a = Only();
+
+        Assert.True(PdfPaneViewModel.HitsMeasurement(a, new PdfPoint(200, 102), tolerance: 4));
+        Assert.False(PdfPaneViewModel.HitsMeasurement(a, new PdfPoint(200, 160), tolerance: 4));
+
+        PdfAnnotation moved = PdfPaneViewModel.MoveShape(a, 10, -5);
+        Assert.Equal(new PdfPoint(110, 95), moved.Vertices[0]);
+        PdfAnnotation dragged = PdfPaneViewModel.MoveLineEndpoint(a, 1, 50, 0);
+        Assert.Equal(new PdfPoint(350, 100), dragged.Vertices[1]);
+    }
+
+    [Fact]
+    public void Scale_dialog_parses_a_ratio_and_a_calibration()
+    {
+        var ratio = new MeasureScaleViewModel(PdfMeasureScale.Default, null, "3") { RatioText = "1:100", Unit = "m" };
+        ratio.ApplyCommand.Execute(null);
+        Assert.Equal(MeasureScaleOutcome.Apply, ratio.Outcome);
+        Assert.Equal("1:100", ratio.Result!.Label);
+
+        var cal = new MeasureScaleViewModel(PdfMeasureScale.Default, calibrationPoints: 144, "3")
+        {
+            KnownLengthText = "6", Unit = "m",
+        };
+        cal.ApplyCommand.Execute(null);
+        Assert.Equal(6.0 / 144, cal.Result!.UnitsPerPoint, 9);
+
+        var bad = new MeasureScaleViewModel(PdfMeasureScale.Default, null, "3") { RatioText = "abc" };
+        bad.ApplyCommand.Execute(null);
+        Assert.Equal(MeasureScaleOutcome.Cancel, bad.Outcome);
+        Assert.NotEmpty(bad.Error);
+    }
+
+    [Fact]
+    public void Csv_export_has_one_row_per_measurement_and_neutralises_formulas()
+    {
+        PdfAnnotation a = PdfAnnotation.NewMeasurement(PdfAnnotationKind.MeasureDistance,
+            [new(0, 0), new(72, 0)], 0xFFC62828, PdfMeasureScale.Default, author: "=HYPERLINK(\"x\")");
+
+        string csv = DocumentTabViewModel.MeasurementsCsv([(0, a)], i => (i + 1).ToString());
+        string[] lines = csv.TrimEnd().Split(Environment.NewLine);
+
+        Assert.Equal(2, lines.Length);
+        Assert.StartsWith("1,Distance,25.4,mm,1:1,2,", lines[1]);
+        Assert.Contains("\"'=HYPERLINK(\"\"x\"\")\"", lines[1]);
+    }
+}

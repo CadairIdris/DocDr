@@ -295,6 +295,49 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   yellow (`0xFFFFD54F`). `PdfShapeCodec.Shape` carries a `uint? Color` (null when 0); `Decode`
   uses `shape.Color ?? colorArgb`.
 
+## Measuring (`PdfMeasure` / `PdfMeasureScale`, modelled on pdfcraft's measure tool)
+
+- **Kinds** `MeasureDistance` / `MeasurePerimeter` (open polyline) / `MeasureArea` (closed polygon,
+  shoelace) — appended to `PdfAnnotationKind`, **stamp-backed**: vertices in `Strokes[0]` (exposed as
+  `PdfAnnotation.Vertices`; `Quads` empty), `PdfAnnotation.Scale` = the `PdfMeasureScale` it was taken
+  at. **Every measurement stores its own scale** (like ISO 32000 §12.9's per-annotation `/Measure`), so
+  changing a page's scale never changes earlier values. The value is always *computed* from vertices
+  + scale (`PdfMeasure.Value` / `Caption`), so dragging a vertex updates it.
+- **`PdfMeasureScale(UnitsPerPoint, Unit, Label, Decimals)`**: `FromDrawingRatio(50, "m")` ("1:50"),
+  `FromRatio(paper, unit, real, unit)`, `Calibrate(pagePoints, realLength, unit)`, `Default` = 1:1 sheet
+  mm. Units mm/cm/m/in/ft. Area captions are `unit²`.
+- **Saved** via `/DocDrShape` (vertices in the `Leader` array + `Upp`/`Unit`/`ScaleLabel`/`Dec`). PDFium
+  can't write `/Measure` dictionaries, so other viewers see only the appearance: lines (area tinted
+  `0x33` alpha), a distance's end bars (`PdfMeasure.EndTicks`), and the caption on a white backing
+  (`CaptionRect`, Helvetica metrics). The annot `/Rect` = `AppearanceBounds` (vertices + caption) or the
+  caption would be clipped; `/Contents` = `PdfMeasure.Describe` ("Distance 3.25 m") and is **not**
+  read back as a note (decode nulls it). Acrobat-authored `/Measure` annotations are not imported.
+- **Interaction** (`PdfPaneViewModel` "Measuring" region; `ShapeTool.MeasureDistance/Perimeter/Area/
+  Calibrate`): **click-by-click, not drag** — `PdfPaneView` routes a mouse-down to `MeasureClick`
+  (or `MeasureFinish` on a double-click for perimeter/area) *before* the generic shape branch, rubber-
+  bands on mouse-move (`MeasureHover`), and in `PageList_PreviewKeyDown` Enter = finish, Backspace =
+  drop last vertex, Esc = abandon (a second Esc disarms). Shift = 45° (`Constrain45`). Distance /
+  calibrate finish on the 2nd click. A click on the same spot as the last vertex adds nothing (the
+  first half of a double-click). **Tools stay armed**; a measurement lives on one page (a click on
+  another page restarts there). Live preview = `PageSlotViewModel.MeasurePreview*` (dashed accent
+  line, tinted area, value badge by the pointer; an area also shows its running perimeter). New
+  measurements use the swatch colour, except the default yellow → `DefaultMeasureColorArgb` (red).
+- **Editing**: select by a segment / inside the area / the caption (`HitsMeasurement`); move like any
+  shape (`MoveShape` shifts all vertices); **every vertex is draggable** — `TryHitLineEndpoint` /
+  `MoveLineEndpoint` were generalised from a line's two ends to any measurement vertex. Format bar =
+  colour + line width. Listed in the Annotations panel with value + scale.
+- **Scales** (`DocumentTabViewModel.Measure.cs`): a document scale + per-page overrides, *session
+  state* — on open `InferScales` recovers them from the newest measurement overall / per page; a
+  structural page edit drops the per-page overrides (indices shift). Panes ask via `ScaleProvider`.
+  `MeasureScaleWindow` / `MeasureScaleViewModel`: ratio form (1 : N + unit), or — after
+  `ShapeTool.Calibrate` + two clicks (`CalibrationMeasured`, dialog posted via `BeginInvoke`) — the
+  known length; decimals; apply to all pages / this page. The bottom strip shows `ScaleText`
+  ("Scale 1:50 · m"), click → Set scale. Toolbar **Measure ▾** (lit while a tool is armed):
+  Distance / Perimeter / Area, Set scale…, Calibrate…, Export measurements (CSV) — `MeasurementsCsv`
+  (invariant numbers, formula-leading cells prefixed `'`, RFC-4180 quoting).
+- **Not yet** (pdfcraft has them): snapping to drawn geometry, inserting vertices, compound units
+  (ft-in), different X/Y scales.
+
 ## Per-annotation format toolbar (`AnnotationFormatViewModel`)
 
 - **Selecting a shape / line / text box / cloud / highlight / note raises a floating format bar**

@@ -79,6 +79,8 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Annotations.Reload(document);
         Annotations.AnnotationActivated += OnAnnotationActivated;
 
+        InitMeasuring();
+
         Comments = new CommentsViewModel(System.Environment.UserName);
         Comments.Reload(document, PageLabelFor);
         Comments.CommentActivated += OnAnnotationActivated;
@@ -186,6 +188,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     {
         LeftPane.ShapeTool = value;
         RightPane.ShapeTool = value;
+        OnPropertyChanged(nameof(IsMeasureToolActive));
         if (value != ShapeTool.None)
         {
             CommentToolActive = false;
@@ -774,6 +777,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
         LeftPane.ReloadPages(sizes);
         RightPane.ReloadPages(sizes);
+        OnPagesChangedForMeasuring();
         Thumbnails.Reload(sizes);
         Bookmarks.Reload(Document.GetOutline(), PageLabelFor);
         // Clauses are deliberately NOT rescanned here — like the outline, a structural edit leaves
@@ -959,6 +963,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Bookmarks.OutlineEdited -= OnBookmarksEdited;
         Thumbnails.EditRequested -= OnThumbnailEditRequested;
         Annotations.AnnotationActivated -= OnAnnotationActivated;
+        DisposeMeasuring();
         Comments.CommentActivated -= OnAnnotationActivated;
         Comments.UpdateRequested -= OnCommentUpdateRequested;
         Comments.EditRequested -= OnCommentEditRequested;

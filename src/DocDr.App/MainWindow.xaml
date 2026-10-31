@@ -152,6 +152,10 @@
         <Geometry x:Key="TbCallout">M6,2.5 H14 V9 H6 Z M7.5,9 L2.5,13.5</Geometry>
         <Geometry x:Key="TbCloud">M4.5,12 A2.5,2.5 0 0 1 3.5,7 A2.8,2.8 0 0 1 8,4.5 A3,3 0 0 1 12.8,6.8 A2.6,2.6 0 0 1 12,12 Z</Geometry>
         <Geometry x:Key="TbTick">M3,8.5 L6.5,12 L13,4</Geometry>
+        <Geometry x:Key="TbRuler">M2.5,10.5 L10.5,2.5 L13.5,5.5 L5.5,13.5 Z M5,8 L6.5,9.5 M7,6 L8.5,7.5 M9,4 L10.5,5.5</Geometry>
+        <Geometry x:Key="TbMeasureDistance">M2.5,8 H13.5 M2.5,5.5 V10.5 M13.5,5.5 V10.5</Geometry>
+        <Geometry x:Key="TbMeasurePerimeter">M2.5,12.5 L6,4 L10,10 L13.5,3.5</Geometry>
+        <Geometry x:Key="TbMeasureArea">M2.5,12.5 L4,3.5 L12,2.5 L13.5,11 Z</Geometry>
         <Geometry x:Key="TbRectangle">M2.5,4 H13.5 V12 H2.5 Z</Geometry>
         <Geometry x:Key="TbEllipse">M2.5,8 A5.5,4 0 1 1 13.5,8 A5.5,4 0 1 1 2.5,8 Z</Geometry>
         <Geometry x:Key="TbLine">M3,13 L13,3</Geometry>
@@ -368,6 +372,57 @@
                                                   Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Arrow}">
                                 <MenuItem.Icon><Path Style="{StaticResource MenuIcon}" Data="{StaticResource TbArrow}" /></MenuItem.Icon>
                             </MenuItem>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+                <!-- Measure ▾: distance / perimeter / area tools, the drawing scale, CSV export.
+                     Lit while a measuring tool is armed. -->
+                <Button Padding="6,4" Margin="4,0,0,0" Click="DropDown_Click" IsEnabled="{Binding HasTabs}"
+                        AutomationProperties.Name="Measure menu"
+                        ToolTip="Measure — distance, perimeter and area at the drawing's scale">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding SelectedTab.IsMeasureToolActive}" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource ChromeBrush}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                    <StackPanel Orientation="Horizontal">
+                        <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbRuler}" />
+                        <Path Style="{StaticResource TbChevronPath}" />
+                    </StackPanel>
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="_Distance" InputGestureText="2 clicks"
+                                      Command="{Binding SelectedTab.ArmMeasureToolCommand}"
+                                      CommandParameter="{x:Static vm:ShapeTool.MeasureDistance}"
+                                      IsChecked="{Binding SelectedTab.ShapeTool, Mode=OneWay,
+                                                  Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=MeasureDistance}">
+                                <MenuItem.Icon><Path Style="{StaticResource MenuIcon}" Data="{StaticResource TbMeasureDistance}" /></MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="_Perimeter" InputGestureText="double-click to finish"
+                                      Command="{Binding SelectedTab.ArmMeasureToolCommand}"
+                                      CommandParameter="{x:Static vm:ShapeTool.MeasurePerimeter}"
+                                      IsChecked="{Binding SelectedTab.ShapeTool, Mode=OneWay,
+                                                  Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=MeasurePerimeter}">
+                                <MenuItem.Icon><Path Style="{StaticResource MenuIcon}" Data="{StaticResource TbMeasurePerimeter}" /></MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="_Area" InputGestureText="double-click to finish"
+                                      Command="{Binding SelectedTab.ArmMeasureToolCommand}"
+                                      CommandParameter="{x:Static vm:ShapeTool.MeasureArea}"
+                                      IsChecked="{Binding SelectedTab.ShapeTool, Mode=OneWay,
+                                                  Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=MeasureArea}">
+                                <MenuItem.Icon><Path Style="{StaticResource MenuIcon}" Data="{StaticResource TbMeasureArea}" /></MenuItem.Icon>
+                            </MenuItem>
+                            <Separator />
+                            <MenuItem Header="Set _scale…" Command="{Binding SelectedTab.SetScaleCommand}" />
+                            <MenuItem Header="_Calibrate from a known length…" Command="{Binding SelectedTab.CalibrateScaleCommand}" />
+                            <Separator />
+                            <MenuItem Header="_Export measurements (CSV)…" Command="{Binding SelectedTab.ExportMeasurementsCommand}" />
                         </ContextMenu>
                     </Button.ContextMenu>
                 </Button>

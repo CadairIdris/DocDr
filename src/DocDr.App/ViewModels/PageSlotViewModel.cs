@@ -127,6 +127,22 @@ public sealed partial class PageSlotViewModel : ObservableObject
     [ObservableProperty]
     private System.Windows.Media.PointCollection? _shapePreviewArrow;
 
+    /// <summary>A measurement being drawn on this page (DIP space: placed vertices + the pointer), or null.</summary>
+    [ObservableProperty]
+    private System.Windows.Media.PointCollection? _measurePreview;
+
+    /// <summary>Whether the preview is an area (drawn closed and tinted).</summary>
+    [ObservableProperty]
+    private bool _measurePreviewClosed;
+
+    /// <summary>The live value ("3.25 m") shown beside the pointer while measuring.</summary>
+    [ObservableProperty]
+    private string _measurePreviewLabel = string.Empty;
+
+    /// <summary>Where the live value label sits (DIP, top-left).</summary>
+    [ObservableProperty]
+    private System.Windows.Point _measurePreviewLabelAt;
+
     /// <summary>True while a container for this slot is realised in the visual tree.</summary>
     public bool IsRealized { get; set; }
 }

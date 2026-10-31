@@ -471,6 +471,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
     partial void OnCurrentPageChanged(int value)
     {
+        OnPropertyChanged(nameof(ScaleText));
+
         if (_document.HasPageLabels)
         {
             OnPropertyChanged(nameof(PageCountText));
@@ -1400,6 +1402,10 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                 Rect leaderTipHandle = default;
                 Geometry? cloud = null;
                 var tick = new PointCollection();
+                var measure = new PointCollection();
+                Geometry? measureTicks = null;
+                string measureLabel = string.Empty;
+                Rect measureLabelBox = default;
 
                 if (annotation.Kind == PdfAnnotationKind.Comment)
                 {
@@ -1408,6 +1414,48 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                     const double pin = 26;
                     box = new Rect(d.X, Math.Max(0, d.Y + d.Height - pin), pin, pin);
                     marker = new Rect(box.Right - 4, Math.Max(0, box.Top - 22), 18, 18); // trash, above the pin
+                }
+                else if (annotation.IsMeasurement)
+                {
+                    foreach (PdfPoint p in annotation.Vertices)
+                    {
+                        (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale, crop);
+                        measure.Add(new Point(x, y));
+                    }
+
+                    if (annotation.Kind == PdfAnnotationKind.MeasureDistance)
+                    {
+                        var bars = new GeometryGroup();
+                        foreach ((PdfPoint from, PdfPoint to) in PdfMeasure.EndTicks(annotation.Vertices))
+                        {
+                            (double x1, double y1) = PdfCoordinates.PageToDevicePoint(from, unrotated, rotation, scale, crop);
+                            (double x2, double y2) = PdfCoordinates.PageToDevicePoint(to, unrotated, rotation, scale, crop);
+                            bars.Children.Add(new LineGeometry(new Point(x1, y1), new Point(x2, y2)));
+                        }
+
+                        bars.Freeze();
+                        measureTicks = bars;
+                    }
+
+                    // The caption: same text and Helvetica-metric box as the saved appearance, kept
+                    // upright on screen (a rotated page's saved caption turns with the page).
+                    measureLabel = PdfMeasure.Caption(annotation);
+                    PdfPoint anchor = PdfMeasure.CaptionAnchor(annotation.Kind, annotation.Vertices);
+                    (double ax, double ay) = PdfCoordinates.PageToDevicePoint(anchor, unrotated, rotation, scale, crop);
+                    double lw = (PdfTextWrap.MeasureHelvetica(measureLabel, PdfMeasure.CaptionFontSize)
+                        + (2 * PdfMeasure.CaptionPadding)) * scale * 1.08; // slack: system font vs AFM
+                    double lh = (PdfMeasure.CaptionFontSize + (2 * PdfMeasure.CaptionPadding)) * scale;
+                    measureLabelBox = new Rect(ax - (lw / 2), ay - (lh / 2), lw, lh);
+                    marker = new Rect(Math.Max(0, measureLabelBox.Right - 4), Math.Max(0, measureLabelBox.Top - 22), 18, 18);
+
+                    if (annotation.Id == SelectedAnnotationId)
+                    {
+                        const double es = 11;
+                        foreach (Point v in measure)
+                        {
+                            endpointHandles.Add(new Rect(v.X - (es / 2), v.Y - (es / 2), es, es));
+                        }
+                    }
                 }
                 else if (annotation.Kind is PdfAnnotationKind.Line or PdfAnnotationKind.Arrow)
                 {
@@ -1523,6 +1571,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                     LeaderTipHandle = leaderTipHandle,
                     CloudGeometry = cloud,
                     TickPoints = tick,
+                    MeasurePoints = measure,
+                    MeasureEndTicks = measureTicks,
+                    MeasureLabel = measureLabel,
+                    MeasureLabelBox = measureLabelBox,
+                    MeasureLabelFontSize = Math.Max(4, PdfMeasure.CaptionFontSize * scale),
                     BoxText = annotation.Contents ?? string.Empty,
                     BoxFontSize = Math.Max(4, (annotation.FontSize > 0 ? annotation.FontSize : PdfAnnotation.DefaultFontSize) * scale),
                     NoteText = annotation.Contents ?? string.Empty,
@@ -2358,6 +2411,44 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         return new PdfRect(left, top, right, top - height);
     }
 
+    /// <summary>Near any segment (incl. an area's closing edge), inside an area, or on the caption.</summary>
+    internal static bool HitsMeasurement(PdfAnnotation a, PdfPoint pt, double tolerance)
+    {
+        IReadOnlyList<PdfPoint> v = a.Vertices;
+        bool closed = a.Kind == PdfAnnotationKind.MeasureArea;
+        int segments = closed ? v.Count : v.Count - 1;
+        for (int i = 0; i < segments; i++)
+        {
+            if (DistanceToSegment(pt, v[i], v[(i + 1) % v.Count]) <= tolerance)
+            {
+                return true;
+            }
+        }
+
+        if (closed && PointInPolygon(pt, v))
+        {
+            return true;
+        }
+
+        PdfRect c = PdfMeasure.CaptionRect(a);
+        return pt.X >= c.Left && pt.X <= c.Right && pt.Y >= c.Bottom && pt.Y <= c.Top;
+    }
+
+    private static bool PointInPolygon(PdfPoint p, IReadOnlyList<PdfPoint> poly)
+    {
+        bool inside = false;
+        for (int i = 0, j = poly.Count - 1; i < poly.Count; j = i++)
+        {
+            if ((poly[i].Y > p.Y) != (poly[j].Y > p.Y)
+                && p.X < ((poly[j].X - poly[i].X) * (p.Y - poly[i].Y) / (poly[j].Y - poly[i].Y)) + poly[i].X)
+            {
+                inside = !inside;
+            }
+        }
+
+        return inside;
+    }
+
     private static double DistanceToSegment(PdfPoint p, PdfPoint a, PdfPoint b)
     {
         double dx = b.X - a.X, dy = b.Y - a.Y;
@@ -2406,6 +2497,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             if (a.Kind is PdfAnnotationKind.Line or PdfAnnotationKind.Arrow
                 && a.Leader.Count >= 2
                 && DistanceToSegment(pt, a.Leader[0], a.Leader[1]) <= 6 / Math.Max(0.05, scale))
+            {
+                return a.Id;
+            }
+
+            if (a.IsMeasurement && HitsMeasurement(a, pt, 6 / Math.Max(0.05, scale)))
             {
                 return a.Id;
             }
@@ -2491,6 +2587,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         {
             PdfPoint[] shifted = a.Leader.Select(p => new PdfPoint(p.X + dx, p.Y + dy)).ToArray();
             return a with { Strokes = [shifted] };
+        }
+
+        if (a.IsMeasurement)
+        {
+            return a with { Strokes = [a.Vertices.Select(p => new PdfPoint(p.X + dx, p.Y + dy)).ToArray()] };
         }
 
         var box = new PdfRect(a.Box.Left + dx, a.Box.Top + dy, a.Box.Right + dx, a.Box.Bottom + dy);
@@ -2744,15 +2845,24 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         }
 
         PdfAnnotation? a = _document.GetAnnotations(pageIndex).FirstOrDefault(x => x.Id == sel);
-        if (a is null || a.Kind is not (PdfAnnotationKind.Line or PdfAnnotationKind.Arrow) || a.Leader.Count < 2)
+        if (a is null)
+        {
+            return null;
+        }
+
+        // Line / arrow: its two ends. Measurement: any vertex (the value follows the drag).
+        IReadOnlyList<PdfPoint> points = a.IsMeasurement ? a.Vertices
+            : a.Kind is PdfAnnotationKind.Line or PdfAnnotationKind.Arrow ? a.Leader
+            : [];
+        if (points.Count < 2)
         {
             return null;
         }
 
         double tol = 12 / Math.Max(0.05, SlotScale(Pages[pageIndex]));
-        for (int i = 0; i < 2; i++)
+        for (int i = 0; i < points.Count; i++)
         {
-            if (Math.Abs(pt.X - a.Leader[i].X) <= tol && Math.Abs(pt.Y - a.Leader[i].Y) <= tol)
+            if (Math.Abs(pt.X - points[i].X) <= tol && Math.Abs(pt.Y - points[i].Y) <= tol)
             {
                 return (a.Id, i);
             }
@@ -2810,14 +2920,243 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
     internal static PdfAnnotation MoveLineEndpoint(PdfAnnotation a, int end, double dx, double dy)
     {
-        if (a.Leader.Count < 2 || end is < 0 or > 1)
+        IReadOnlyList<PdfPoint> source = a.IsMeasurement ? a.Vertices : a.Leader;
+        if (source.Count < 2 || end < 0 || end >= source.Count)
         {
             return a;
         }
 
-        PdfPoint[] pts = a.Leader.ToArray();
+        PdfPoint[] pts = source.ToArray();
         pts[end] = new PdfPoint(pts[end].X + dx, pts[end].Y + dy);
         return a with { Strokes = [pts] };
+    }
+
+    // --- Measuring ---------------------------------------------------------------------------
+    // Click-by-click (not drag): distance / calibrate finish on the second click; perimeter / area
+    // on a double-click or Enter. Backspace drops the last vertex, Esc abandons the measurement,
+    // Shift snaps the segment to 45°. The tool stays armed for the next measurement.
+
+    private int _measurePage = -1;
+    private readonly List<PdfPoint> _measurePoints = [];
+    private PdfPoint? _measureHover;
+
+    /// <summary>The colour a measurement gets when the swatch is still the highlighter's default
+    /// yellow, which is unreadable as a thin line on white paper.</summary>
+    internal const uint DefaultMeasureColorArgb = 0xFFC62828;
+
+    /// <summary>The drawing scale for a page (set by the tab, which owns per-page scales).</summary>
+    public Func<int, PdfMeasureScale>? ScaleProvider { get; set; }
+
+    public PdfMeasureScale ScaleForPage(int pageIndex) =>
+        ScaleProvider?.Invoke(pageIndex) ?? PdfMeasureScale.Default;
+
+    /// <summary>"Scale 1:50 · m" for the current page — the status strip's scale button.</summary>
+    public string ScaleText
+    {
+        get
+        {
+            PdfMeasureScale s = ScaleForPage(Math.Max(0, CurrentPage - 1));
+            return $"Scale {s.Label} · {s.Unit}";
+        }
+    }
+
+    /// <summary>The tab changed a scale: refresh the strip (existing measurements keep their own).</summary>
+    public void RefreshScale() => OnPropertyChanged(nameof(ScaleText));
+
+    /// <summary>The status strip's scale button was clicked.</summary>
+    public event Action? SetScaleRequested;
+
+    [RelayCommand]
+    private void RequestSetScale() => SetScaleRequested?.Invoke();
+
+    /// <summary>A calibration line was drawn: (page index, its length in PDF points).</summary>
+    public event Action<int, double>? CalibrationMeasured;
+
+    public bool IsMeasureTool => ShapeTool is ShapeTool.MeasureDistance or ShapeTool.MeasurePerimeter
+        or ShapeTool.MeasureArea or ShapeTool.Calibrate;
+
+    /// <summary>At least one vertex placed (Esc / Backspace / Enter act on it).</summary>
+    public bool HasMeasureInProgress => _measurePoints.Count > 0;
+
+    /// <summary>Distance / calibrate take exactly two clicks; the others finish on demand.</summary>
+    public bool MeasureFinishesOnSecondClick => ShapeTool is ShapeTool.MeasureDistance or ShapeTool.Calibrate;
+
+    partial void OnShapeToolChanged(ShapeTool value)
+    {
+        ClearMeasure();
+        OnPropertyChanged(nameof(IsMeasureTool));
+    }
+
+    private PdfAnnotationKind MeasureKind => ShapeTool switch
+    {
+        ShapeTool.MeasurePerimeter => PdfAnnotationKind.MeasurePerimeter,
+        ShapeTool.MeasureArea => PdfAnnotationKind.MeasureArea,
+        _ => PdfAnnotationKind.MeasureDistance,
+    };
+
+    public void MeasureClick(int pageIndex, PdfPoint point, bool constrain)
+    {
+        if (!IsMeasureTool || pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return;
+        }
+
+        if (_measurePoints.Count > 0 && pageIndex != _measurePage)
+        {
+            ClearMeasure(); // a measurement lives on one page
+        }
+
+        _measurePage = pageIndex;
+        if (constrain && _measurePoints.Count > 0)
+        {
+            point = PdfMeasure.Constrain45(_measurePoints[^1], point);
+        }
+
+        // A second click on the same spot (the first half of a double-click already placed it)
+        // adds nothing.
+        if (_measurePoints.Count == 0 || PdfMeasure.Distance(_measurePoints[^1], point) >= 0.5)
+        {
+            _measurePoints.Add(point);
+        }
+
+        _measureHover = null;
+        if (MeasureFinishesOnSecondClick && _measurePoints.Count >= 2)
+        {
+            MeasureFinish();
+            return;
+        }
+
+        UpdateMeasurePreview();
+    }
+
+    /// <summary>The pointer moved with a measurement in progress: rubber-band to it.</summary>
+    public void MeasureHover(int pageIndex, PdfPoint point, bool constrain)
+    {
+        if (!HasMeasureInProgress || pageIndex != _measurePage)
+        {
+            return;
+        }
+
+        _measureHover = constrain ? PdfMeasure.Constrain45(_measurePoints[^1], point) : point;
+        UpdateMeasurePreview();
+    }
+
+    /// <summary>Finish (double-click / Enter): add the measurement, or report the calibration line.
+    /// Too few points just abandons it.</summary>
+    public void MeasureFinish()
+    {
+        PdfAnnotationKind kind = MeasureKind;
+        int page = _measurePage;
+        PdfPoint[] points = [.. _measurePoints];
+        bool calibrating = ShapeTool == ShapeTool.Calibrate;
+        ClearMeasure();
+
+        if (page < 0)
+        {
+            return;
+        }
+
+        if (calibrating)
+        {
+            ShapeTool = ShapeTool.None; // one-shot: the dialog takes over
+            if (points.Length >= 2)
+            {
+                CalibrationMeasured?.Invoke(page, PdfMeasure.Distance(points[0], points[1]));
+            }
+
+            return;
+        }
+
+        if (points.Length < PdfMeasure.MinimumPoints(kind))
+        {
+            return;
+        }
+
+        uint colour = InkColorKey == AnnotationColors.Default ? DefaultMeasureColorArgb : CurrentAnnotationColorArgb;
+        _document.AddAnnotation(page, PdfAnnotation.NewMeasurement(kind, points, colour, ScaleForPage(page), Author));
+    }
+
+    /// <summary>Backspace: drop the last placed vertex.</summary>
+    public void MeasureUndoVertex()
+    {
+        if (_measurePoints.Count == 0)
+        {
+            return;
+        }
+
+        _measurePoints.RemoveAt(_measurePoints.Count - 1);
+        if (_measurePoints.Count == 0)
+        {
+            ClearMeasure();
+        }
+        else
+        {
+            UpdateMeasurePreview();
+        }
+    }
+
+    /// <summary>Esc: abandon the measurement in progress (the tool stays armed).</summary>
+    public void MeasureCancel() => ClearMeasure();
+
+    private void ClearMeasure()
+    {
+        if (_measurePage >= 0 && _measurePage < Pages.Count)
+        {
+            PageSlotViewModel slot = Pages[_measurePage];
+            slot.MeasurePreview = null;
+            slot.MeasurePreviewLabel = string.Empty;
+        }
+
+        _measurePoints.Clear();
+        _measureHover = null;
+        _measurePage = -1;
+    }
+
+    private void UpdateMeasurePreview()
+    {
+        if (_measurePage < 0 || _measurePage >= Pages.Count)
+        {
+            return;
+        }
+
+        PageSlotViewModel slot = Pages[_measurePage];
+        double scale = SlotScale(slot);
+        PdfSize unrotated = _document.GetUnrotatedPageSize(_measurePage);
+        PdfRotation rotation = _document.GetPageRotation(_measurePage);
+        PdfPoint crop = _document.GetCropOrigin(_measurePage);
+
+        var points = new List<PdfPoint>(_measurePoints);
+        if (_measureHover is { } hover)
+        {
+            points.Add(hover);
+        }
+
+        var device = new PointCollection(points.Count);
+        foreach (PdfPoint p in points)
+        {
+            (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale, crop);
+            device.Add(new Point(x, y));
+        }
+
+        bool area = ShapeTool == ShapeTool.MeasureArea;
+        PdfAnnotationKind kind = area && points.Count >= 3 ? PdfAnnotationKind.MeasureArea : PdfAnnotationKind.MeasureDistance;
+        PdfMeasureScale pageScale = ScaleForPage(_measurePage);
+        string label = points.Count >= 2
+            ? PdfMeasure.Format(kind, PdfMeasure.Value(kind, points, pageScale), pageScale)
+            : string.Empty;
+        if (area && points.Count >= 3)
+        {
+            // Show the running perimeter too — handy when you need both.
+            PdfMeasureScale s = pageScale;
+            label += "  ·  " + PdfMeasure.Format(PdfAnnotationKind.MeasureDistance,
+                PdfMeasure.ClosedLength(points) * s.UnitsPerPoint, s);
+        }
+
+        slot.MeasurePreview = device;
+        slot.MeasurePreviewClosed = area && points.Count >= 3;
+        slot.MeasurePreviewLabel = label;
+        Point last = device.Count > 0 ? device[^1] : default;
+        slot.MeasurePreviewLabelAt = new Point(last.X + 14, last.Y + 10);
     }
 
     public void CancelShape()

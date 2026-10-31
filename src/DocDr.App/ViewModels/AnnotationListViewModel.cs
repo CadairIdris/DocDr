@@ -22,10 +22,13 @@ public sealed class AnnotationRowViewModel(int pageIndex, PdfAnnotation annotati
 
     public Brush Swatch { get; } = new SolidColorBrush(AnnotationColors.ToColor(annotation.ColorArgb));
 
-    /// <summary>The annotation's text (comment / note / box text), collapsed to one line; empty if none.</summary>
-    public string Text => string.IsNullOrWhiteSpace(annotation.Contents)
-        ? string.Empty
-        : annotation.Contents.ReplaceLineEndings(" ").Trim();
+    /// <summary>The annotation's text (comment / note / box text), collapsed to one line; a
+    /// measurement's value and scale; empty if none.</summary>
+    public string Text => annotation.IsMeasurement
+        ? $"{PdfMeasure.Caption(annotation)}  ({(annotation.Scale ?? PdfMeasureScale.Default).Label})"
+        : string.IsNullOrWhiteSpace(annotation.Contents)
+            ? string.Empty
+            : annotation.Contents.ReplaceLineEndings(" ").Trim();
 
     public bool HasText => Text.Length > 0;
 

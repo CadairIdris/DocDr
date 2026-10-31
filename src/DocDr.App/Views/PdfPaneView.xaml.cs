@@ -846,6 +846,26 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
+        if (_pane.IsMeasureTool)
+        {
+            // Click-by-click: each click places a vertex; a double-click finishes a perimeter /
+            // area (its first half already placed the last vertex).
+            _pane.SelectedAnnotationId = null;
+            bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+            if (e.ClickCount >= 2 && !_pane.MeasureFinishesOnSecondClick)
+            {
+                _pane.MeasureFinish();
+            }
+            else
+            {
+                _pane.MeasureClick(target.Slot.PageIndex, pagePoint, shift);
+            }
+
+            PageList.Focus(); // so Enter / Backspace / Esc reach PageList_PreviewKeyDown
+            e.Handled = true;
+            return;
+        }
+
         if (_pane.ShapeTool != ShapeTool.None)
         {
             _shaping = true;
@@ -1026,6 +1046,15 @@ public partial class PdfPaneView : UserControl
 
     private void PageList_MouseMove(object sender, MouseEventArgs e)
     {
+        // Rubber-band the measurement in progress to the pointer (no button held).
+        if (_pane is { HasMeasureInProgress: true } measuring && !_panning
+            && FindSlot(e.OriginalSource as DependencyObject) is { } over)
+        {
+            Point at = e.GetPosition(over.Element);
+            measuring.MeasureHover(over.Slot.PageIndex, measuring.DevicePointToPage(over.Slot.PageIndex, at.X, at.Y),
+                (Keyboard.Modifiers & ModifierKeys.Shift) != 0);
+        }
+
         if (_panning && _scrollViewer is not null)
         {
             Point now = e.GetPosition(this);
@@ -1207,6 +1236,25 @@ public partial class PdfPaneView : UserControl
 
     private void PageList_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (_pane is { HasMeasureInProgress: true } measuring)
+        {
+            switch (e.Key)
+            {
+                case Key.Enter:
+                    measuring.MeasureFinish();
+                    e.Handled = true;
+                    return;
+                case Key.Back:
+                    measuring.MeasureUndoVertex();
+                    e.Handled = true;
+                    return;
+                case Key.Escape:
+                    measuring.MeasureCancel(); // a second Esc then disarms the tool
+                    e.Handled = true;
+                    return;
+            }
+        }
+
         if (e.Key == Key.V && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && _pane is not null)
         {
             PasteAtVisibleCentre();
