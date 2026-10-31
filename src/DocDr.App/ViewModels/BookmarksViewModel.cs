@@ -76,6 +76,67 @@ public sealed partial class BookmarksViewModel : ObservableObject
     /// <summary>Raised when a bookmark with a target is chosen; carries the 0-based page index.</summary>
     public event Action<int>? BookmarkActivated;
 
+    /// <summary>"Extract chapter…" on a bookmark: the tab works out its page range and opens the
+    /// Extract pages dialog.</summary>
+    public event Action<BookmarkNodeViewModel>? ExtractRequested;
+
+    public void RequestExtract(BookmarkNodeViewModel node) => ExtractRequested?.Invoke(node);
+
+    /// <summary>
+    /// The pages a bookmark's chapter spans: from its own page up to the page before the next
+    /// bookmark (in reading order) that isn't inside it and starts on a later page — so a chapter
+    /// includes its sub-sections, and a section ends where the next sibling or the next chapter
+    /// begins. The last chapter runs to the end of the document. Null for a bookmark with no target.
+    /// </summary>
+    public static (int Start, int End)? ChapterRange(
+        IReadOnlyList<BookmarkNodeViewModel> roots, BookmarkNodeViewModel node, int pageCount)
+    {
+        if (node.PageIndex is not int start || pageCount <= 0)
+        {
+            return null;
+        }
+
+        start = Math.Clamp(start, 0, pageCount - 1);
+        var order = new List<BookmarkNodeViewModel>();
+        void Walk(IEnumerable<BookmarkNodeViewModel> nodes)
+        {
+            foreach (BookmarkNodeViewModel n in nodes)
+            {
+                order.Add(n);
+                Walk(n.Children);
+            }
+        }
+
+        Walk(roots);
+        int at = order.IndexOf(node);
+        if (at < 0)
+        {
+            return (start, pageCount - 1);
+        }
+
+        int after = at + 1 + CountDescendants(node);
+        for (int i = after; i < order.Count; i++)
+        {
+            if (order[i].PageIndex is int next && next > start)
+            {
+                return (start, Math.Min(next - 1, pageCount - 1));
+            }
+        }
+
+        return (start, pageCount - 1);
+
+        static int CountDescendants(BookmarkNodeViewModel n)
+        {
+            int total = 0;
+            foreach (BookmarkNodeViewModel c in n.Children)
+            {
+                total += 1 + CountDescendants(c);
+            }
+
+            return total;
+        }
+    }
+
     /// <summary>Raised after the user renames or deletes a bookmark; carries the new tree to persist.</summary>
     public event Action<IReadOnlyList<PdfBookmark>>? OutlineEdited;
 

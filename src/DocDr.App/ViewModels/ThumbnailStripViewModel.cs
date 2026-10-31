@@ -64,6 +64,7 @@ public sealed partial class ThumbnailStripViewModel : ObservableObject
         Delete,
         InsertAfter,
         InsertBlankAfter,
+        Extract,
     }
 
     /// <summary>Raised when a context-menu action is chosen; the tab performs the edit.</summary>

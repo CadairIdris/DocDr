@@ -15,7 +15,7 @@ namespace DocDr.Pdf;
 /// live PDFium handle from that list. Undo/redo restore earlier versions of the list.
 /// </para>
 /// </summary>
-public sealed class PdfDocument : IDisposable
+public sealed partial class PdfDocument : IDisposable
 {
     private const int MaxHistory = 30;
     private const int OriginalSourceId = 0;

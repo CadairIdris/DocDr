@@ -450,6 +450,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             _renderQueue, _images);
         tab.CloseRequested += (_, _) => CloseTab(tab);
         tab.MoveToOtherSideRequested += (_, _) => MoveTabToOtherSide(tab);
+        tab.OpenFileRequested += path => _ = OpenPathAsync(path);
         tab.CustomColorChanged += argb =>
         {
             _settings.LastCustomColor = argb;

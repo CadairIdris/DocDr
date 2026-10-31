@@ -42,6 +42,30 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   `SaveToBytes` does this when metadata was edited *or* the handle was rebuilt (rebuild loses the
   Info dict). Metadata edits are not on the undo stack.
 
+## Extract pages (`PdfDocument.ExtractPages` / `PdfPageRange`)
+
+- **`PdfDocument.ExtractPages(pages, PdfExtractOptions)` → `byte[]`** (`PdfDocument.Extract.cs` — `PdfDocument`
+  is now `partial`): `FPDF_CreateNewDocument` + `FPDF_ImportPages(dest, Handle, "1,3-5", 0)` from the
+  **live handle** (edits / rotations / crops included; the source isn't touched), serialised with a
+  private `SaveHandle` (flag 2). The result is **never encrypted** — PDFium imports decrypted pages —
+  which is what makes one page of a BSI licensed copy shareable (the dialog warns). Annotations are
+  baked onto **only the extracted pages** (`BakeAnnotations(pages)` / `UnbakeAnnotations(pages)`
+  overloads — not all 400) when `IncludeAnnotations`. Then `PdfMetadataWriter.AppendInfo` (source Info
+  + new `Title`) and, if `IncludeBookmarks`, `PdfOutlineWriter.Append` of `SliceOutline(GetOutline(),
+  old→new page map)`: bookmarks outside the range are dropped but their in-range children promoted.
+- **`PdfPageRange.TryParse("3, 7-9, 12", pageCount, …)`** → sorted distinct 0-based indices (1-based
+  input, `–`/`—` as dashes, reversed ranges OK, `,`/`;`), with a plain-language error; `Format` is the
+  inverse ("1,3-5,8"). Page numbers are **file positions**, not page labels.
+- App (`DocumentTabViewModel.Extract.cs`): **Pages ▾ "Extract pages…"** and thumbnails' right-click
+  "Extract page(s)…" (`ThumbnailCommand.Extract`) pre-fill the thumbnail selection or the current page;
+  a bookmark's right-click **"Extract chapter…"** (`BookmarksViewModel.ExtractRequested`) pre-fills
+  `BookmarksViewModel.ChapterRange` — from its page to the page before the next bookmark in reading
+  order that is *not* its descendant and starts on a *later* page (same-page bookmarks aren't
+  boundaries), else to the end — and suggests "{doc} — {bookmark}" as the title.
+  `ExtractPagesWindow` / `ExtractPagesViewModel` (range + live "n pages" + error, title, include
+  annotations / bookmarks, open after) → `SaveFileDialog` (refuses the source path) → `Task.Run` →
+  `OpenFileRequested` → `MainViewModel.OpenPathAsync`.
+
 ## Watermark removal (`PdfWatermarkStripper`, Stage 4)
 
 - **`FPDFPageRemoveObject` + `FPDFPageGenerateContent` re-serialises the whole page from PDFium's

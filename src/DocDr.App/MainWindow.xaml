@@ -476,6 +476,9 @@
                                       ToolTip="Insert every page of another PDF" />
                             <MenuItem Header="Insert _blank page" Command="{Binding SelectedTab.InsertBlankPageCommand}"
                                       ToolTip="Insert a blank page after the current one, matching its size" />
+                            <Separator />
+                            <MenuItem Header="_Extract pages…" Command="{Binding SelectedTab.ExtractPagesCommand}"
+                                      ToolTip="Save some pages — the current page, a selection or a range — as a new PDF" />
                         </ContextMenu>
                     </Button.ContextMenu>
                 </Button>

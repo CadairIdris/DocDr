@@ -80,6 +80,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Annotations.AnnotationActivated += OnAnnotationActivated;
 
         InitMeasuring();
+        Bookmarks.ExtractRequested += OnBookmarkExtractRequested;
 
         Comments = new CommentsViewModel(System.Environment.UserName);
         Comments.Reload(document, PageLabelFor);
@@ -693,6 +694,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
             case ThumbnailStripViewModel.ThumbnailCommand.Delete: DeletePages(); break;
             case ThumbnailStripViewModel.ThumbnailCommand.InsertAfter: InsertPdf(); break;
             case ThumbnailStripViewModel.ThumbnailCommand.InsertBlankAfter: InsertBlankPage(); break;
+            case ThumbnailStripViewModel.ThumbnailCommand.Extract: ExtractPages(); break;
         }
     }
 
@@ -986,6 +988,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Thumbnails.EditRequested -= OnThumbnailEditRequested;
         Annotations.AnnotationActivated -= OnAnnotationActivated;
         DisposeMeasuring();
+        Bookmarks.ExtractRequested -= OnBookmarkExtractRequested;
         Comments.CommentActivated -= OnAnnotationActivated;
         Comments.UpdateRequested -= OnCommentUpdateRequested;
         Comments.EditRequested -= OnCommentEditRequested;
