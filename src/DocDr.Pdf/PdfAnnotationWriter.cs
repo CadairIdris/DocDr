@@ -119,6 +119,19 @@ internal static class PdfAnnotationWriter
             {
                 SetString(annot, "DocDrThread", PdfReplyCodec.Encode(a.Replies));
             }
+
+            // Review status + checkmark: also private keys. The standard form is a separate /IRT
+            // reply annotation carrying /State + /StateModel, which (like the thread) PDFium can't
+            // link — so these round-trip through DocDr and are ignored by other readers.
+            if (a.Status != PdfReviewStatus.None)
+            {
+                SetString(annot, PdfAnnotations.StatusKey, a.Status.ToString());
+            }
+
+            if (a.IsMarked)
+            {
+                SetString(annot, PdfAnnotations.MarkedKey, "true");
+            }
         }
         finally
         {

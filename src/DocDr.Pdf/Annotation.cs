@@ -1,5 +1,18 @@
 namespace DocDr.Pdf;
 
+/// <summary>
+/// A comment's review state — the PDF "Review" state model's values (ISO 32000 §12.5.6.3,
+/// <c>/StateModel /Review</c>). Shown and set from the Comments panel.
+/// </summary>
+public enum PdfReviewStatus
+{
+    None,
+    Accepted,
+    Cancelled,
+    Completed,
+    Rejected,
+}
+
 /// <summary>The annotation kinds DocDr authors and round-trips.</summary>
 public enum PdfAnnotationKind
 {
@@ -102,6 +115,12 @@ public sealed record PdfAnnotation(
 
     /// <summary>Replies to this comment, oldest first. Empty for a thread with no replies yet.</summary>
     public IReadOnlyList<PdfReply> Replies { get; init; } = [];
+
+    /// <summary>Review status set from the Comments panel (the PDF "Review" state model).</summary>
+    public PdfReviewStatus Status { get; init; }
+
+    /// <summary>The comment's checkmark (the PDF "Marked" state model) — a private to-do tick.</summary>
+    public bool IsMarked { get; init; }
 
     /// <summary>Encoded (PNG) bytes for a <see cref="PdfAnnotationKind.Image"/>; null otherwise.</summary>
     public byte[]? ImageData { get; init; }

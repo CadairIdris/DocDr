@@ -387,43 +387,33 @@
                                                Foreground="{Binding TextBrush}" FontSize="{Binding BoxFontSize}" />
                                 </Border>
 
-                                <!-- Sticky-note pin (drag to move, click to select, double-click to edit).
-                                     Hit-test-visible only so the hover tooltip works — the Preview
-                                     mouse handlers on PageList still drive select / drag / edit. -->
-                                <Border Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
-                                        Width="{Binding Box.Width}" Height="{Binding Box.Height}"
-                                        CornerRadius="4,4,4,1" Background="{Binding ShapeBrush}"
-                                        ToolTipService.InitialShowDelay="300" ToolTipService.ShowDuration="60000"
-                                        Visibility="{Binding IsNote, Converter={StaticResource BoolToVisibility}}">
-                                    <Border.ToolTip>
+                                <!-- Sticky-note pin (drag to move, click to select, double-click to edit):
+                                     a speech bubble in the note's colour, framed in the accent colour
+                                     when selected. Hit-test-visible only so the hover tooltip works —
+                                     the Preview mouse handlers on PageList still drive select / drag / edit. -->
+                                <Grid Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
+                                      Width="{Binding Box.Width}" Height="{Binding Box.Height}"
+                                      Background="Transparent"
+                                      ToolTipService.InitialShowDelay="300" ToolTipService.ShowDuration="60000"
+                                      Visibility="{Binding IsNote, Converter={StaticResource BoolToVisibility}}">
+                                    <Grid.ToolTip>
                                         <ToolTip Style="{StaticResource NoteTip}" />
-                                    </Border.ToolTip>
-                                    <Border.Style>
-                                        <Style TargetType="Border">
-                                            <Setter Property="BorderBrush" Value="White" />
-                                            <Setter Property="BorderThickness" Value="1.5" />
-                                            <Setter Property="Effect">
-                                                <Setter.Value>
-                                                    <DropShadowEffect BlurRadius="5" ShadowDepth="1.5" Opacity="0.4" />
-                                                </Setter.Value>
-                                            </Setter>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                                                    <Setter Property="BorderThickness" Value="2.5" />
-                                                    <Setter Property="Effect">
-                                                        <Setter.Value>
-                                                            <DropShadowEffect Color="#8A6FBF" BlurRadius="12" ShadowDepth="0" Opacity="1" />
-                                                        </Setter.Value>
-                                                    </Setter>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Border.Style>
-                                    <Path Data="M0,0 H9 M0,3 H9 M0,6 H5.5" Stretch="Uniform" Margin="6,7"
-                                          Stroke="White" StrokeThickness="1.4"
-                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
-                                </Border>
+                                    </Grid.ToolTip>
+                                    <Border Margin="-3" CornerRadius="4" BorderThickness="2"
+                                            BorderBrush="{DynamicResource AccentBrush}"
+                                            Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibility}}" />
+                                    <Viewbox>
+                                        <Viewbox.Effect>
+                                            <DropShadowEffect BlurRadius="4" ShadowDepth="1" Opacity="0.35" />
+                                        </Viewbox.Effect>
+                                        <Canvas Width="24" Height="24">
+                                            <Path Data="{StaticResource NoteIconBody}" Fill="{Binding ShapeBrush}"
+                                                  Stroke="#59000000" StrokeThickness="1.2" StrokeLineJoin="Round" />
+                                            <Path Data="{StaticResource NoteIconLines}" Stroke="#A6000000" StrokeThickness="1.5"
+                                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                                        </Canvas>
+                                    </Viewbox>
+                                </Grid>
 
                                 <!-- Edit-note glyph button (noted highlights only). -->
                                 <Button Canvas.Left="{Binding Marker.X}" Canvas.Top="{Binding Marker.Y}"

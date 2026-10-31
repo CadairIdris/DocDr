@@ -199,7 +199,7 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 ## Navigation panel (icon rail)
 
 - **`NavigationRailView`** is a ~40px always-visible strip (column 0 of `DocumentTabView`) with
-  four icon buttons — Pages / Bookmarks / Clauses / Comments. Each runs
+  five icon buttons — Pages / Bookmarks / Clauses / Comments / Annotations (markup). Each runs
   `DocumentTabViewModel.ShowNavigationSectionCommand(NavigationTab)`: opens the panel to that
   section, or collapses it if it's already open on that section. Active-section highlight (accent
   bar) via `NavRailActiveConverter` (values `[NavigationTab, IsNavigationPanelVisible]`, param =
@@ -403,9 +403,31 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   and stashes it in the parent annotation's private `/DocDrThread` string key; the reader
   decodes it back. Round-trips through PDFium and any reader that keeps unknown keys; other
   readers still see the opening comment. Replies are part of the immutable `PdfAnnotation`
-  record, so they snapshot with history and are undoable like any other annotation edit. The
-  editor (`AnnotationEditorViewModel`) shows replies as a list with a reply box; the nav-panel
-  row shows a reply count.
+  record, so they snapshot with history and are undoable like any other annotation edit.
+  **Replies are posted from the Comments panel, not the editor** — `AnnotationEditorViewModel`
+  is text (+ highlight colour) only and passes the existing `Replies` through untouched.
+- **Comments panel** (`NavigationTab.Comments`, `CommentsViewModel` / `CommentsPanelView`) is split
+  from the **Annotations panel** (`NavigationTab.Annotations`, `AnnotationListViewModel`, now markup
+  only). `CommentClassifier.IsComment` = a note, or a highlight with note text or replies; every
+  annotation is in exactly one panel. Comments are grouped by page (collapsible `CommentPageGroup
+  ViewModel`); each `CommentCardViewModel` shows icon · author · date · status chip · ✓ · ⋯, the
+  text, the reply thread, and (selected card only) an "Add a reply" box (Ctrl+Enter / Post). The
+  ⋯ menu: Edit… (opens the editor via `LeftPane.EditAnnotationCommand`), Set status ▸, Mark with
+  checkmark, Copy text, Delete. Every change is a new record → `UpdateRequested` →
+  `DocumentTabViewModel.OnCommentUpdateRequested` → `Document.UpdateAnnotation` (undoable) →
+  `AnnotationsChanged` → `Comments.Reload`, which **keeps the selected card, half-written replies
+  (by id) and collapsed page groups**. Selecting a note on the page (`LeftPane.SelectedAnnotationId`)
+  selects its card (`Comments.Select`) and `BringIntoViewWhen` scrolls it into view.
+- **Review status + checkmark** — `PdfAnnotation.Status` (`PdfReviewStatus`: None / Accepted /
+  Cancelled / Completed / Rejected, the PDF "Review" state model) and `IsMarked` (the "Marked"
+  model). Standard PDF puts these on a separate `/IRT` reply annotation, which PDFium can't link, so
+  they round-trip as private keys `/DocDrStatus` (enum name) and `/DocDrMarked` ("true"), written
+  only when set (`PdfAnnotationWriter`) and read for every managed subtype (`PdfAnnotations`
+  wraps each `result.Add` in a local `Add` that applies them). Ignored by other readers.
+- **Note icon** = a filled speech bubble (`NoteIconBody` + `NoteIconLines` in `App.xaml`, 24×24,
+  fill = note colour, darkened outline/lines) — the page pin (accent frame when selected) and the
+  Comments cards both use it. The rail's Comments button keeps the outline bubble
+  (`IconAnnotations`); Annotations uses the pen (`IconMarkup`).
 - **Stamp-backed shapes** (`PdfAnnotationKind.TextBox` / `Callout` / `Cloud`): PDFium has no
   setter for `/CL`, `/Vertices` or `/BE`, so these are written as **`Stamp` (subtype 13)**
   annotations whose appearance `PdfStampAppearance.Build` assembles from real page objects —

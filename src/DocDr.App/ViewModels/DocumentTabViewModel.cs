@@ -79,6 +79,13 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Annotations.Reload(document);
         Annotations.AnnotationActivated += OnAnnotationActivated;
 
+        Comments = new CommentsViewModel(System.Environment.UserName);
+        Comments.Reload(document, PageLabelFor);
+        Comments.CommentActivated += OnAnnotationActivated;
+        Comments.UpdateRequested += OnCommentUpdateRequested;
+        Comments.EditRequested += OnCommentEditRequested;
+        Comments.DeleteRequested += OnCommentDeleteRequested;
+
         LeftPane.TableRegionSelected += OnTableRegionSelected;
         RightPane.TableRegionSelected += OnTableRegionSelected;
 
@@ -107,6 +114,8 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     public ClausesViewModel Clauses { get; }
 
     public AnnotationListViewModel Annotations { get; }
+
+    public CommentsViewModel Comments { get; }
 
     public string Title => Document.IsDirty ? $"{_baseTitle} •" : _baseTitle;
 
@@ -771,6 +780,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         // an already-scanned tree's page numbers stale rather than paying for a full rescan on
         // every rotate/delete/insert; the user can hit "Scan for clause headings" again if needed.
         Annotations.Reload(Document);
+        Comments.Reload(Document, PageLabelFor);
         Thumbnails.SetCurrentPage(LeftPane.CurrentPage);
 
         OnPropertyChanged(nameof(Title));
@@ -811,6 +821,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         LeftPane.BuildAnnotationOverlays();
         RightPane.BuildAnnotationOverlays();
         Annotations.Reload(Document);
+        Comments.Reload(Document, PageLabelFor);
         OnPropertyChanged(nameof(HasAnnotations));
     });
 
@@ -852,6 +863,27 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         RightPane.SetClausePageMap(map);
     }
 
+    // Comments panel → document. UpdateAnnotation is undoable and raises AnnotationsChanged,
+    // which reloads the panel (it keeps the selected card and any half-written replies).
+    private void OnCommentUpdateRequested(int pageIndex, PdfAnnotation updated) =>
+        Document.UpdateAnnotation(pageIndex, updated);
+
+    private void OnCommentEditRequested(int pageIndex, Guid id)
+    {
+        LeftPane.SelectedAnnotationId = id;
+        LeftPane.EditAnnotationCommand.Execute(id);
+    }
+
+    private void OnCommentDeleteRequested(int pageIndex, Guid id)
+    {
+        if (LeftPane.SelectedAnnotationId == id)
+        {
+            LeftPane.SelectedAnnotationId = null;
+        }
+
+        Document.RemoveAnnotation(pageIndex, id);
+    }
+
     private void OnAnnotationActivated(int pageIndex, Guid id)
     {
         // Select on the left pane only — the nav list drives that pane, and selecting on both
@@ -880,6 +912,11 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         if (e.PropertyName == nameof(PdfPaneViewModel.CurrentPage))
         {
             Thumbnails.SetCurrentPage(LeftPane.CurrentPage);
+        }
+        else if (e.PropertyName == nameof(PdfPaneViewModel.SelectedAnnotationId))
+        {
+            // Clicking a note pin on the page selects its card in the Comments panel.
+            Comments.Select(LeftPane.SelectedAnnotationId);
         }
         else if (e.PropertyName == nameof(PdfPaneViewModel.CommentToolActive) && !LeftPane.CommentToolActive)
         {
@@ -922,6 +959,10 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Bookmarks.OutlineEdited -= OnBookmarksEdited;
         Thumbnails.EditRequested -= OnThumbnailEditRequested;
         Annotations.AnnotationActivated -= OnAnnotationActivated;
+        Comments.CommentActivated -= OnAnnotationActivated;
+        Comments.UpdateRequested -= OnCommentUpdateRequested;
+        Comments.EditRequested -= OnCommentEditRequested;
+        Comments.DeleteRequested -= OnCommentDeleteRequested;
         Clauses.Scanned -= OnClausesScanned;
         LeftPane.TableRegionSelected -= OnTableRegionSelected;
         RightPane.TableRegionSelected -= OnTableRegionSelected;

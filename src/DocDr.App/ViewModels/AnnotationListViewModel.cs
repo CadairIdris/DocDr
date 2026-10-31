@@ -57,7 +57,9 @@ public sealed class AnnotationRowViewModel(int pageIndex, PdfAnnotation annotati
     public string ReplyBadge => ReplyCount == 1 ? "1 reply" : $"{ReplyCount} replies";
 }
 
-/// <summary>Flat list of every annotation in the document, for the nav panel Annotations tab.</summary>
+/// <summary>Flat list of the document's markup (ink, shapes, text boxes, clouds, images, plain
+/// highlights) for the nav panel Annotations section. Notes and noted highlights are comments and
+/// live in the Comments panel instead (<see cref="CommentClassifier"/>).</summary>
 public sealed partial class AnnotationListViewModel : ObservableObject
 {
     public ObservableCollection<AnnotationRowViewModel> Rows { get; } = [];
@@ -75,7 +77,10 @@ public sealed partial class AnnotationListViewModel : ObservableObject
             string label = PageDisplay.Label(document, page);
             foreach (PdfAnnotation annotation in document.GetAnnotations(page))
             {
-                Rows.Add(new AnnotationRowViewModel(page, annotation, label));
+                if (!CommentClassifier.IsComment(annotation))
+                {
+                    Rows.Add(new AnnotationRowViewModel(page, annotation, label));
+                }
             }
         }
 
