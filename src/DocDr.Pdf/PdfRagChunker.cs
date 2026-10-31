@@ -122,8 +122,8 @@ public static partial class PdfRagChunker
     [GeneratedRegex(@"^\s*(?:\d{1,4}|[ivxlcdm]{1,7}|page\s+\d{1,4}|p\.\s*\d{1,4})\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex PageNumberLine();
 
-    // Line that opens a new block: a list bullet, "(a)", "1.", or a clause number.
-    [GeneratedRegex(@"^(?:[-–—•·*]\s|\(\w{1,4}\)\s|\d{1,3}[.)]\s|\d+\.\d)")]
+    // Line that opens a new block: a list bullet, "(a)", "1.", or a clause number ("6.4", "O.7.1 General").
+    [GeneratedRegex(@"^(?:[-–—•·*]\s|\(\w{1,4}\)\s|\d{1,3}[.)]\s|\d+\.\d|[A-Z]\.\d+(?:\.\d+)*\.?\s+\p{Lu})")]
     private static partial Regex BlockStart();
 
     [GeneratedRegex(@"\s+")]
@@ -142,6 +142,52 @@ public static partial class PdfRagChunker
         ArgumentNullException.ThrowIfNull(document);
         options ??= new RagChunkOptions();
 
+        DocumentAnalysis a = Analyse(document, cancellationToken);
+        var paragraphs = BuildFlow(a, regionsFor: null, cancellationToken)
+            .Where(f => f.Para is not null).Select(f => f.Para!.Value).ToList();
+
+        int sectionCount = paragraphs.Count == 0 ? (a.PageCount == 0 ? 0 : 1)
+            : paragraphs.Select(x => x.Section).Distinct(StringComparer.Ordinal).Count();
+
+        var chunks = BuildChunks(paragraphs, options, document, a.SourcePath, a.DocTitle, a.Profile, a.EquationsByPage);
+        return new RagChunkResult(chunks, a.PagesWithoutText, sectionCount, a.SuspectPages, a.DoubledGlyphs)
+        {
+            EquationCount = a.EquationCount,
+            EquationsFlagged = a.EquationsFlagged,
+        };
+    }
+
+    /// <summary>Everything read once per document and shared by the chunk and HTML exports: the
+    /// cleaned pages, script profile, running chrome, contents pages, headings and equations.</summary>
+    internal sealed class DocumentAnalysis
+    {
+        public required int PageCount { get; init; }
+        public required ChunkPage?[] Pages { get; init; }
+        public required List<int> PagesWithoutText { get; init; }
+        public required List<int> SuspectPages { get; init; }
+        public required int DoubledGlyphs { get; init; }
+        public required PdfTextQuality.ScriptProfile Profile { get; init; }
+        public required bool[] ContentsPage { get; init; }
+        public required List<SectionMarker> Markers { get; init; }
+        public required Dictionary<string, string> TitleByNumber { get; init; }
+        public required Boilerplate Boilerplate { get; init; }
+        public required string SourcePath { get; init; }
+        public required string DocTitle { get; init; }
+        public required Dictionary<int, List<RagEquation>> EquationsByPage { get; init; }
+        public required int EquationCount { get; init; }
+        public required int EquationsFlagged { get; init; }
+    }
+
+    /// <summary>One item of the document in reading order: a paragraph, or a carved-out region
+    /// (equation / table / figure) with the text-layer lines it covered.</summary>
+    internal sealed record FlowItem(int Page, string Section, Paragraph? Para, PageRegion? Region, string RegionText)
+    {
+        /// <summary>The paragraph is a heading line that started its section (printed wording).</summary>
+        public bool IsHeading { get; init; }
+    }
+
+    internal static DocumentAnalysis Analyse(PdfDocument document, CancellationToken cancellationToken)
+    {
         int pageCount = document.PageCount;
         var pages = new ChunkPage?[pageCount];
         var pageText = new string?[pageCount];
@@ -199,9 +245,6 @@ public static partial class PdfRagChunker
 
         Boilerplate boilerplate = Boilerplate.Detect(pages);
 
-        string sourcePath = document.FilePath is { Length: > 0 } fp ? Path.GetFileName(fp) : string.Empty;
-        string docTitle = DocumentTitle(document, boilerplate.RunningTitle);
-
         // Equations, located per page; quality judged once here.
         var equationsByPage = new Dictionary<int, List<RagEquation>>();
         int equationCount = 0, equationsFlagged = 0;
@@ -224,13 +267,42 @@ public static partial class PdfRagChunker
             equationsByPage[p] = list;
         }
 
-        // Paragraphs in reading order, each tagged with the section in force where it starts: a
-        // heading switches the section at the paragraph that prints it, not at the top of its page
-        // (so text continuing an earlier clause at the top of a page keeps that clause's title).
-        var paragraphs = new List<Paragraph>();
+        return new DocumentAnalysis
+        {
+            PageCount = pageCount,
+            Pages = pages,
+            PagesWithoutText = pagesWithoutText,
+            SuspectPages = suspectPages,
+            DoubledGlyphs = doubledGlyphs,
+            Profile = profile,
+            ContentsPage = contentsPage,
+            Markers = markers,
+            TitleByNumber = titleByNumber,
+            Boilerplate = boilerplate,
+            SourcePath = document.FilePath is { Length: > 0 } fp ? Path.GetFileName(fp) : string.Empty,
+            DocTitle = DocumentTitle(document, boilerplate.RunningTitle),
+            EquationsByPage = equationsByPage,
+            EquationCount = equationCount,
+            EquationsFlagged = equationsFlagged,
+        };
+    }
+
+    /// <summary>
+    /// Paragraphs in reading order, each tagged with the section in force where it starts: a heading
+    /// switches the section at the paragraph that prints it, not at the top of its page (so text
+    /// continuing an earlier clause at the top of a page keeps that clause's title). With
+    /// <paramref name="regionsFor"/>, the lines inside each page region are carved out of the
+    /// paragraph text and the region takes their place in the flow (the HTML export's equations,
+    /// tables and figures); without it every line is text (the chunk export).
+    /// </summary>
+    internal static List<FlowItem> BuildFlow(
+        DocumentAnalysis a, Func<int, ChunkPage, IReadOnlyList<PageRegion>>? regionsFor, CancellationToken cancellationToken)
+    {
+        var flow = new List<FlowItem>();
         string current = "Front matter";
         int mi = 0;
-        for (int p = 0; p < pageCount; p++)
+        var markers = a.Markers;
+        for (int p = 0; p < a.PageCount; p++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             int pageFirst = mi;
@@ -240,13 +312,28 @@ public static partial class PdfRagChunker
             }
 
             var pending = new List<SectionMarker>(markers.Skip(pageFirst).Take(mi - pageFirst));
-            var paras = pages[p] is { } page && !contentsPage[p]
-                ? ParagraphsFromPage(page.Lines, boilerplate).ToList()
-                : [];
+            var items = new List<(string? Text, bool HasMath, PageRegion? Region, string RegionText)>();
+            if (a.Pages[p] is { } page && !a.ContentsPage[p])
+            {
+                IReadOnlyList<PageRegion> regions = regionsFor?.Invoke(p, page) ?? [];
+                foreach (var seg in Segments(page, regions))
+                {
+                    if (seg.Region is { } region)
+                    {
+                        items.Add((null, false, region, seg.RegionText));
+                    }
+                    else
+                    {
+                        items.AddRange(ParagraphsFromPage(seg.Lines, a.Boilerplate).Select(x => ((string?)x.Text, x.HasMath, (PageRegion?)null, string.Empty)));
+                    }
+                }
+            }
+
+            var paras = items.Where(i => i.Text is not null).Select(i => i.Text!).ToList();
 
             // A heading printed on the page switches the section at its paragraph; one whose text
             // isn't found (a bookmark titled differently from the printed heading) at the page top.
-            var unmatched = pending.Where(m => !paras.Any(x => m.StartsParagraph(x.Text))).ToList();
+            var unmatched = pending.Where(m => !paras.Any(x => m.StartsParagraph(x))).ToList();
             bool startsSection = unmatched.Count > 0;
             if (unmatched.Count > 0)
             {
@@ -254,26 +341,39 @@ public static partial class PdfRagChunker
                 pending.RemoveAll(unmatched.Contains);
             }
 
-            foreach ((string para, bool hasMath) in paras)
+            foreach (var item in items)
             {
+                if (item.Region is { } region)
+                {
+                    flow.Add(new FlowItem(p, current, null, region, item.RegionText));
+                    continue;
+                }
+
+                string para = item.Text!;
                 int hit = pending.FindIndex(m => m.StartsParagraph(para));
                 bool switched = hit >= 0;
+                string? printed = null;
                 if (hit >= 0)
                 {
-                    current = PrintedHeading(para) ?? pending[hit].Title;
+                    printed = PrintedHeading(para);
+                    current = printed ?? pending[hit].Title;
                     pending.RemoveRange(0, hit + 1);
                 }
                 else if (BodyHeading().Match(para) is { Success: true } h && para.Length < 120
-                    && titleByNumber.TryGetValue(h.Groups[1].Value, out string? title)
+                    && a.TitleByNumber.TryGetValue(h.Groups[1].Value, out string? title)
                     && !string.Equals(current, title, StringComparison.Ordinal))
                 {
                     // A numbered heading printed in the body whose outline entry points elsewhere
                     // (at the contents page, say): the section starts here.
-                    current = PrintedHeading(para) ?? title;
+                    printed = PrintedHeading(para);
+                    current = printed ?? title;
                     switched = true;
                 }
 
-                paragraphs.Add(new Paragraph(para, p, current, hasMath, switched || startsSection));
+                flow.Add(new FlowItem(p, current, new Paragraph(para, p, current, item.HasMath, switched || startsSection), null, string.Empty)
+                {
+                    IsHeading = switched && printed is not null,
+                });
                 startsSection = false;
             }
 
@@ -283,18 +383,90 @@ public static partial class PdfRagChunker
             }
         }
 
-        int sectionCount = paragraphs.Count == 0 ? (pageCount == 0 ? 0 : 1)
-            : paragraphs.Select(x => x.Section).Distinct(StringComparer.Ordinal).Count();
-
-        var chunks = BuildChunks(paragraphs, options, document, sourcePath, docTitle, profile, equationsByPage);
-        return new RagChunkResult(chunks, pagesWithoutText, sectionCount, suspectPages, doubledGlyphs)
-        {
-            EquationCount = equationCount,
-            EquationsFlagged = equationsFlagged,
-        };
+        return flow;
     }
 
-    private static RagEquation ToRagEquation(ChunkEquation e, int page, PdfRect pageBox, PdfTextQuality.ScriptProfile profile)
+    /// <summary>A page's lines split into runs of text and the regions that interrupt them, in
+    /// drawing order. A line belongs to a region when its centre lies inside it (or it is the
+    /// region's caption line); a region is placed where its first line was, or — with no text of
+    /// its own (a drawing) — before the first line below it.</summary>
+    private static IEnumerable<(List<ChunkLine> Lines, PageRegion? Region, string RegionText)> Segments(
+        ChunkPage page, IReadOnlyList<PageRegion> regions)
+    {
+        if (regions.Count == 0)
+        {
+            yield return ([.. page.Lines], null, string.Empty);
+            yield break;
+        }
+
+        var owner = new PageRegion?[page.Lines.Count];
+        for (int li = 0; li < page.Lines.Count; li++)
+        {
+            ChunkLine line = page.Lines[li];
+            owner[li] = regions.FirstOrDefault(r => r.CaptionLine == li || r.CaptionContinuation.Contains(li))
+                ?? (line.Bounds.Width > 0 && !string.IsNullOrWhiteSpace(line.Text)
+                    ? regions.FirstOrDefault(r => Contains(r.Bounds, line.Bounds))
+                    : null);
+        }
+
+        var emitted = new HashSet<PageRegion>();
+        var run = new List<ChunkLine>();
+        for (int li = 0; li < page.Lines.Count; li++)
+        {
+            ChunkLine line = page.Lines[li];
+            // A drawing with no text of its own goes in before the first line below it.
+            foreach (PageRegion r in regions.Where(r => !emitted.Contains(r) && !owner.Contains(r)
+                && line.Bounds.Width > 0 && (line.Bounds.Top + line.Bounds.Bottom) / 2 < r.Bounds.Bottom).ToList())
+            {
+                if (run.Count > 0)
+                {
+                    yield return (run, null, string.Empty);
+                    run = [];
+                }
+
+                emitted.Add(r);
+                yield return ([], r, string.Empty);
+            }
+
+            if (owner[li] is not { } region)
+            {
+                run.Add(line);
+                continue;
+            }
+
+            if (emitted.Add(region))
+            {
+                if (run.Count > 0)
+                {
+                    yield return (run, null, string.Empty);
+                    run = [];
+                }
+
+                string text = string.Join('\n', page.Lines.Where((l, k) => owner[k] == region && k != region.CaptionLine
+                        && !region.CaptionContinuation.Contains(k))
+                    .Select(l => Normalise(l.Text)).Where(t => t.Length > 0));
+                yield return ([], region, text);
+            }
+        }
+
+        if (run.Count > 0)
+        {
+            yield return (run, null, string.Empty);
+        }
+
+        foreach (PageRegion r in regions.Where(r => !emitted.Contains(r)))
+        {
+            yield return ([], r, string.Empty);
+        }
+    }
+
+    private static bool Contains(PdfRect region, PdfRect line)
+    {
+        double cx = (line.Left + line.Right) / 2, cy = (line.Top + line.Bottom) / 2;
+        return cx >= region.Left - 1 && cx <= region.Right + 1 && cy >= region.Bottom - 1 && cy <= region.Top + 1;
+    }
+
+    internal static RagEquation ToRagEquation(ChunkEquation e, int page, PdfRect pageBox, PdfTextQuality.ScriptProfile profile)
     {
         var issues = new List<string>();
         if (PdfTextQuality.ScrambleReason(e.RawText, e.Stacked) is { } why)
@@ -340,13 +512,13 @@ public static partial class PdfRagChunker
         WriteJsonl(chunks, writer);
     }
 
-    private readonly record struct Paragraph(string Text, int Page, string Section, bool HasMath, bool StartsSection);
+    internal readonly record struct Paragraph(string Text, int Page, string Section, bool HasMath, bool StartsSection);
 
     // --- Section boundaries --------------------------------------------------------------
 
     /// <summary>A heading: the page it's on, its title, and how to recognise the paragraph that prints it.</summary>
     /// <param name="Number">A detected clause's number — matched against the start of a paragraph.</param>
-    private sealed record SectionMarker(int Page, string Title, string? Number)
+    internal sealed record SectionMarker(int Page, string Title, string? Number)
     {
         /// <summary>A dotted number ("6.5.5", "A.2") from the clause or the title's start, if any.</summary>
         public string? DottedNumber =>
@@ -372,10 +544,30 @@ public static partial class PdfRagChunker
                 || (para[number.Length] == '.' && (para.Length == number.Length + 1 || char.IsWhiteSpace(para[number.Length + 1]))));
     }
 
+    /// <summary>A short numbered heading line ("6.4.3 Punching shear", "6.5.5. Reinforcement…") with a
+    /// real word in it — so "1.35 Gk" (a value in a calculation) isn't one. The HTML export uses it
+    /// for headings the outline doesn't list.</summary>
+    internal static bool IsStandaloneHeading(string para) =>
+        BodyHeading().Match(para) is { Success: true } m && PrintedHeading(para) is not null
+        && RealWord().IsMatch(para[m.Groups[1].Length..]);
+
+    /// <summary>"6.4.3 …" → "6.4.3"; "Annex B …" → "B"; else null.</summary>
+    internal static string? HeadingNumber(string heading) =>
+        BodyHeading().Match(heading) is { Success: true } m ? m.Groups[1].Value
+        : AnnexHeading().Match(heading) is { Success: true } a ? a.Groups[1].Value : null;
+
+    /// <summary>Nesting depth of a heading from its number: "6" / "Annex B" → 1, "6.4" → 2, "6.4.3" → 3;
+    /// an un-numbered (outline) heading → 1.</summary>
+    internal static int HeadingDepth(string heading) =>
+        BodyHeading().Match(heading) is { Success: true } m ? m.Groups[1].Value.Count(c => c == '.') + 1 : 1;
+
+    [GeneratedRegex(@"^Annex\s+([A-Z]{1,2})\b")]
+    private static partial Regex AnnexHeading();
+
     /// <summary>The heading as printed, when <paramref name="para"/> is just a heading line (short, not a
     /// sentence) — better than an outline entry, which may carry a contents-page number or different
     /// wording; null when the heading ran into body text.</summary>
-    private static string? PrintedHeading(string para)
+    internal static string? PrintedHeading(string para)
     {
         string t = Normalise(para);
         // Judge "is it a sentence?" past the number — "6.1. General" isn't one.
@@ -560,7 +752,7 @@ public static partial class PdfRagChunker
     /// vs "… 46") — running headers often alternate book / chapter title, so they miss 50 %. The most
     /// frequent wordy top-band line doubles as the book's own title.
     /// </summary>
-    private sealed class Boilerplate
+    internal sealed class Boilerplate
     {
         private readonly HashSet<string> _lines = new(StringComparer.Ordinal);
         private readonly HashSet<string> _margin = new(StringComparer.Ordinal);

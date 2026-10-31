@@ -203,7 +203,7 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   Shape (split) ▾ · Markup eye │ Pages ▾ · Tools ▾ │ Split · Side by side · Link scrolling · Read │ Theme ▾.
   Once-per-document actions live in the dropdowns: **File** (Open/New/Merge/Save/Save As/Print/
   Properties/Find in files), **Pages** (rotate/delete/insert PDF/blank page), **Tools** (Extract table
-  as a checkable item, OCR, Remove watermark, Trim margins, Export chunks).
+  as a checkable item, OCR, Remove watermark, Trim margins, Export chunks, Export HTML).
 - A dropdown is a plain `Button` with its own `ContextMenu`, opened under it by `DropDown_Click`
   (code-behind) — the menu inherits the window `DataContext` and the Fluent `ContextMenu` style
   (a `Menu` inside a `ToolBar` would pick up the classic ToolBar style). Per-tab buttons carry
@@ -978,6 +978,46 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 - App: `DocumentTabViewModel.ExportRagChunksCommand` (async — `Task.Run(Chunk + WriteJsonl)`),
   toolbar "Export chunks…". Batch/folder mode and catalog persistence are not built yet. Not done
   yet: page-image references for suspect chunks, tables as rows (`PdfTableExtractor` not wired in).
+
+## HTML export (`PdfHtmlExporter`, stage 1 of 3)
+
+- **Purpose: an agent reads the standard to build / check design tools.** Text is cleaned exactly as for
+  the chunk export; **equations, tables and figures are PNG crops of the page** (the authoritative
+  rendering) with the text layer beside them for searching. Stage 2 (not built): tables as real
+  `<table>`s with confidence, `<sub>`/`<sup>` in prose from glyph size + baseline. Stage 3 (optional):
+  maths OCR → MathML on the crops.
+- **Shared pipeline**: `PdfRagChunker.Analyse(doc)` → `DocumentAnalysis` (cleaned `ChunkPage`s, script
+  profile, boilerplate, contents pages, section markers, equations) and `BuildFlow(analysis, regionsFor)`
+  → `FlowItem`s (paragraph with section + `IsHeading`, or a `PageRegion` with the text-layer lines it
+  covered). The chunker calls `BuildFlow(a, null)` — **no regions, output unchanged**; the HTML export
+  passes `PdfPageRegions.Detect`. `Segments` assigns a line to a region by its centre (or as the
+  region's caption / caption continuation) and places the region where its first line was.
+- **`PdfPageRegions.Detect(page, ReadGraphics(doc, p))`**: graphics = bounds of every non-text page
+  object (`FPDFPageObjGetBounds`), minus page-sized frames and header/footer-band rules. Captions =
+  non-margin lines matching `^(Table|Figure) <num>` + dash/colon + a capital (so "Table 3.1 gives…"
+  isn't one); a wrapped caption takes following lines that start lower-case within ~½ line. **Table**:
+  the graphics cluster seeded within 45 pt *below* the caption and grown by touching (4 pt), never
+  past the next caption; else above; else (unruled) `TextBlockBelow` — closely spaced lines (gap ≤ 2.2
+  line heights) until prose / an equation / a caption. **Figure**: cluster above; else `AboveKey` —
+  the nearest graphics up to 300 pt above when every line between is key-like (no 8+-word sentence
+  ending "."/":"), and the key lines go into the crop; else below. Text poking ≤ 2 pt outside the
+  cluster joins it. Equations come from the chunk text's located equations, dropped when inside a
+  table/figure.
+- **Output**: `<h2-6>` from heading depth (`HeadingDepth`; outline-matched headings plus
+  `IsStandaloneHeading` — a short dotted-number line with a real word, so not "1.35 Gk"), `<p>` with
+  `class="note"`, `data-quality="suspect"` (unmapped / repeated letters, reason in `title`) or
+  `"check"` (maths), page anchors `id="page-N"` with `data-pdf-page` / `data-page-label`,
+  `<figure class="equation|table|figure" id="eq-8.94|table-11.1|figure-8.21" data-label data-pdf-page
+  data-bbox="l,t,r,b">` (points from the CropBox top-left) + `<img>` + `<figcaption>` + `<details
+  class="text-layer">`; tables also get `<details class="extracted"><table data-verified="false">` from
+  `PdfTableExtractor` (≥ 2×2 only). A "How to read this export" block explains the conventions.
+  Images go to a `{name}_files/` sidecar (`p0146-eq-8.94.png`) or, with `EmbedImages`, data URIs.
+- **`RenderRegionPng`**: `PdfCoordinates.PageToDevice` (rotation + crop origin) at `ImageDpi` (200) with
+  3 pt padding → `PageRenderer` with a `PageRenderRegion` → **`PngWriter`** (own encoder, `ZLibStream`,
+  Up filter; greyscale when every pixel is grey — most of a standard). App: Tools ▾ "Export HTML…"
+  (`DocumentTabViewModel.Html.cs`, wait cursor, `Task.Run`, summary dialog).
+- `BlockStart` now also opens a paragraph at an annex number + capital ("O.7.1 General") — a long
+  "O.7 …" heading was otherwise joined with the next heading (affects chunks too, for the better).
 
 ## Read mode (Stage 1)
 
