@@ -10,7 +10,7 @@ Self-contained builds also bundle the .NET runtime; Microsoft's own
 | Component | Version | License | Copyright |
 |---|---|---|---|
 | PDFiumCore | 4688.0.0 | Apache License 2.0 | © Dtronix and the PDFiumCore contributors |
-| PDFium (`pdfium.dll`, bundled by PDFiumCore via `bblanchon/pdfium-binaries`) | — | BSD 3-Clause | © 2014 The PDFium Authors |
+| PDFium (`pdfium.dll`, from `bblanchon/pdfium-binaries` via the `bblanchon.PDFium.Win32` package) | chromium/8125 | BSD 3-Clause | © 2014 The PDFium Authors |
 | CommunityToolkit.Mvvm | 8.4.2 | MIT License | © .NET Foundation and Contributors |
 
 ---
