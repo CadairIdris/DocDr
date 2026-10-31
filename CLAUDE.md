@@ -135,6 +135,20 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   by `LastBasicShape`; the ▾ menu picks the shape. Markup toggle swaps eye / eye-off and its tooltip is
   `MarkupToolTip`. Theme is a ▾ menu (`Theme_Click`), not a ComboBox.
 
+## Pane status strip + find bar (`PdfPaneView.xaml`)
+
+- **Page nav / zoom / view mode moved to a thin strip at the *bottom* of each pane** (Grid row 1;
+  the page `ListBox` and its popups are row 0). There is no pane toolbar above the page any more.
+  The strip hides in read mode like the old toolbar did.
+- **Search is a floating find bar** (`FindBar`, top-right of the page area, drawn after `PageList`
+  so it sits on top), shown by `PdfPaneViewModel.IsSearchBarOpen`. Opened by Ctrl+F (the pane's
+  own `PreviewKeyDown`, so the pane you're in gets it; a window `KeyBinding` to
+  `SelectedTab.LeftPane.OpenSearchBarCommand` is the fallback when focus is outside every pane) or
+  the strip's magnifier toggle (`SearchToggle_Click`). `OpenSearchBar()` raises
+  `SearchBarFocusRequested` → the view focuses `SearchBox` at `Input` priority. Esc / ✕ →
+  `CloseSearchBarCommand` = hide + `ClearSearch` (drops the highlights). `GoToSearchHitAsync`
+  (find-in-files result) opens the bar so the term and match count are visible.
+
 ## Navigation panel (icon rail)
 
 - **`NavigationRailView`** is a ~40px always-visible strip (column 0 of `DocumentTabView`) with

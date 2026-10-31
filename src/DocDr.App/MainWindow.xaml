@@ -25,6 +25,9 @@
         <KeyBinding Modifiers="Control" Key="Y" Command="{Binding SelectedTab.RedoCommand}" />
         <KeyBinding Modifiers="Control" Key="O" Command="{Binding OpenCommand}" />
         <KeyBinding Modifiers="Control+Shift" Key="F" Command="{Binding FindInFilesCommand}" />
+        <!-- Fallback when focus is outside every pane; inside a pane, PdfPaneView handles Ctrl+F
+             itself so the find bar opens on the pane you're in. -->
+        <KeyBinding Modifiers="Control" Key="F" Command="{Binding SelectedTab.LeftPane.OpenSearchBarCommand}" />
         <KeyBinding Key="F11" Command="{Binding ToggleReadModeCommand}" />
         <KeyBinding Key="Escape" Command="{Binding ExitReadModeCommand}" />
     </Window.InputBindings>

@@ -44,6 +44,46 @@ public partial class PdfPaneView : UserControl
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         IsVisibleChanged += OnIsVisibleChanged;
+        PreviewKeyDown += OnPanePreviewKeyDown;
+    }
+
+    /// <summary>Ctrl+F anywhere inside this pane opens its find bar (the window's own Ctrl+F
+    /// binding is the fallback when focus is outside every pane).</summary>
+    private void OnPanePreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control && _pane is not null)
+        {
+            _pane.OpenSearchBar();
+            e.Handled = true;
+        }
+    }
+
+    private void SearchToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (_pane is null)
+        {
+            return;
+        }
+
+        if (_pane.IsSearchBarOpen)
+        {
+            _pane.CloseSearchBarCommand.Execute(null);
+            PageList.Focus();
+        }
+        else
+        {
+            _pane.OpenSearchBar();
+        }
+    }
+
+    private void OnSearchBarFocusRequested()
+    {
+        // After layout, so the bar has become visible and can take focus.
+        Dispatcher.BeginInvoke(() =>
+        {
+            SearchBox.Focus();
+            SearchBox.SelectAll();
+        }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -78,6 +118,7 @@ public partial class PdfPaneView : UserControl
             _pane.PropertyChanged -= OnPanePropertyChanged;
             _pane.PagesReloaded -= OnPagesReloaded;
             _pane.SelectedFormatChanged -= OnSelectedFormatChanged;
+            _pane.SearchBarFocusRequested -= OnSearchBarFocusRequested;
         }
 
         _pane = e.NewValue as PdfPaneViewModel;
@@ -92,6 +133,7 @@ public partial class PdfPaneView : UserControl
         _pane.PropertyChanged += OnPanePropertyChanged;
         _pane.PagesReloaded += OnPagesReloaded;
         _pane.SelectedFormatChanged += OnSelectedFormatChanged;
+        _pane.SearchBarFocusRequested += OnSearchBarFocusRequested;
 
         // WPF's TabControl reuses this single PdfPaneView across every tab, swapping the
         // DataContext underneath it — so a plain event hook isn't enough. Re-establish

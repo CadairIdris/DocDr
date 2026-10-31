@@ -644,6 +644,29 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
     // --- Search ---------------------------------------------------------------------------
 
+    /// <summary>The floating find bar over the page area (Ctrl+F / the strip's magnifier).</summary>
+    [ObservableProperty]
+    private bool _isSearchBarOpen;
+
+    /// <summary>Asks the view to move keyboard focus into the find bar's text box.</summary>
+    public event Action? SearchBarFocusRequested;
+
+    /// <summary>Show the find bar and focus its box (Ctrl+F, or the strip's search button).</summary>
+    [RelayCommand]
+    public void OpenSearchBar()
+    {
+        IsSearchBarOpen = true;
+        SearchBarFocusRequested?.Invoke();
+    }
+
+    /// <summary>Hide the find bar and drop the current search highlights (Esc / ✕).</summary>
+    [RelayCommand]
+    private void CloseSearchBar()
+    {
+        IsSearchBarOpen = false;
+        ClearSearch();
+    }
+
     [RelayCommand]
     private async Task SearchAsync()
     {
@@ -745,6 +768,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
         MatchCase = matchCase;
         SearchText = term;
+        IsSearchBarOpen = true;
         ResetSearchState();
 
         IsSearching = true;
