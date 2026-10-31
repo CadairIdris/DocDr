@@ -71,6 +71,12 @@ internal static class PdfStampAppearance
                 DrawTick(annot, box, r, g, b, w);
                 break;
 
+            case PdfAnnotationKind.MeasureDistance:
+            case PdfAnnotationKind.MeasurePerimeter:
+            case PdfAnnotationKind.MeasureArea:
+                DrawMeasurement(doc, annot, font, a, r, g, b, w);
+                break;
+
             case PdfAnnotationKind.Image:
                 DrawImage(doc, annot, a, box, imageDecoder);
                 break;
@@ -109,6 +115,70 @@ internal static class PdfStampAppearance
         {
             pin.Free();
         }
+    }
+
+    private static void DrawMeasurement(
+        FpdfDocumentT doc, FpdfAnnotationT annot, FpdfFontT? font, PdfAnnotation a,
+        uint r, uint g, uint b, float width)
+    {
+        IReadOnlyList<PdfPoint> pts = a.Vertices;
+        if (pts.Count < 2)
+        {
+            return;
+        }
+
+        bool area = a.Kind == PdfAnnotationKind.MeasureArea;
+        FpdfPageobjectT path = fpdf_edit.FPDFPageObjCreateNewPath((float)pts[0].X, (float)pts[0].Y);
+        for (int i = 1; i < pts.Count; i++)
+        {
+            fpdf_edit.FPDFPathLineTo(path, (float)pts[i].X, (float)pts[i].Y);
+        }
+
+        if (area)
+        {
+            fpdf_edit.FPDFPathClose(path);
+        }
+
+        // An area gets a light tint of its colour so the measured region reads at a glance.
+        uint? tint = area ? (0x33u << 24) | (a.ColorArgb & 0xFFFFFF) : null;
+        StrokePath(annot, path, r, g, b, width, stroke: true, tint);
+
+        if (a.Kind == PdfAnnotationKind.MeasureDistance)
+        {
+            foreach ((PdfPoint from, PdfPoint to) in PdfMeasure.EndTicks(pts))
+            {
+                FpdfPageobjectT bar = fpdf_edit.FPDFPageObjCreateNewPath((float)from.X, (float)from.Y);
+                fpdf_edit.FPDFPathLineTo(bar, (float)to.X, (float)to.Y);
+                StrokePath(annot, bar, r, g, b, width, stroke: true, fill: null);
+            }
+        }
+
+        if (font is null || font.__Instance == IntPtr.Zero)
+        {
+            return;
+        }
+
+        // Caption on a white backing box so it stays legible over linework.
+        PdfRect c = PdfMeasure.CaptionRect(a);
+        FpdfPageobjectT backing = fpdf_edit.FPDFPageObjCreateNewPath((float)c.Left, (float)c.Bottom);
+        fpdf_edit.FPDFPathLineTo(backing, (float)c.Right, (float)c.Bottom);
+        fpdf_edit.FPDFPathLineTo(backing, (float)c.Right, (float)c.Top);
+        fpdf_edit.FPDFPathLineTo(backing, (float)c.Left, (float)c.Top);
+        fpdf_edit.FPDFPathClose(backing);
+        fpdf_edit.FPDFPageObjSetFillColor(backing, 255, 255, 255, 230);
+        fpdf_edit.FPDFPageObjSetStrokeColor(backing, r, g, b, 255);
+        fpdf_edit.FPDFPageObjSetStrokeWidth(backing, 0.6f);
+        fpdf_edit.FPDFPathSetDrawMode(backing, DrawFillWinding, DrawStroke);
+        fpdf_annot.FPDFAnnotAppendObject(annot, backing);
+
+        FpdfPageobjectT text = fpdf_edit.FPDFPageObjCreateTextObj(doc, font, (float)PdfMeasure.CaptionFontSize);
+        ushort[] wide = PdfTextExtractor.ToWideString(PdfMeasure.Caption(a));
+        fpdf_edit.FPDFTextSetText(text, ref wide[0]);
+        fpdf_edit.FPDFPageObjSetFillColor(text, r, g, b, 255);
+        // Baseline a little above the box bottom (Helvetica's descender is ~0.21 em).
+        fpdf_edit.FPDFPageObjTransform(text, 1, 0, 0, 1,
+            c.Left + PdfMeasure.CaptionPadding, c.Bottom + PdfMeasure.CaptionPadding + (0.21 * PdfMeasure.CaptionFontSize));
+        fpdf_annot.FPDFAnnotAppendObject(annot, text);
     }
 
     private static void DrawTick(FpdfAnnotationT annot, PdfRect box, uint r, uint g, uint b, float width)

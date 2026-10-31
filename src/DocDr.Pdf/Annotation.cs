@@ -51,6 +51,15 @@ public enum PdfAnnotationKind
 
     /// <summary>A checker's tick (✓) drawn in its box (a <c>Stamp</c> appearance).</summary>
     Tick,
+
+    /// <summary>A measured distance between two points (a <c>Stamp</c> appearance + caption).</summary>
+    MeasureDistance,
+
+    /// <summary>The length of a connected line through several points.</summary>
+    MeasurePerimeter,
+
+    /// <summary>The area of a closed polygon.</summary>
+    MeasureArea,
 }
 
 /// <summary>
@@ -125,6 +134,40 @@ public sealed record PdfAnnotation(
     /// <summary>The comment's checkmark (the PDF "Marked" state model) — a private to-do tick.</summary>
     public bool IsMarked { get; init; }
 
+    /// <summary>The drawing scale a measurement was taken at (null for other kinds — and for a
+    /// measurement, null means <see cref="PdfMeasureScale.Default"/>).</summary>
+    public PdfMeasureScale? Scale { get; init; }
+
+    /// <summary>A measurement's vertices (unrotated page space) — <see cref="Strokes"/>[0].</summary>
+    public IReadOnlyList<PdfPoint> Vertices =>
+        PdfMeasure.IsMeasureKind(Kind) && Strokes.Count > 0 ? Strokes[0] : [];
+
+    /// <summary>Whether this is a distance / perimeter / area measurement.</summary>
+    public bool IsMeasurement => PdfMeasure.IsMeasureKind(Kind);
+
+    /// <summary>A new measurement through <paramref name="points"/> at <paramref name="scale"/>.</summary>
+    public static PdfAnnotation NewMeasurement(
+        PdfAnnotationKind kind, IReadOnlyList<PdfPoint> points, uint colorArgb, PdfMeasureScale scale, string? author = null)
+    {
+        if (!PdfMeasure.IsMeasureKind(kind))
+        {
+            throw new ArgumentException("Not a measurement kind.", nameof(kind));
+        }
+
+        if (points.Count < PdfMeasure.MinimumPoints(kind))
+        {
+            throw new ArgumentException("Too few points for this measurement.", nameof(points));
+        }
+
+        DateTimeOffset now = DateTimeOffset.Now;
+        return new(Guid.NewGuid(), kind, [], colorArgb, null, author, now, now)
+        {
+            Strokes = [points.ToArray()],
+            Scale = scale,
+            AutoSize = false,
+        };
+    }
+
     /// <summary>Encoded (PNG) bytes for a <see cref="PdfAnnotationKind.Image"/>; null otherwise.</summary>
     public byte[]? ImageData { get; init; }
 
@@ -135,7 +178,8 @@ public sealed record PdfAnnotation(
     public static bool IsStampKind(PdfAnnotationKind kind) => kind is PdfAnnotationKind.TextBox
         or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud or PdfAnnotationKind.Image
         or PdfAnnotationKind.Rectangle or PdfAnnotationKind.Ellipse or PdfAnnotationKind.Line
-        or PdfAnnotationKind.Arrow or PdfAnnotationKind.Tick;
+        or PdfAnnotationKind.Arrow or PdfAnnotationKind.Tick
+        || PdfMeasure.IsMeasureKind(kind);
 
     /// <summary>PDF annotation subtype number for <see cref="Kind"/> (matches the PDF spec / PDFium).</summary>
     public int Subtype => Kind switch

@@ -36,7 +36,8 @@ internal static class PdfAnnotationWriter
     public static void Write(
         FpdfDocumentT doc, FpdfPageT page, IReadOnlyList<PdfAnnotation> annotations, IImageDecoder? imageDecoder = null)
     {
-        bool needsFont = annotations.Any(a => a.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout);
+        bool needsFont = annotations.Any(a => a.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout
+            || a.IsMeasurement);
         FpdfFontT? font = needsFont ? fpdf_edit.FPDFTextLoadStandardFont(doc, "Helvetica") : null;
 
         try
@@ -67,7 +68,9 @@ internal static class PdfAnnotationWriter
         try
         {
             SetColor(annot, a.ColorArgb, a.Kind == PdfAnnotationKind.Ink ? (uint)150 : 255);
-            SetRect(annot, a.Bounds);
+            // A measurement's caption can sit outside its vertices; the rect must cover it or
+            // viewers clip the appearance.
+            SetRect(annot, a.IsMeasurement ? PdfMeasure.AppearanceBounds(a) : a.Bounds);
 
             if (a.Kind == PdfAnnotationKind.Highlight)
             {
@@ -96,7 +99,12 @@ internal static class PdfAnnotationWriter
                 }
             }
 
-            if (!string.IsNullOrEmpty(a.Contents))
+            if (a.IsMeasurement)
+            {
+                // Other viewers' comment lists show the measured value.
+                SetString(annot, "Contents", PdfMeasure.Describe(a));
+            }
+            else if (!string.IsNullOrEmpty(a.Contents))
             {
                 SetString(annot, "Contents", a.Contents);
             }

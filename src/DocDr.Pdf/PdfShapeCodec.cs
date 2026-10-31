@@ -31,13 +31,25 @@ internal static class PdfShapeCodec
         public bool? Borderless { get; init; }
 
         public uint? TextColor { get; init; }
+
+        // Measurement scale (measure kinds only): units per point, unit, label, decimals.
+        public double? Upp { get; init; }
+
+        public string? Unit { get; init; }
+
+        public string? ScaleLabel { get; init; }
+
+        public int? Dec { get; init; }
     }
 
     public static string Encode(PdfAnnotation a)
     {
-        double[][]? leader = a.Leader.Count > 0
-            ? a.Leader.Select(p => new[] { p.X, p.Y }).ToArray()
+        // Lines / arrows / callouts keep their leader here; measurements their vertices.
+        IReadOnlyList<PdfPoint> points = a.IsMeasurement ? a.Vertices : a.Leader;
+        double[][]? leader = points.Count > 0
+            ? points.Select(p => new[] { p.X, p.Y }).ToArray()
             : null;
+        PdfMeasureScale? scale = a.IsMeasurement ? a.Scale ?? PdfMeasureScale.Default : null;
 
         var shape = new Shape(
             a.Kind.ToString(),
@@ -52,6 +64,10 @@ internal static class PdfShapeCodec
             Dashed = a.Dashed ? true : null,
             Borderless = a.Borderless ? true : null,
             TextColor = a.TextColorArgb,
+            Upp = scale?.UnitsPerPoint,
+            Unit = scale?.Unit,
+            ScaleLabel = scale?.Label,
+            Dec = scale?.Decimals,
         };
 
         return JsonSerializer.Serialize(shape, Options);
@@ -96,8 +112,27 @@ internal static class PdfShapeCodec
             return null; // a line with no endpoints is nothing
         }
 
-        return new PdfAnnotation(id, kind, [box], shape.Color ?? colorArgb, contents, author, created, modified)
+        bool measure = PdfMeasure.IsMeasureKind(kind);
+        PdfMeasureScale? scale = null;
+        if (measure)
         {
+            if (strokes.Count == 0 || strokes[0].Count < PdfMeasure.MinimumPoints(kind))
+            {
+                return null; // not enough vertices to measure anything
+            }
+
+            scale = shape.Upp is > 0 and < double.PositiveInfinity && !string.IsNullOrWhiteSpace(shape.Unit)
+                ? new PdfMeasureScale(shape.Upp.Value, shape.Unit, shape.ScaleLabel ?? string.Empty,
+                    Math.Clamp(shape.Dec ?? 2, 0, 6))
+                : PdfMeasureScale.Default;
+
+            // A measurement's /Contents is its generated caption — not a user note — so don't carry it.
+            contents = null;
+        }
+
+        return new PdfAnnotation(id, kind, measure ? Array.Empty<PdfRect>() : new[] { box }, shape.Color ?? colorArgb, contents, author, created, modified)
+        {
+            Scale = scale,
             Strokes = strokes,
             FontSize = shape.FontSize > 0 ? shape.FontSize : PdfAnnotation.DefaultFontSize,
             AutoSize = shape.AutoSize ?? true,
