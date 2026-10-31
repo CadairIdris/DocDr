@@ -143,6 +143,15 @@ public sealed partial class PageSlotViewModel : ObservableObject
     [ObservableProperty]
     private System.Windows.Point _measurePreviewLabelAt;
 
+    /// <summary>Where the pointer would snap to the drawing while measuring (DIP), or null.</summary>
+    [ObservableProperty]
+    private System.Windows.Point? _snapMarker;
+
+    /// <summary>What it snaps to — "Endpoint" / "Intersection" / "Midpoint" / "OnLine" (picks the
+    /// marker glyph); empty when there's no snap.</summary>
+    [ObservableProperty]
+    private string _snapKind = string.Empty;
+
     /// <summary>True while a container for this slot is realised in the visual tree.</summary>
     public bool IsRealized { get; set; }
 }

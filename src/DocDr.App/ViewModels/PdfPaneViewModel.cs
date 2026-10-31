@@ -191,6 +191,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         _charBoxOrder.Clear();
         _linkCache.Clear();
         _crossRefCache.Clear();
+        _snapCache.Clear();
+        _snapLoading.Clear();
         InvalidatePageDataLoads();
         ClearTextSelection();
         _detailTimer?.Stop();
@@ -2984,6 +2986,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     partial void OnShapeToolChanged(ShapeTool value)
     {
         ClearMeasure();
+        ClearSnapMarker();
         OnPropertyChanged(nameof(IsMeasureTool));
     }
 
@@ -2994,11 +2997,124 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         _ => PdfAnnotationKind.MeasureDistance,
     };
 
-    public void MeasureClick(int pageIndex, PdfPoint point, bool constrain)
+    // --- Snapping to the drawing ----------------------------------------------------------
+    // A page's linework is extracted once (PdfSnapGeometry, background thread, like link data)
+    // the first time the pointer measures over it, then every hover / click snaps to the nearest
+    // corner, crossing, midpoint or line within SnapTolerancePx on screen. Ctrl suspends it;
+    // Shift's 45° constraint takes precedence over it.
+
+    /// <summary>How close (screen pixels) the pointer must be for a snap.</summary>
+    internal const double SnapTolerancePx = 9;
+
+    private readonly Dictionary<int, PdfSnapGeometry> _snapCache = [];
+    private readonly HashSet<int> _snapLoading = [];
+    private int _snapMarkerPage = -1;
+
+    /// <summary>Snap measuring clicks to the drawing's lines (mirrored from the tab; on by default).</summary>
+    [ObservableProperty]
+    private bool _snapEnabled = true;
+
+    partial void OnSnapEnabledChanged(bool value)
+    {
+        if (!value)
+        {
+            ClearSnapMarker();
+        }
+    }
+
+    /// <summary>Use known geometry for a page (tests; also how a background load lands).</summary>
+    internal void SetSnapGeometry(int pageIndex, PdfSnapGeometry geometry) => _snapCache[pageIndex] = geometry;
+
+    /// <summary><paramref name="point"/> snapped to the page's drawing if snapping is on and something
+    /// drawn is close enough; the marker is updated either way. Kicks off the page's geometry load
+    /// on first use (that hover just doesn't snap yet).</summary>
+    private PdfPoint Snap(int pageIndex, PdfPoint point, bool suspend)
+    {
+        if (!SnapEnabled || suspend || pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            ClearSnapMarker();
+            return point;
+        }
+
+        if (!_snapCache.TryGetValue(pageIndex, out PdfSnapGeometry? geometry))
+        {
+            LoadSnapGeometryAsync(pageIndex);
+            ClearSnapMarker();
+            return point;
+        }
+
+        PageSlotViewModel slot = Pages[pageIndex];
+        double scale = SlotScale(slot);
+        PdfSnap? snap = geometry.Snap(point, SnapTolerancePx / Math.Max(0.05, scale));
+        if (snap is not { } s)
+        {
+            ClearSnapMarker();
+            return point;
+        }
+
+        if (_snapMarkerPage != pageIndex)
+        {
+            ClearSnapMarker();
+        }
+
+        (double x, double y) = PdfCoordinates.PageToDevicePoint(s.Point,
+            _document.GetUnrotatedPageSize(pageIndex), _document.GetPageRotation(pageIndex), scale,
+            _document.GetCropOrigin(pageIndex));
+        slot.SnapMarker = new Point(x, y);
+        slot.SnapKind = s.Kind.ToString();
+        _snapMarkerPage = pageIndex;
+        return s.Point;
+    }
+
+    private void ClearSnapMarker()
+    {
+        if (_snapMarkerPage >= 0 && _snapMarkerPage < Pages.Count)
+        {
+            Pages[_snapMarkerPage].SnapMarker = null;
+            Pages[_snapMarkerPage].SnapKind = string.Empty;
+        }
+
+        _snapMarkerPage = -1;
+    }
+
+    private async void LoadSnapGeometryAsync(int pageIndex)
+    {
+        if (!_snapLoading.Add(pageIndex))
+        {
+            return;
+        }
+
+        int generation = _pageDataGeneration;
+        PdfSnapGeometry geometry;
+        try
+        {
+            geometry = await Task.Run(() => PdfSnapGeometry.Extract(_document, pageIndex)).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is PdfException or ObjectDisposedException or OperationCanceledException)
+        {
+            geometry = PdfSnapGeometry.Empty; // nothing to snap to on this page — don't retry forever
+        }
+
+        _snapLoading.Remove(pageIndex);
+        if (!_disposed && generation == _pageDataGeneration)
+        {
+            _snapCache[pageIndex] = geometry;
+        }
+    }
+
+    /// <summary>The pointer left the pages (or the tool was put away): drop the snap marker.</summary>
+    public void MeasurePointerLeft() => ClearSnapMarker();
+
+    public void MeasureClick(int pageIndex, PdfPoint point, bool constrain, bool suspendSnap = false)
     {
         if (!IsMeasureTool || pageIndex < 0 || pageIndex >= Pages.Count)
         {
             return;
+        }
+
+        if (!(constrain && _measurePoints.Count > 0 && pageIndex == _measurePage))
+        {
+            point = Snap(pageIndex, point, suspendSnap);
         }
 
         if (_measurePoints.Count > 0 && pageIndex != _measurePage)
@@ -3029,16 +3145,31 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         UpdateMeasurePreview();
     }
 
-    /// <summary>The pointer moved with a measurement in progress: rubber-band to it.</summary>
-    public void MeasureHover(int pageIndex, PdfPoint point, bool constrain)
+    /// <summary>The pointer moved with a measuring tool armed: show where it would snap, and
+    /// rubber-band the measurement in progress (if any, on that page) to it.</summary>
+    public void MeasureHover(int pageIndex, PdfPoint point, bool constrain, bool suspendSnap = false)
     {
-        if (!HasMeasureInProgress || pageIndex != _measurePage)
+        if (!IsMeasureTool)
         {
             return;
         }
 
-        _measureHover = constrain ? PdfMeasure.Constrain45(_measurePoints[^1], point) : point;
-        UpdateMeasurePreview();
+        bool inProgressHere = HasMeasureInProgress && pageIndex == _measurePage;
+        if (inProgressHere && constrain)
+        {
+            ClearSnapMarker();
+            point = PdfMeasure.Constrain45(_measurePoints[^1], point);
+        }
+        else
+        {
+            point = Snap(pageIndex, point, suspendSnap);
+        }
+
+        if (inProgressHere)
+        {
+            _measureHover = point;
+            UpdateMeasurePreview();
+        }
     }
 
     /// <summary>Finish (double-click / Enter): add the measurement, or report the calibration line.

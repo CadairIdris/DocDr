@@ -578,6 +578,36 @@
                     </Border>
                 </Canvas>
 
+                <!-- Snap marker: where the next measuring click lands on the drawing. Square = end
+                     point, X = crossing, triangle = midpoint, circle = on a line. -->
+                <Canvas IsHitTestVisible="False"
+                        Visibility="{Binding SnapMarker, Converter={StaticResource NotNullToVisibility}}">
+                    <Path Canvas.Left="{Binding SnapMarker.X}" Canvas.Top="{Binding SnapMarker.Y}"
+                          Stroke="#1565C0" StrokeThickness="1.8" Fill="#401565C0">
+                        <Path.Style>
+                            <Style TargetType="Path">
+                                <Setter Property="Data" Value="M-4.5,0 A4.5,4.5 0 1 1 4.5,0 A4.5,4.5 0 1 1 -4.5,0 Z" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SnapKind}" Value="Endpoint">
+                                        <Setter Property="Data" Value="M-5,-5 H5 V5 H-5 Z" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SnapKind}" Value="Intersection">
+                                        <Setter Property="Data" Value="M-5,-5 L5,5 M5,-5 L-5,5" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SnapKind}" Value="Midpoint">
+                                        <Setter Property="Data" Value="M0,-6 L5.5,4 H-5.5 Z" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Path.Style>
+                    </Path>
+                    <Border Canvas.Left="{Binding SnapMarker.X}" Canvas.Top="{Binding SnapMarker.Y}"
+                            Margin="9,-22,0,0" Padding="4,0" CornerRadius="3" Background="#E61565C0">
+                        <TextBlock Text="{Binding SnapKind, Converter={StaticResource SnapKindLabel}}"
+                                   FontSize="10" Foreground="White" />
+                    </Border>
+                </Canvas>
+
                 <!-- Shape being dragged out right now (box, plus a callout's leader + arrow). -->
                 <Canvas IsHitTestVisible="False"
                         Visibility="{Binding ShapePreview, Converter={StaticResource NotNullToVisibility}}">
@@ -717,6 +747,7 @@
                  PreviewMouseUp="PageList_PreviewMouseUp"
                  PreviewMouseLeftButtonDown="PageList_MouseLeftButtonDown"
                  PreviewMouseMove="PageList_MouseMove"
+                 MouseLeave="PageList_MouseLeave"
                  PreviewMouseLeftButtonUp="PageList_MouseLeftButtonUp"
                  PreviewKeyDown="PageList_PreviewKeyDown">
             <ListBox.Style>

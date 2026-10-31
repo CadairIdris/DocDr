@@ -24,6 +24,7 @@
             <conv:ThumbnailBoxHeightConverter x:Key="ThumbnailBoxHeight" />
             <conv:EqualityConverter x:Key="Equality" />
             <conv:NavRailActiveConverter x:Key="NavRailActive" />
+            <conv:SnapKindLabelConverter x:Key="SnapKindLabel" />
 
             <!-- Navigation-section icons, shared by the left rail and (design-time) the panel. -->
             <Geometry x:Key="IconPages">M4,2 H12 V14 H4 Z M6,5.5 H10 M6,8 H10 M6,10.5 H10</Geometry>

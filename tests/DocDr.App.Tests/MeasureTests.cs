@@ -188,3 +188,69 @@ public sealed class MeasureTests : IDisposable
         Assert.Contains("\"'=HYPERLINK(\"\"x\"\")\"", lines[1]);
     }
 }
+
+public sealed class MeasureSnapTests : IDisposable
+{
+    private readonly TempDir _dir = new();
+    private readonly PdfDocument _doc;
+
+    public MeasureSnapTests() =>
+        _doc = PdfDocument.Load(TestPdfBuilder.WritePdf(_dir.File("s.pdf"), ["one"]));
+
+    public void Dispose()
+    {
+        _doc.Dispose();
+        _dir.Dispose();
+    }
+
+    private PdfPaneViewModel Pane()
+    {
+        var pane = new PdfPaneViewModel("Left", _doc, _doc.GetPageSizes(), new FakeRenderQueue())
+        {
+            ShapeTool = ShapeTool.MeasureDistance,
+        };
+        pane.SetSnapGeometry(0, PdfSnapGeometry.FromSegments(
+        [
+            (new PdfPoint(100, 100), new PdfPoint(300, 100)),
+            (new PdfPoint(300, 100), new PdfPoint(300, 200)),
+        ]));
+        return pane;
+    }
+
+    [Fact]
+    public void Clicks_near_drawn_corners_measure_corner_to_corner()
+    {
+        PdfPaneViewModel pane = Pane();
+        pane.MeasureClick(0, new PdfPoint(101.5, 98.7), constrain: false);
+        pane.MeasureClick(0, new PdfPoint(298.9, 101.2), constrain: false);
+
+        PdfAnnotation a = Assert.Single(_doc.GetAnnotations(0));
+        Assert.Equal(new PdfPoint(100, 100), a.Vertices[0]);
+        Assert.Equal(new PdfPoint(300, 100), a.Vertices[1]);
+    }
+
+    [Fact]
+    public void Ctrl_or_turning_snapping_off_leaves_the_click_where_it_was()
+    {
+        PdfPaneViewModel pane = Pane();
+        pane.MeasureClick(0, new PdfPoint(101.5, 98.7), constrain: false, suspendSnap: true);
+        pane.SnapEnabled = false;
+        pane.MeasureClick(0, new PdfPoint(298.9, 101.2), constrain: false);
+
+        PdfAnnotation a = Assert.Single(_doc.GetAnnotations(0));
+        Assert.Equal(new PdfPoint(101.5, 98.7), a.Vertices[0]);
+        Assert.Equal(new PdfPoint(298.9, 101.2), a.Vertices[1]);
+    }
+
+    [Fact]
+    public void Hovering_with_a_tool_armed_shows_the_snap_marker()
+    {
+        PdfPaneViewModel pane = Pane();
+        pane.MeasureHover(0, new PdfPoint(299, 199), constrain: false);
+        Assert.NotNull(pane.Pages[0].SnapMarker);
+        Assert.Equal("Endpoint", pane.Pages[0].SnapKind);
+
+        pane.MeasurePointerLeft();
+        Assert.Null(pane.Pages[0].SnapMarker);
+    }
+}

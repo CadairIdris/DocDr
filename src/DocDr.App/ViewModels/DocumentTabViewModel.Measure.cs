@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Windows;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DocDr.App.Views;
 using DocDr.Pdf;
@@ -27,6 +28,17 @@ public sealed partial class DocumentTabViewModel
     /// <summary>The scale new measurements on <paramref name="pageIndex"/> use.</summary>
     public PdfMeasureScale ScaleFor(int pageIndex) =>
         _pageScales.TryGetValue(pageIndex, out PdfMeasureScale? s) ? s : _documentScale ?? PdfMeasureScale.Default;
+
+    /// <summary>Snap measuring clicks to the drawing's lines (Measure ▾ menu; Ctrl suspends it per
+    /// click). Mirrored to both panes.</summary>
+    [ObservableProperty]
+    private bool _snapToDrawing = true;
+
+    partial void OnSnapToDrawingChanged(bool value)
+    {
+        LeftPane.SnapEnabled = value;
+        RightPane.SnapEnabled = value;
+    }
 
     /// <summary>Whether a measuring tool (or calibration) is armed — lights the toolbar's Measure button.</summary>
     public bool IsMeasureToolActive => ShapeTool is ShapeTool.MeasureDistance or ShapeTool.MeasurePerimeter

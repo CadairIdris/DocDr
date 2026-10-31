@@ -335,8 +335,24 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   ("Scale 1:50 · m"), click → Set scale. Toolbar **Measure ▾** (lit while a tool is armed):
   Distance / Perimeter / Area, Set scale…, Calibrate…, Export measurements (CSV) — `MeasurementsCsv`
   (invariant numbers, formula-leading cells prefixed `'`, RFC-4180 quoting).
-- **Not yet** (pdfcraft has them): snapping to drawn geometry, inserting vertices, compound units
-  (ft-in), different X/Y scales.
+- **Snapping** (`PdfSnapGeometry`, `DocDr.Pdf`): `Extract(doc, page)` walks every path object, recursing
+  into Form XObjects (`FPDFFormObjCountObjects/GetObject`, depth ≤ 16) and composing each object's
+  `FPDFPageObjGetMatrix` with its parent's; reads MOVETO/LINETO/BEZIERTO (**PDFium reports a cubic as
+  three BEZIERTO points** — c1, c2, end — flattened to 8 segments) and `FPDFPathSegmentGetClose`.
+  Capped at `MaxSegments` (20 000 → `Truncated`). Glyphs, images, clipping and OCG visibility are
+  ignored. Indexed in a 24-pt grid (each segment registered in the cells it passes through, sampled
+  at half-cell steps). `Snap(p, tol)` priority: **end point > intersection (among the 48 closest
+  segments) > midpoint > nearest point on a line**, the stronger kind winning even if a weaker one
+  is nearer. App: `PdfPaneViewModel` loads a page's geometry on first measuring hover
+  (`LoadSnapGeometryAsync`, `Task.Run`, dropped if `_pageDataGeneration` moved; cleared in
+  `ReloadPages`), snaps hover + clicks within `SnapTolerancePx` (9 screen px), and draws
+  `PageSlotViewModel.SnapMarker`/`SnapKind` (square / ✕ / triangle / circle + caption). Hover runs
+  whenever a measuring tool is armed (so the marker shows before the first click); **Ctrl
+  suspends, Shift's 45° constraint overrides**, and `DocumentTabViewModel.SnapToDrawing` (Measure ▾
+  "Snap to drawing lines", default on) mirrors to `PdfPaneViewModel.SnapEnabled`. Calibration clicks
+  snap too. Dragging an existing vertex does **not** snap yet.
+- **Not yet** (pdfcraft has them): snapping while dragging a vertex, inserting vertices, compound
+  units (ft-in), different X/Y scales.
 
 ## Per-annotation format toolbar (`AnnotationFormatViewModel`)
 

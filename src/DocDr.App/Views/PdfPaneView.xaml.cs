@@ -858,7 +858,8 @@ public partial class PdfPaneView : UserControl
             }
             else
             {
-                _pane.MeasureClick(target.Slot.PageIndex, pagePoint, shift);
+                _pane.MeasureClick(target.Slot.PageIndex, pagePoint, shift,
+                    suspendSnap: (Keyboard.Modifiers & ModifierKeys.Control) != 0);
             }
 
             PageList.Focus(); // so Enter / Backspace / Esc reach PageList_PreviewKeyDown
@@ -1044,15 +1045,25 @@ public partial class PdfPaneView : UserControl
         }
     }
 
+    private void PageList_MouseLeave(object sender, MouseEventArgs e) => _pane?.MeasurePointerLeft();
+
     private void PageList_MouseMove(object sender, MouseEventArgs e)
     {
-        // Rubber-band the measurement in progress to the pointer (no button held).
-        if (_pane is { HasMeasureInProgress: true } measuring && !_panning
-            && FindSlot(e.OriginalSource as DependencyObject) is { } over)
+        // Measuring: show the snap marker and rubber-band the measurement in progress (no button held).
+        if (_pane is { IsMeasureTool: true } measuring && !_panning)
         {
-            Point at = e.GetPosition(over.Element);
-            measuring.MeasureHover(over.Slot.PageIndex, measuring.DevicePointToPage(over.Slot.PageIndex, at.X, at.Y),
-                (Keyboard.Modifiers & ModifierKeys.Shift) != 0);
+            if (FindSlot(e.OriginalSource as DependencyObject) is { } over)
+            {
+                Point at = e.GetPosition(over.Element);
+                measuring.MeasureHover(over.Slot.PageIndex,
+                    measuring.DevicePointToPage(over.Slot.PageIndex, at.X, at.Y),
+                    constrain: (Keyboard.Modifiers & ModifierKeys.Shift) != 0,
+                    suspendSnap: (Keyboard.Modifiers & ModifierKeys.Control) != 0);
+            }
+            else
+            {
+                measuring.MeasurePointerLeft(); // between pages / over the gutter
+            }
         }
 
         if (_panning && _scrollViewer is not null)

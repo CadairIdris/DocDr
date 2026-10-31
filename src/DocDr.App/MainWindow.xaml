@@ -419,6 +419,11 @@
                                 <MenuItem.Icon><Path Style="{StaticResource MenuIcon}" Data="{StaticResource TbMeasureArea}" /></MenuItem.Icon>
                             </MenuItem>
                             <Separator />
+                            <MenuItem Header="S_nap to drawing lines" IsCheckable="True"
+                                      IsChecked="{Binding SelectedTab.SnapToDrawing, Mode=TwoWay}"
+                                      InputGestureText="hold Ctrl to suspend"
+                                      ToolTip="Snap to corners, crossings, midpoints and lines of the drawing" />
+                            <Separator />
                             <MenuItem Header="Set _scale…" Command="{Binding SelectedTab.SetScaleCommand}" />
                             <MenuItem Header="_Calibrate from a known length…" Command="{Binding SelectedTab.CalibrateScaleCommand}" />
                             <Separator />
