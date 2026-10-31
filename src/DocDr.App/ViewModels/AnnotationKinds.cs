@@ -19,6 +19,7 @@ public static class AnnotationKinds
         PdfAnnotationKind.Ellipse => "Ellipse",
         PdfAnnotationKind.Line => "Line",
         PdfAnnotationKind.Arrow => "Arrow",
+        PdfAnnotationKind.Tick => "Tick",
         _ => "Annotation",
     };
 }

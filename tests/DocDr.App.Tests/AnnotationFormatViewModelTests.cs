@@ -55,6 +55,18 @@ public sealed class AnnotationFormatViewModelTests
     }
 
     [Fact]
+    public void Tick_shows_colour_and_width_but_not_fill_dash_or_text()
+    {
+        (AnnotationFormatViewModel vm, _) = For(PdfAnnotation.NewTick(new PdfRect(40, 140, 58, 122), 0xFF2E7D32, "Rob"));
+
+        Assert.True(vm.ShowStrokeColor);
+        Assert.True(vm.ShowLineWidth);
+        Assert.False(vm.ShowDashed);
+        Assert.False(vm.ShowFill);
+        Assert.False(vm.ShowFontSize);
+    }
+
+    [Fact]
     public void Ctor_does_not_apply_an_edit()
     {
         (_, FakeFormatHost host) = ForRectangle();

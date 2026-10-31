@@ -352,7 +352,14 @@
                                          IsHitTestVisible="False"
                                          Visibility="{Binding IsEllipse, Converter={StaticResource BoolToVisibility}}" />
 
-                                <!-- Selection border for a box-shaped annotation (image / rectangle / ellipse). -->
+                                <!-- Tick (✓). -->
+                                <Polyline Points="{Binding TickPoints}"
+                                          Stroke="{Binding ShapeBrush}" StrokeThickness="{Binding ShapeStrokeThickness}"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                          IsHitTestVisible="False"
+                                          Visibility="{Binding IsTick, Converter={StaticResource BoolToVisibility}}" />
+
+                                <!-- Selection border for a box-shaped annotation (image / rectangle / ellipse / tick). -->
                                 <Rectangle Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
                                            Width="{Binding Box.Width}" Height="{Binding Box.Height}"
                                            Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" IsHitTestVisible="False"

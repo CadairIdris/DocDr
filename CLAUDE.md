@@ -282,6 +282,14 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   leader plumbing — `MoveShape` shifts both endpoints together, `TryHitShapeBox` does a
   segment-distance test). `PdfStampAppearance`: `Ellipse` = 4-bezier path (`kappa`), `Line`/`Arrow`
   = `DrawLeader(..., arrow:)`.
+- **Tick** (`PdfAnnotationKind.Tick`, appended last to the enum; `ShapeTool.Tick`; toolbar ✓ after
+  Cloud) — stamp-backed, box in `Quads[0]`, drawn from `PdfAnnotation.TickPoints(box)` (3 points,
+  shared by `PdfStampAppearance.DrawTick` and the overlay `Polyline`, mapped point-by-point so it
+  turns with a rotated page). `NewTick` sets `LineWidth = DefaultTickLineWidth` (3 pt). **The tool
+  is not one-shot**: a click drops an 18 pt tick (`DefaultTickSize`) centred on the point, a drag
+  sizes it, the new tick isn't selected (no format bar per tick), and Esc / the toolbar disarms.
+  Moves/resizes/selects like the other box kinds; format bar = colour + width. It's markup, so it
+  lists in the Annotations panel.
 - **Shape colour round-trips via `/DocDrShape`, not `FPDFAnnotGetColor`.** `FPDFAnnotGetColor`
   fails on a reloaded stamp that carries an appearance stream, and `ReadColor` then falls back to
   yellow (`0xFFFFD54F`). `PdfShapeCodec.Shape` carries a `uint? Color` (null when 0); `Decode`

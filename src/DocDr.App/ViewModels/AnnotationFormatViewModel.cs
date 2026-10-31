@@ -50,7 +50,7 @@ public sealed partial class AnnotationFormatViewModel : ObservableObject
 
     public bool ShowStrokeColor => true;
 
-    public bool ShowLineWidth => IsBoxShape || IsLine || Kind == PdfAnnotationKind.Cloud || IsText;
+    public bool ShowLineWidth => IsBoxShape || IsLine || Kind is PdfAnnotationKind.Cloud or PdfAnnotationKind.Tick || IsText;
 
     public bool ShowDashed => IsBoxShape || IsLine;
 

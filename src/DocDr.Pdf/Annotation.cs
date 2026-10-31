@@ -48,6 +48,9 @@ public enum PdfAnnotationKind
 
     /// <summary>A straight line with an arrowhead at its end point (a <c>Stamp</c> appearance).</summary>
     Arrow,
+
+    /// <summary>A checker's tick (✓) drawn in its box (a <c>Stamp</c> appearance).</summary>
+    Tick,
 }
 
 /// <summary>
@@ -132,7 +135,7 @@ public sealed record PdfAnnotation(
     public static bool IsStampKind(PdfAnnotationKind kind) => kind is PdfAnnotationKind.TextBox
         or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud or PdfAnnotationKind.Image
         or PdfAnnotationKind.Rectangle or PdfAnnotationKind.Ellipse or PdfAnnotationKind.Line
-        or PdfAnnotationKind.Arrow;
+        or PdfAnnotationKind.Arrow or PdfAnnotationKind.Tick;
 
     /// <summary>PDF annotation subtype number for <see cref="Kind"/> (matches the PDF spec / PDFium).</summary>
     public int Subtype => Kind switch
@@ -275,6 +278,31 @@ public sealed record PdfAnnotation(
 
     public static PdfAnnotation NewEllipse(PdfRect box, uint colorArgb, string? author = null) =>
         NewBoxShape(PdfAnnotationKind.Ellipse, box, colorArgb, author);
+
+    /// <summary>Default stroke width (points) for a new tick — bolder than an outline so it reads as
+    /// a deliberate mark at drawing-checking zoom.</summary>
+    public const double DefaultTickLineWidth = 3;
+
+    public static PdfAnnotation NewTick(PdfRect box, uint colorArgb, string? author = null) =>
+        NewBoxShape(PdfAnnotationKind.Tick, box, colorArgb, author) with { LineWidth = DefaultTickLineWidth };
+
+    /// <summary>
+    /// The tick's three points (short stroke down, long stroke up) inside <paramref name="box"/>, in
+    /// the same unrotated page space as the box (bottom-left origin). One definition shared by the
+    /// PDF appearance and the on-screen overlay so they can't drift apart.
+    /// </summary>
+    public static IReadOnlyList<PdfPoint> TickPoints(PdfRect box)
+    {
+        double left = Math.Min(box.Left, box.Right), right = Math.Max(box.Left, box.Right);
+        double bottom = Math.Min(box.Top, box.Bottom), top = Math.Max(box.Top, box.Bottom);
+        double w = right - left, h = top - bottom;
+        return
+        [
+            new PdfPoint(left + (0.12 * w), bottom + (0.52 * h)),
+            new PdfPoint(left + (0.40 * w), bottom + (0.16 * h)),
+            new PdfPoint(left + (0.90 * w), bottom + (0.88 * h)),
+        ];
+    }
 
     private static PdfAnnotation NewBoxShape(PdfAnnotationKind kind, PdfRect box, uint colorArgb, string? author)
     {

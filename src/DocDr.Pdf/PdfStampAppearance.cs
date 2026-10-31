@@ -15,6 +15,7 @@ internal static class PdfStampAppearance
     private const int DrawFillNone = 0;
     private const int DrawFillWinding = 2;
     private const int LineJoinRound = 1;
+    private const int LineCapRound = 1;
     private const double CloudBumpRadius = 8.0;
 
     public static void Build(
@@ -66,6 +67,10 @@ internal static class PdfStampAppearance
                 DrawLeader(annot, a.Leader, r, g, b, w, dashed, arrow: true);
                 break;
 
+            case PdfAnnotationKind.Tick:
+                DrawTick(annot, box, r, g, b, w);
+                break;
+
             case PdfAnnotationKind.Image:
                 DrawImage(doc, annot, a, box, imageDecoder);
                 break;
@@ -104,6 +109,16 @@ internal static class PdfStampAppearance
         {
             pin.Free();
         }
+    }
+
+    private static void DrawTick(FpdfAnnotationT annot, PdfRect box, uint r, uint g, uint b, float width)
+    {
+        IReadOnlyList<PdfPoint> pts = PdfAnnotation.TickPoints(box);
+        FpdfPageobjectT path = fpdf_edit.FPDFPageObjCreateNewPath((float)pts[0].X, (float)pts[0].Y);
+        fpdf_edit.FPDFPathLineTo(path, (float)pts[1].X, (float)pts[1].Y);
+        fpdf_edit.FPDFPathLineTo(path, (float)pts[2].X, (float)pts[2].Y);
+        fpdf_edit.FPDFPageObjSetLineCap(path, LineCapRound);
+        StrokePath(annot, path, r, g, b, width, stroke: true, fill: null);
     }
 
     private static void DrawEllipse(

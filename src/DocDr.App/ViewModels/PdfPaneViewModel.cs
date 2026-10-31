@@ -1399,6 +1399,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                 var endpointHandles = new List<Rect>();
                 Rect leaderTipHandle = default;
                 Geometry? cloud = null;
+                var tick = new PointCollection();
 
                 if (annotation.Kind == PdfAnnotationKind.Comment)
                 {
@@ -1435,7 +1436,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                 }
                 else if (annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout
                     or PdfAnnotationKind.Cloud or PdfAnnotationKind.Image or PdfAnnotationKind.Rectangle
-                    or PdfAnnotationKind.Ellipse)
+                    or PdfAnnotationKind.Ellipse or PdfAnnotationKind.Tick)
                 {
                     DeviceRect d = PdfCoordinates.PageToDevice(annotation.Box, unrotated, rotation, scale, crop);
                     box = new Rect(d.X, d.Y, d.Width, d.Height);
@@ -1458,6 +1459,17 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                     if (annotation.Kind == PdfAnnotationKind.Cloud)
                     {
                         cloud = ShapeGeometry.Cloud(box, 8 * scale);
+                    }
+
+                    if (annotation.Kind == PdfAnnotationKind.Tick)
+                    {
+                        // Page-space points mapped one by one, so a tick on a rotated page turns
+                        // with the page exactly as its saved appearance does.
+                        foreach (PdfPoint p in PdfAnnotation.TickPoints(annotation.Box))
+                        {
+                            (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale, crop);
+                            tick.Add(new Point(x, y));
+                        }
                     }
 
                     if (annotation.Id == SelectedAnnotationId)
@@ -1510,6 +1522,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                     EndpointHandles = endpointHandles,
                     LeaderTipHandle = leaderTipHandle,
                     CloudGeometry = cloud,
+                    TickPoints = tick,
                     BoxText = annotation.Contents ?? string.Empty,
                     BoxFontSize = Math.Max(4, (annotation.FontSize > 0 ? annotation.FontSize : PdfAnnotation.DefaultFontSize) * scale),
                     NoteText = annotation.Contents ?? string.Empty,
@@ -2059,6 +2072,9 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     [ObservableProperty]
     private ShapeTool _shapeTool;
 
+    /// <summary>Side (points) of a tick dropped with a plain click.</summary>
+    internal const double DefaultTickSize = 18;
+
     private int _shapePage = -1;
     private PdfPoint _shapeAnchor;
     private PdfPoint _shapeHead;
@@ -2095,8 +2111,24 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             return;
         }
 
-        ShapeTool = ShapeTool.None; // one-shot
         uint shapeColour = CurrentAnnotationColorArgb;
+
+        if (tool == ShapeTool.Tick)
+        {
+            // Not one-shot: checking a drawing means ticking item after item. A click drops a
+            // standard-size tick centred on the point; a drag sizes it. Not selected, so no format
+            // bar pops up per tick (click one afterwards to restyle it). Esc / the toolbar disarms.
+            var dragged = new PdfRect(
+                Math.Min(a.X, b.X), Math.Max(a.Y, b.Y), Math.Max(a.X, b.X), Math.Min(a.Y, b.Y));
+            PdfRect tickBox = dragged.Width >= 8 && dragged.Height >= 8
+                ? dragged
+                : new PdfRect(a.X - (DefaultTickSize / 2), a.Y + (DefaultTickSize / 2),
+                              a.X + (DefaultTickSize / 2), a.Y - (DefaultTickSize / 2));
+            _document.AddAnnotation(page, PdfAnnotation.NewTick(tickBox, shapeColour, Author));
+            return;
+        }
+
+        ShapeTool = ShapeTool.None; // one-shot
 
         if (tool is ShapeTool.Line or ShapeTool.Arrow)
         {
@@ -2380,7 +2412,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
             if (a.Kind is not (PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout
                 or PdfAnnotationKind.Cloud or PdfAnnotationKind.Comment or PdfAnnotationKind.Image
-                or PdfAnnotationKind.Rectangle or PdfAnnotationKind.Ellipse))
+                or PdfAnnotationKind.Rectangle or PdfAnnotationKind.Ellipse or PdfAnnotationKind.Tick))
             {
                 continue;
             }
@@ -2491,7 +2523,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         PdfAnnotation? a = _document.GetAnnotations(pageIndex).FirstOrDefault(x => x.Id == sel);
         if (a is null || a.Kind is not (PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout
             or PdfAnnotationKind.Cloud or PdfAnnotationKind.Image or PdfAnnotationKind.Rectangle
-            or PdfAnnotationKind.Ellipse))
+            or PdfAnnotationKind.Ellipse or PdfAnnotationKind.Tick))
         {
             return null;
         }

@@ -151,6 +151,7 @@
         <Geometry x:Key="TbTextBox">M2.5,3.5 H13.5 V12.5 H2.5 Z M5.5,6 H10.5 M8,6 V10.5</Geometry>
         <Geometry x:Key="TbCallout">M6,2.5 H14 V9 H6 Z M7.5,9 L2.5,13.5</Geometry>
         <Geometry x:Key="TbCloud">M4.5,12 A2.5,2.5 0 0 1 3.5,7 A2.8,2.8 0 0 1 8,4.5 A3,3 0 0 1 12.8,6.8 A2.6,2.6 0 0 1 12,12 Z</Geometry>
+        <Geometry x:Key="TbTick">M3,8.5 L6.5,12 L13,4</Geometry>
         <Geometry x:Key="TbRectangle">M2.5,4 H13.5 V12 H2.5 Z</Geometry>
         <Geometry x:Key="TbEllipse">M2.5,8 A5.5,4 0 1 1 13.5,8 A5.5,4 0 1 1 2.5,8 Z</Geometry>
         <Geometry x:Key="TbLine">M3,13 L13,3</Geometry>
@@ -307,6 +308,14 @@
                               AutomationProperties.Name="Cloud tool"
                               ToolTip="Cloud — drag a rectangle to cloud a revised area">
                     <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbCloud}" />
+                </ToggleButton>
+                <ToggleButton Padding="6,4" Margin="2,0,0,0" Style="{StaticResource ToolToggle}"
+                              IsEnabled="{Binding HasTabs}"
+                              IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
+                                          Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Tick}"
+                              AutomationProperties.Name="Tick tool"
+                              ToolTip="Tick — click to tick an item (drag to size it). Stays on for the next one; Esc to stop.">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbTick}" StrokeThickness="1.8" />
                 </ToggleButton>
                 <!-- Shapes split button: the toggle re-arms the last basic shape used; the ▾
                      picks a different one. -->

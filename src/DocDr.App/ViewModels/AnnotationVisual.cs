@@ -98,6 +98,11 @@ public sealed record AnnotationVisual(
 
     public bool IsEllipse => Kind == PdfAnnotationKind.Ellipse;
 
+    public bool IsTick => Kind == PdfAnnotationKind.Tick;
+
+    /// <summary>The tick's three points in device space (see <see cref="PdfAnnotation.TickPoints"/>).</summary>
+    public PointCollection TickPoints { get; init; } = [];
+
     /// <summary>A straight line or arrow — drawn from <see cref="Leader"/>.</summary>
     public bool IsLineShape => Kind is PdfAnnotationKind.Line or PdfAnnotationKind.Arrow;
 
@@ -106,7 +111,7 @@ public sealed record AnnotationVisual(
 
     /// <summary>A selected box-shaped annotation shows corner resize handles + a selection border.</summary>
     public bool ShowBoxSelection => IsSelected && Kind is PdfAnnotationKind.Image
-        or PdfAnnotationKind.Rectangle or PdfAnnotationKind.Ellipse;
+        or PdfAnnotationKind.Rectangle or PdfAnnotationKind.Ellipse or PdfAnnotationKind.Tick;
 
     /// <summary>A standalone sticky note — drawn as a coloured pin the user can drag.</summary>
     public bool IsNote => Kind == PdfAnnotationKind.Comment;
