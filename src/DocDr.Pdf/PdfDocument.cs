@@ -141,6 +141,10 @@ public sealed class PdfDocument : IDisposable
 
     private int _contentVersion;
 
+    /// <summary>Per-page extracted text, reused across searches / clause scans / chunk export;
+    /// self-invalidating on <see cref="ContentVersion"/>. See <see cref="PdfPageTextCache"/>.</summary>
+    internal PdfPageTextCache TextCache { get; } = new();
+
     /// <summary>Bumped every time <see cref="Changed"/> is raised (page edits, rotation, trim,
     /// watermark strip, OCR, undo/redo of any of those) — i.e. whenever a page's rendered pixels
     /// may differ. A render cache keys on it so a render that was already in flight when the pages

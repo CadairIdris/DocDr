@@ -186,6 +186,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         SearchText = string.Empty;
         _searchCts?.Cancel();
         _searchCts = null;
+        IsSearching = false; // the cancelled run's finally no longer owns _searchCts
         _charBoxCache.Clear();
         _charBoxOrder.Clear();
         _linkCache.Clear();
@@ -667,41 +668,74 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         ClearSearch();
     }
 
+    /// <summary>The term + case option the current <see cref="_hits"/> came from — Enter on an
+    /// unchanged query steps to the next match instead of searching again.</summary>
+    private (string Term, bool MatchCase)? _searchedQuery;
+
+    /// <summary>
+    /// Search the document, streaming results in as pages are scanned (<see cref="PdfSearch.Search"/>):
+    /// it starts at the page being read and wraps round, and the first batch selects the first
+    /// match at or after that page — so on a big standard the nearest hit shows almost at once.
+    /// Later batches only add to the list and the count; they never move the view (the reader may
+    /// already be looking at that first hit, or have moved on). Page text is cached per document,
+    /// so refining or repeating a search only re-reads pages that match.
+    /// </summary>
     [RelayCommand]
     private async Task SearchAsync()
     {
+        string term = SearchText;
+
+        // Enter again on the same query = next match (Ctrl+F, type, Enter, Enter, Enter…).
+        if (!IsSearching && _hits.Count > 0 && _searchedQuery == (term, MatchCase))
+        {
+            MoveToHit((_activeHit + 1) % _hits.Count);
+            return;
+        }
+
         _searchCts?.Cancel();
         var cts = new CancellationTokenSource();
         _searchCts = cts;
 
         ResetSearchState();
 
-        string term = SearchText;
         if (string.IsNullOrWhiteSpace(term))
         {
             OnPropertyChanged(nameof(MatchSummary));
             return;
         }
 
+        int startPage = Mode == ViewMode.TwoPage ? SpreadLeftIndex : Math.Max(0, CurrentPage - 1);
+        SynchronizationContext? ui = SynchronizationContext.Current;
+
+        void OnBatch(IReadOnlyList<SearchHit> batch)
+        {
+            // Worker thread. Batches are ≤ ~8/s (PdfSearch.BatchInterval), so posting each is cheap.
+            ui?.Post(_ =>
+            {
+                if (ReferenceEquals(_searchCts, cts) && !cts.IsCancellationRequested)
+                {
+                    MergeSearchHits(batch, startPage);
+                }
+            }, null);
+        }
+
         IsSearching = true;
         try
         {
             PdfSearchOptions options = MatchCase ? PdfSearchOptions.MatchCase : PdfSearchOptions.None;
-            IReadOnlyList<SearchHit> hits =
-                await Task.Run(() => _search.FindAll(term, options, cts.Token), cts.Token).ConfigureAwait(true);
+            IReadOnlyList<SearchHit> hits = await Task.Run(
+                () => _search.Search(term, options, startPage, ui is null ? null : new Action<IReadOnlyList<SearchHit>>(OnBatch), cts.Token),
+                cts.Token).ConfigureAwait(true);
 
             if (cts.Token.IsCancellationRequested)
             {
                 return;
             }
 
-            _hits = hits;
-            TotalMatches = hits.Count;
-            ApplyHighlights();
-            if (hits.Count > 0)
-            {
-                MoveToHit(0);
-            }
+            // The complete, sorted list — normally identical to what the batches built up (they're
+            // posted ahead of this continuation), so this just settles the count and selection.
+            ReplaceSearchHits(hits, startPage);
+            _searchedQuery = (term, MatchCase);
         }
         catch (OperationCanceledException)
         {
@@ -717,13 +751,80 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         }
     }
 
+    private static int CompareHits(SearchHit a, SearchHit b) =>
+        a.PageIndex != b.PageIndex ? a.PageIndex.CompareTo(b.PageIndex) : a.CharStart.CompareTo(b.CharStart);
+
+    private void MergeSearchHits(IReadOnlyList<SearchHit> batch, int startPage)
+    {
+        var merged = new List<SearchHit>(_hits.Count + batch.Count);
+        merged.AddRange(_hits);
+        merged.AddRange(batch);
+        merged.Sort(CompareHits);
+        ReplaceSearchHits(merged, startPage);
+    }
+
+    /// <summary>Swap in a new hit list, keeping the selected hit selected (by identity — page +
+    /// char range). With nothing selected yet, select the first hit at or after
+    /// <paramref name="startPage"/> (wrapping) and scroll to it; otherwise only the count, the
+    /// "n / total" label and the highlights update.</summary>
+    private void ReplaceSearchHits(IReadOnlyList<SearchHit> hits, int startPage)
+    {
+        SearchHit? active = _activeHit >= 0 && _activeHit < _hits.Count ? _hits[_activeHit] : null;
+        _hits = hits;
+        TotalMatches = hits.Count;
+        if (hits.Count == 0)
+        {
+            _activeHit = -1;
+            CurrentMatchNumber = 0;
+            ApplyHighlights();
+            OnPropertyChanged(nameof(MatchSummary));
+            return;
+        }
+
+        if (active is null)
+        {
+            int first = 0;
+            for (int i = 0; i < hits.Count; i++)
+            {
+                if (hits[i].PageIndex >= startPage)
+                {
+                    first = i;
+                    break;
+                }
+            }
+
+            MoveToHit(first);
+            return;
+        }
+
+        int kept = -1;
+        for (int i = 0; i < hits.Count; i++)
+        {
+            if (hits[i].PageIndex == active.PageIndex && hits[i].CharStart == active.CharStart
+                && hits[i].CharCount == active.CharCount)
+            {
+                kept = i;
+                break;
+            }
+        }
+
+        _activeHit = kept >= 0 ? kept : 0;
+        CurrentMatchNumber = _activeHit + 1;
+        ApplyHighlights();
+    }
+
     [RelayCommand(CanExecute = nameof(CanNavigateMatches))]
     private async Task NextMatch()
     {
-        // Pressing Prev/Next with a typed-but-not-yet-run term should search, not do nothing.
+        // Pressing Prev/Next with a typed-but-not-yet-run term should search, not do nothing —
+        // unless a search is already streaming in, which would only be restarted from scratch.
         if (_hits.Count == 0)
         {
-            await SearchAsync();
+            if (!IsSearching)
+            {
+                await SearchAsync();
+            }
+
             return;
         }
 
@@ -735,10 +836,13 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     {
         if (_hits.Count == 0)
         {
-            await SearchAsync();
-            if (_hits.Count > 0)
+            if (!IsSearching)
             {
-                MoveToHit(_hits.Count - 1);
+                await SearchAsync();
+                if (_hits.Count > 0)
+                {
+                    MoveToHit(_hits.Count - 1);
+                }
             }
 
             return;
@@ -820,6 +924,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     {
         _searchCts?.Cancel();
         _searchCts = null;
+        IsSearching = false; // the cancelled run's finally no longer owns _searchCts, so it won't
         SearchText = string.Empty;
         ResetSearchState();
         OnPropertyChanged(nameof(MatchSummary));
@@ -827,6 +932,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
     private void ResetSearchState()
     {
+        _searchedQuery = null;
         _hits = [];
         _activeHit = -1;
         TotalMatches = 0;

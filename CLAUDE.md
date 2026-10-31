@@ -70,8 +70,9 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   totals) via `IProgress<T>` — no persistent index; every run is a fresh scan (there's no SQLite
   catalog yet to cache extracted text in). Per file it's just `PdfDocument.Load` +
   `new PdfSearch(doc).FindAll(term, options, ct, includeSnippets: true)`; `SearchHit.Snippet`
-  (new, opt-in — the in-pane search leaves it off) is captured in the same `FPDFTextFindNext`
-  pass as the rects, so there's no second text-extraction cost per hit.
+  (new, opt-in — the in-pane search leaves it off) is captured in the same text-page load as the
+  rects, so there's no second text-extraction cost per hit. (Each folder file is a fresh `Load`, so
+  it always takes the cold path below — one text-page load per page, same as before.)
 - **Parallelism is deliberately capped low** (`min(4, ProcessorCount)`, via `Parallel.ForEach`)
   — every PDFium call is still serialised through `PdfiumLibrary.SyncRoot`, so extra workers
   can't parallelise the PDFium work itself. What they overlap is one file's disk read /
@@ -115,6 +116,40 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   small pad (`LinePaddingFraction`, 12% of that line's height, applied after the merge so it can't
   affect the same-line decision) — a highlight sitting exactly flush against the glyph edges reads
   as slightly clipped, particularly on ascenders/descenders.
+
+## Text cache + managed search (`PdfPageTextCache` / `PdfTextMatcher` / `PdfSearch.Search`)
+
+- **Each page's text is extracted once per document** — `PdfDocument.TextCache` (internal
+  `PdfPageTextCache`: page → `FPDFText_GetText` string, so string index == PDFium char index).
+  **Keyed on `ContentVersion`**: a lookup/store at a newer version drops every entry; a store tagged
+  with an older version is ignored (text read before an edit can't be served after it). Strings
+  only (a 400-page standard ≈ a few MB; 64 M-char backstop); char boxes are *not* cached.
+  `PdfTextExtractor.GetPageText` goes through it, so the clause scan, RAG chunker, OCR
+  `PagesWithoutText` and headings all share one extraction with search.
+- **Search no longer runs `FPDFText_FindStart` per page per query.** `PdfSearch.SearchPage`:
+  cached text → `PdfTextMatcher.Find` in managed code, and PDFium is opened **only for a page with
+  a match** (for its highlight boxes); uncached → one text-page load reads + caches the text and
+  matches + boxes in that same load (so a cold search costs what the old loop did).
+  `PdfSearch.PagesOpened` (internal) lets tests assert a warm search opens only matching pages.
+  A page whose `FPDFTextCountChars` ≠ text length (non-BMP glyphs → surrogate pairs) falls back to
+  PDFium's own find (`NativeFind`).
+- **Matcher semantics** (`PdfTextMatcher`): term trimmed; any whitespace run in page text (incl.
+  PDFium's `\r\n` between lines, and NULs) matches any whitespace run in the term — so a phrase
+  split across a line break *is* found (PDFium's find didn't); `MatchCase` → ordinal, else
+  `OrdinalIgnoreCase`; `MatchWholeWord` → letter/digit boundaries; `ConsecutiveMatches` →
+  overlapping. A match maps back through the collapse map to a PDFium `(start, count)`.
+- **Progressive**: `PdfSearch.Search(term, options, startPage, onBatch, ct)` visits `startPage`…end
+  then wraps, hands new hits to `onBatch` on the worker thread (first hit at once, then ≤ every
+  `BatchInterval` 120 ms, then a final flush) and returns all hits sorted. `FindAll` = `Search`
+  from page 0 with no callback.
+- **Pane** (`PdfPaneViewModel.SearchAsync`): starts at the current page (spread-left in TwoPage),
+  posts batches to the UI `SynchronizationContext` → `MergeSearchHits` → `ReplaceSearchHits`, which
+  keeps the selected hit by identity and **only the first batch selects + scrolls** (first hit at/
+  after the start page) — later batches update the count/highlights and never move the view. The
+  final `await` result replaces the list (same contents; batches were posted ahead of it).
+  **Enter on an unchanged query (`_searchedQuery`) = next match**, not a re-search; Prev/Next don't
+  restart a search that's still streaming. `ClearSearch` resets `IsSearching` itself (a cancelled
+  run's `finally` no longer owns `_searchCts`).
 
 ## Main toolbar (`MainWindow.xaml`)
 

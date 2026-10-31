@@ -11,4 +11,9 @@
     <PackageReference Include="PDFiumCore" Version="4688.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Pure helpers (PdfTextMatcher, PdfPageTextCache) are unit-tested directly. -->
+    <InternalsVisibleTo Include="DocDr.Pdf.Tests" />
+  </ItemGroup>
+
 </Project>
