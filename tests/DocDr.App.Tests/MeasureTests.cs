@@ -302,10 +302,13 @@ public sealed class MeasureSnapTests : IDisposable
         _doc.AddAnnotation(0, PdfAnnotation.NewLine(new PdfPoint(150, 150), new PdfPoint(250, 150), 0xFF000000));
         PdfAnnotation line = Assert.Single(_doc.GetAnnotations(0));
 
-        pane.BeginLineEndpointMove(line.Id, 1);
+        // A line's Leader is [to, from] (index 0 = the arrowhead end): drag the (250,150) end to
+        // just short of the (300,200) corner, where a measurement vertex would snap.
+        Assert.Equal(new PdfPoint(250, 150), line.Leader[0]);
+        pane.BeginLineEndpointMove(line.Id, 0);
         pane.EndLineEndpointMove(48.6, 51.1);
 
-        PdfPoint end = Assert.Single(_doc.GetAnnotations(0)).Leader[1];
+        PdfPoint end = Assert.Single(_doc.GetAnnotations(0)).Leader[0];
         Assert.Equal(298.6, end.X, 6);
         Assert.Equal(201.1, end.Y, 6);
     }
