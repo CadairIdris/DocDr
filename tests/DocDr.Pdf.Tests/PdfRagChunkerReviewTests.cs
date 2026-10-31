@@ -65,11 +65,34 @@ public sealed class PdfRagChunkerReviewTests
     [Fact]
     public void Unmapped_hyphen_and_unicode_hyphens_become_plain_hyphens()
     {
-        Assert.Equal("y-direction", Line([.. Text("y", 100), C(0x02, 106), .. Text("direction", 112)]));
+        // A flat (dash-shaped) unmapped glyph between letters is a hyphen.
+        Assert.Equal("y-direction", Line([.. Text("y", 100), C(0x02, 106, 403, h: 1), .. Text("direction", 112)]));
         Assert.Equal("1992-1-1", Line([.. Text("1992", 100), C(0x2011, 124), C('1', 130), C(0x2011, 136), C('1', 142)]));
-        // Not between letters: still a control character, counted as unmapped.
-        Assert.Equal("2\u00023", Line([C('2', 100), C(0x02, 106), C('3', 112)]));
-        Assert.Equal(1, PdfTextQuality.Count("2\u00023", LatinDoc()).Unmapped);
+    }
+
+    [Fact]
+    public void Other_control_characters_become_a_visible_counted_replacement_character()
+    {
+        // A full-height unmapped glyph (a ligature, a symbol) can't be known: "�", not an invisible \x03.
+        string text = Line([.. Text("e", 100), C(0x03, 106), .. Text("ect", 112), C(' ', 130), C(0x05, 136)]);
+        Assert.Equal("e\uFFFDect \uFFFD", text);
+        Assert.Equal(2, PdfTextQuality.Count(text, LatinDoc()).Unmapped);
+    }
+
+    [Fact]
+    public void An_overprint_pass_on_a_later_line_is_still_dropped()
+    {
+        // "fck" drawn, then drawn again as a separate run PDFium reports as a new line.
+        var chars = new List<PdfChunkText.RawChar>();
+        chars.AddRange(Text("fck = 30", 100));
+        chars.AddRange(NewLine());
+        chars.AddRange(Text("fck", 100));
+
+        ChunkPage page = PdfChunkText.BuildPage(chars, 0, 792);
+
+        Assert.Equal("fck = 30", page.Lines[0].Text);
+        Assert.Equal(string.Empty, page.Lines[1].Text);
+        Assert.Equal(3, page.DoubledGlyphsRemoved);
     }
 
     // --- Equation location -------------------------------------------------------------------
@@ -83,7 +106,8 @@ public sealed class PdfRagChunkerReviewTests
         chars.AddRange(NewLine());
         chars.AddRange(Text("l0", 126, 140));
         chars.AddRange(NewLine());
-        chars.AddRange(Text("2 (O.7)", 520, 149));
+        chars.AddRange(Text("2", 130, 149));   // l0's exponent…
+        chars.AddRange(Text(" (O.7)", 526, 149)); // …then the label far off at the margin
 
         ChunkPage page = PdfChunkText.BuildPage(chars, 0, 792, left: 0, right: 612);
 
@@ -113,6 +137,31 @@ public sealed class PdfRagChunkerReviewTests
         Assert.Equal("(O.1)", eq.Label);
         Assert.False(eq.Stacked);
         Assert.Equal("FVB = FVBB", eq.RawText);
+    }
+
+    [Fact]
+    public void Paragraph_numbers_and_clause_paragraph_references_are_not_equation_labels()
+    {
+        // Contents of a clause list: "4.2.1.5(3) 4.3.1(1) 4.3.2(1)" and a bare "(3)" at the right margin.
+        var chars = new List<PdfChunkText.RawChar>();
+        chars.AddRange(Text("4.2.1.5(3) 4.3.1(1) 4.3.2(1)", 90, 500));
+        chars.AddRange(NewLine());
+        chars.AddRange(Text("(3)", 540, 450));
+
+        Assert.Empty(PdfChunkText.BuildPage(chars, 0, 792, left: 0, right: 612).Equations);
+    }
+
+    [Fact]
+    public void A_label_drawn_before_its_equation_or_with_an_N_suffix_is_found()
+    {
+        // The stream draws the label first, so the text reads "(6.3N) vmin = 0,035 k3/2 fck1/2".
+        var chars = new List<PdfChunkText.RawChar>();
+        chars.AddRange(Text("(6.3N)", 520, 300));
+        chars.AddRange(Text("vmin = 0,035 k3/2 fck1/2", 90, 300));
+
+        ChunkEquation eq = Assert.Single(PdfChunkText.BuildPage(chars, 0, 792, left: 0, right: 612).Equations);
+        Assert.Equal("(6.3N)", eq.Label);
+        Assert.Equal("vmin = 0,035 k3/2 fck1/2", eq.RawText);
     }
 
     [Theory]
@@ -246,6 +295,45 @@ public sealed class PdfRagChunkerReviewTests
 
         Assert.All(chunks, c => Assert.DoesNotContain("Gk", c.SectionTitle));
         Assert.Contains(chunks, c => c.SectionTitle == "Chapter 3 Analysis");
+    }
+
+    [Fact]
+    public void Headings_on_the_contents_page_are_ignored_and_the_body_heading_starts_the_section()
+    {
+        using var ws = new TempWorkspace();
+        string contents = string.Join('\n',
+            "Contents",
+            "6.1. General 95",
+            "6.2. Beams 96",
+            "6.3. Torsion 99",
+            "6.4. Punching 101",
+            "6.5.5. Reinforcement for punching shear 103");
+        string[] pages =
+        [
+            contents,
+            "6.4. Punching\n" + Para("punching", 1),
+            Para("punching", 2),
+            "6.5.5. Reinforcement for punching shear\n" + Para("reinforcement", 1),
+            "Example 6.2\n" + Para("reinforcement", 2),
+        ];
+        // The outline was made from the contents: every entry carries its page number and points at
+        // the contents page.
+        using var doc = PdfDocument.Load(TestPdfBuilder.WritePdf(ws.Path("dg.pdf"), pages, bookmarks:
+        [
+            new TestPdfBuilder.Bookmark("6.1. General 95", 0),
+            new TestPdfBuilder.Bookmark("6.4. Punching 101", 0),
+            new TestPdfBuilder.Bookmark("6.5.5. Reinforcement for punching shear 103", 0),
+        ]));
+
+        var chunks = PdfRagChunker.Chunk(doc,
+            new RagChunkOptions { MinChunkTokens = 1, IncludeSectionHeading = false }).Chunks;
+
+        Assert.All(chunks, c => Assert.DoesNotContain("Contents", c.Text));
+        Assert.All(chunks, c => Assert.DoesNotMatch(@"\d{3}$", c.SectionTitle));
+        RagChunk example = Assert.Single(chunks, c => c.Text.Contains("Example 6.2", StringComparison.Ordinal));
+        Assert.Equal("6.5.5. Reinforcement for punching shear", example.SectionTitle);
+        RagChunk punching = Assert.Single(chunks, c => c.Text.Contains("Paragraph 2 on punching", StringComparison.Ordinal));
+        Assert.Equal("6.4. Punching", punching.SectionTitle);
     }
 
     [Fact]

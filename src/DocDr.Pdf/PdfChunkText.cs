@@ -55,17 +55,17 @@ internal static partial class PdfChunkText
     /// <summary>Fraction of the page height at the top and bottom treated as the header / footer band.</summary>
     internal const double MarginBand = 0.08;
 
-    /// <summary>How many recently kept glyphs a new one is compared with for doubling.</summary>
-    private const int DuplicateWindow = 12;
-
     /// <summary>Intersection-over-union above which two identical glyphs are the same drawing.</summary>
-    private const double DuplicateOverlap = 0.6;
+    private const double DuplicateOverlap = 0.5;
 
     /// <summary>One PDFium text-page char: its UTF-16 unit (FPDFText_GetUnicode) and box.</summary>
     internal readonly record struct RawChar(int Unit, PdfRect Box);
 
-    /// <summary>An equation label at the end of a line: "(8.94)", "(O.7)", "(6.2.a)", "(6.2a)", "(B.11)".</summary>
-    [GeneratedRegex(@"\(\s*(?:[A-Z]\.)?\d{1,3}(?:\.\d{1,3})*(?:\.?[a-z])?\s*\)\s*$")]
+    /// <summary>An equation label: "(8.94)", "(O.7)", "(6.2.a)", "(6.2a)", "(B.11)", "(6.3N)". A dot is
+    /// required, so paragraph numbers "(3)" aren't labels; it must stand alone ("4.3.2(1)" is a
+    /// clause-paragraph reference). Letters may touch it — PDFium doesn't always put a space
+    /// before a far-off label — the position test in <see cref="FindEquations"/> decides.</summary>
+    [GeneratedRegex(@"(?<![\d.])\(\s*(?:[A-Z]{1,2}|\d{1,3})\.\d{1,3}(?:\.\d{1,3})*(?:\.?[a-z])?N?\s*\)(?!\()")]
     private static partial Regex EquationLabel();
 
     // A word of 4+ lowercase letters — two or more make a line prose, not an equation fragment.
@@ -154,7 +154,11 @@ internal static partial class PdfChunkText
         double lineLow = double.MaxValue, lineHigh = double.MinValue;
         double lineLeft = double.MaxValue, lineRight = double.MinValue;
         bool lineMath = false;
-        var recent = new List<(int Cp, PdfRect Box)>(DuplicateWindow);
+        // Every glyph kept on the page, by code point: an overprint / fake-bold pass is often a
+        // separate run that PDFium reports as a new line, so the check can't stop at the line.
+        var kept = new Dictionary<int, List<PdfRect>>();
+        (int Cp, PdfRect Box) lastKept = (-1, default);
+        double letterHeight = 0; // height of the last kept letter/digit — a hyphen glyph is much flatter
         int doubled = 0;
         int lastPiece = 0; // family of the bracket / bar piece just emitted (0 = none)
 
@@ -170,7 +174,6 @@ internal static partial class PdfChunkText
             lineLow = lineLeft = double.MaxValue;
             lineHigh = lineRight = double.MinValue;
             lineMath = false;
-            recent.Clear();
             lastPiece = 0;
         }
 
@@ -210,17 +213,19 @@ internal static partial class PdfChunkText
             }
             else
             {
-                if (IsDuplicate(cp, box, recent))
+                if (IsDuplicate(cp, box, kept, lastKept))
                 {
                     doubled++;
                     continue;
                 }
 
-                recent.Add((cp, box));
-                if (recent.Count > DuplicateWindow)
+                if (!kept.TryGetValue(cp, out List<PdfRect>? boxes))
                 {
-                    recent.RemoveAt(0);
+                    kept[cp] = boxes = [];
                 }
+
+                boxes.Add(box);
+                lastKept = (cp, box);
 
                 (string? piece, int family) = SymbolPiece(cp);
                 if (piece is not null)
@@ -237,11 +242,20 @@ internal static partial class PdfChunkText
                 else
                 {
                     lastPiece = 0;
-                    if (cp == 0x02 && line.Length > 0 && char.IsLetter(line[^1])
-                        && i + 1 < chars.Count && chars[i + 1].Unit is < 0xD800 or > 0xDFFF
-                        && char.IsLetter((char)chars[i + 1].Unit))
+                    if (cp is > 0 and < 0x20 and not ('\t' or '\n' or '\r'))
                     {
-                        cp = '-'; // an unmapped hyphen glyph: "y\x02direction" → "y-direction"
+                        // An unmapped glyph code. A flat, dash-shaped glyph between two letters / digits
+                        // is a hyphen ("y\x02direction" → "y-direction"); anything else (a ligature, a
+                        // symbol) can't be known — make it a visible, counted "�", not an invisible control.
+                        bool flat = box.Height >= 0 && letterHeight > 0 && box.Height <= letterHeight * 0.45;
+                        bool between = line.Length > 0 && char.IsLetterOrDigit(line[^1])
+                            && i + 1 < chars.Count && chars[i + 1].Unit is < 0xD800 or > 0xDFFF
+                            && char.IsLetterOrDigit((char)chars[i + 1].Unit);
+                        cp = flat && between ? '-' : 0xFFFD;
+                    }
+                    else if (cp < 0x10000 && char.IsLetterOrDigit((char)cp) && box.Height > 0)
+                    {
+                        letterHeight = box.Height;
                     }
 
                     text = cp is 0x2010 or 0x2011 or 0x2012 ? "-" : PdfTextQuality.NormaliseMathLetter(cp);
@@ -283,32 +297,22 @@ internal static partial class PdfChunkText
         _ => (null, 0),
     };
 
-    private static bool IsDuplicate(int cp, PdfRect box, List<(int Cp, PdfRect Box)> recent)
+    private static bool IsDuplicate(int cp, PdfRect box, Dictionary<int, List<PdfRect>> kept, (int Cp, PdfRect Box) lastKept)
     {
-        for (int k = recent.Count - 1; k >= 0; k--)
+        if (!kept.TryGetValue(cp, out List<PdfRect>? boxes))
         {
-            (int prevCp, PdfRect prevBox) = recent[k];
-            if (prevCp != cp || !SameSpot(box, prevBox))
-            {
-                continue;
-            }
-
-            // "ff" / "ffi" / "ffl" ligatures expand to two f's at one box — keep the second f,
-            // unless that box already holds two.
-            if (cp == 'f')
-            {
-                int fs = recent.Count(r => r.Cp == 'f' && SameSpot(box, r.Box));
-                return fs >= 2;
-            }
-
-            return true;
+            return false;
         }
 
-        return false;
+        int same = boxes.Count(b => SameSpot(box, b));
+        // "ff" / "ffi" / "ffl" ligatures expand to two f's at one box, one straight after the other —
+        // keep that second f (but not an f from a later overprint pass).
+        bool ligature = cp == 'f' && same == 1 && lastKept.Cp == 'f' && SameSpot(box, lastKept.Box);
+        return same >= 1 && !ligature;
     }
 
-    /// <summary>The same drawing position: box IoU ≥ 0.6, or — for the zero-height boxes some fonts
-    /// report — the same baseline and ≥ 60 % horizontal overlap.</summary>
+    /// <summary>The same drawing position: box IoU ≥ 0.5, or — for the zero-height boxes some fonts
+    /// report — the same baseline and ≥ 50 % horizontal overlap.</summary>
     private static bool SameSpot(PdfRect a, PdfRect b)
     {
         double ix = Math.Min(a.Right, b.Right) - Math.Max(a.Left, b.Left);
@@ -352,37 +356,51 @@ internal static partial class PdfChunkText
         var result = new List<ChunkEquation>();
         for (int li = 0; li < lines.Count; li++)
         {
-            Match m = EquationLabel().Match(lines[li].Text);
-            if (!m.Success)
+            // The label is the rightmost thing on its line (wherever the stream put it in the text),
+            // sits in the right part of the page, and is set off by a clear gap — "…given in (8.94)"
+            // at the end of a prose line has only a word space before it.
+            Match? found = null;
+            List<PdfRect> labelBoxes = [];
+            PdfRect label = default;
+            foreach (Match candidate in EquationLabel().Matches(lines[li].Text))
+            {
+                int end = candidate.Index + candidate.Length;
+                var candidateBoxes = glyphs[li].Where(g => g.TextIndex >= candidate.Index && g.TextIndex < end).Select(g => g.Box).ToList();
+                if (candidateBoxes.Count == 0)
+                {
+                    continue;
+                }
+
+                PdfRect u = Union(candidateBoxes);
+                double lh = u.Height > 1 ? u.Height : 10;
+                bool rightmost = !glyphs[li].Any(g => (g.TextIndex < candidate.Index || g.TextIndex >= end)
+                    && g.Box.Left >= u.Right - 0.5);
+                bool rightSide = double.IsNaN(left) || double.IsNaN(right) || right <= left
+                    || u.Left >= left + ((right - left) * 0.55);
+                var leftOf = glyphs[li].Where(g => (g.TextIndex < candidate.Index || g.TextIndex >= end)
+                    && g.Box.Right <= u.Left + 0.5).Select(g => g.Box.Right).ToList();
+                bool gap = leftOf.Count == 0 || u.Left - leftOf.Max() >= 1.5 * lh;
+                if (rightmost && rightSide && gap)
+                {
+                    found = candidate;
+                    labelBoxes = candidateBoxes;
+                    label = u;
+                }
+            }
+
+            if (found is not { } m)
             {
                 continue;
             }
 
-            var labelBoxes = glyphs[li].Where(g => g.TextIndex >= m.Index).Select(g => g.Box).ToList();
-            if (labelBoxes.Count == 0)
-            {
-                continue;
-            }
-
-            PdfRect label = Union(labelBoxes);
-            if (!double.IsNaN(left) && !double.IsNaN(right) && right > left
-                && label.Left < left + ((right - left) * 0.55))
-            {
-                continue; // not at the right margin — a reference in running text
-            }
-
-            string before = lines[li].Text[..m.Index];
-            if (IsProse(before))
-            {
-                continue;
-            }
+            string before = (lines[li].Text[..m.Index] + " " + lines[li].Text[(m.Index + m.Length)..]).Trim();
 
             double h = label.Height > 1 ? label.Height : 10;
             double cy = (label.Top + label.Bottom) / 2;
             bool InBand(int k) =>
                 lines[k].Bounds.Height >= 0 && lines[k].Bounds.Width > 0
                 && Math.Abs(((lines[k].Bounds.Top + lines[k].Bounds.Bottom) / 2) - cy) <= 1.6 * h
-                && !EquationLabel().IsMatch(lines[k].Text) && !IsProse(lines[k].Text)
+                && !HasLabel(lines[k].Text) && !IsProse(lines[k].Text)
                 && !string.IsNullOrWhiteSpace(lines[k].Text);
 
             int first = li, last = li;
@@ -402,7 +420,7 @@ internal static partial class PdfChunkText
             for (int k = first; k <= last; k++)
             {
                 IEnumerable<(int TextIndex, PdfRect Box)> body = k == li
-                    ? glyphs[k].Where(g => g.TextIndex < m.Index)
+                    ? glyphs[k].Where(g => g.TextIndex < m.Index || g.TextIndex >= m.Index + m.Length)
                     : glyphs[k];
                 var bodyBoxes = body.Select(g => g.Box).ToList();
                 string text = (k == li ? before : lines[k].Text).Trim();
@@ -431,6 +449,8 @@ internal static partial class PdfChunkText
 
         return result;
     }
+
+    private static bool HasLabel(string text) => EquationLabel().IsMatch(text);
 
     private static bool IsProse(string text) => ProseWord().Count(text) >= 2;
 

@@ -183,7 +183,20 @@ public static partial class PdfRagChunker
             }
         }
 
-        List<SectionMarker> markers = SectionMarkers(document, cancellationToken);
+        bool[] contentsPage = [.. pages.Select(pg => pg is not null && IsContentsPage(pg))];
+        List<SectionMarker> allMarkers = SectionMarkers(document, cancellationToken);
+        // A heading "on" a contents page is the contents entry, not the heading: drop it as a page
+        // marker, but keep its title so the body heading with the same number can still use it.
+        List<SectionMarker> markers = [.. allMarkers.Where(m => m.Page < 0 || m.Page >= pageCount || !contentsPage[m.Page])];
+        var titleByNumber = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (SectionMarker m in allMarkers)
+        {
+            if (m.DottedNumber is { } n)
+            {
+                titleByNumber.TryAdd(n, m.Title);
+            }
+        }
+
         Boilerplate boilerplate = Boilerplate.Detect(pages);
 
         string sourcePath = document.FilePath is { Length: > 0 } fp ? Path.GetFileName(fp) : string.Empty;
@@ -227,7 +240,7 @@ public static partial class PdfRagChunker
             }
 
             var pending = new List<SectionMarker>(markers.Skip(pageFirst).Take(mi - pageFirst));
-            var paras = pages[p] is { } page && page.Lines.Count(l => TocLeader().IsMatch(l.Text)) < 5
+            var paras = pages[p] is { } page && !contentsPage[p]
                 ? ParagraphsFromPage(page.Lines, boilerplate).ToList()
                 : [];
 
@@ -244,13 +257,23 @@ public static partial class PdfRagChunker
             foreach ((string para, bool hasMath) in paras)
             {
                 int hit = pending.FindIndex(m => m.StartsParagraph(para));
+                bool switched = hit >= 0;
                 if (hit >= 0)
                 {
                     current = pending[hit].Title;
                     pending.RemoveRange(0, hit + 1);
                 }
+                else if (BodyHeading().Match(para) is { Success: true } h && para.Length < 120
+                    && titleByNumber.TryGetValue(h.Groups[1].Value, out string? title)
+                    && !string.Equals(current, title, StringComparison.Ordinal))
+                {
+                    // A numbered heading printed in the body whose outline entry points elsewhere
+                    // (at the contents page, say): the section starts here.
+                    current = title;
+                    switched = true;
+                }
 
-                paragraphs.Add(new Paragraph(para, p, current, hasMath, hit >= 0 || startsSection));
+                paragraphs.Add(new Paragraph(para, p, current, hasMath, switched || startsSection));
                 startsSection = false;
             }
 
@@ -322,20 +345,58 @@ public static partial class PdfRagChunker
     // --- Section boundaries --------------------------------------------------------------
 
     /// <summary>A heading: the page it's on, its title, and how to recognise the paragraph that prints it.</summary>
+    /// <param name="Number">A detected clause's number — matched against the start of a paragraph.</param>
     private sealed record SectionMarker(int Page, string Title, string? Number)
     {
+        /// <summary>A dotted number ("6.5.5", "A.2") from the clause or the title's start, if any.</summary>
+        public string? DottedNumber =>
+            Number is { } n && n.Contains('.') ? n.TrimEnd('.')
+            : BodyHeading().Match(Title) is { Success: true } m ? m.Groups[1].Value : null;
+
         public bool StartsParagraph(string para)
         {
             if (Number is not null)
             {
-                return para.StartsWith(Number, StringComparison.Ordinal)
-                    && (para.Length == Number.Length || char.IsWhiteSpace(para[Number.Length]));
+                return StartsWithNumber(para, Number.TrimEnd('.'));
             }
 
             string key = Normalise(Title);
             key = key[..Math.Min(key.Length, 40)];
-            return key.Length > 0 && Normalise(para).StartsWith(key, StringComparison.OrdinalIgnoreCase);
+            return (key.Length > 0 && Normalise(para).StartsWith(key, StringComparison.OrdinalIgnoreCase))
+                || (DottedNumber is { } dn && BodyHeading().IsMatch(para) && StartsWithNumber(para, dn));
         }
+
+        private static bool StartsWithNumber(string para, string number) =>
+            para.StartsWith(number, StringComparison.Ordinal)
+            && (para.Length == number.Length || char.IsWhiteSpace(para[number.Length])
+                || (para[number.Length] == '.' && (para.Length == number.Length + 1 || char.IsWhiteSpace(para[number.Length + 1]))));
+    }
+
+    // A numbered heading: "6.5.5 Reinforcement…", "6.5.5. Reinforcement…", "A.2 Scope".
+    [GeneratedRegex(@"^((?:\d{1,2}|[A-Z])(?:\.\d{1,3})+)\.?\s+\p{Lu}")]
+    private static partial Regex BodyHeading();
+
+    // A contents entry's page number at the end of a title: "Reinforcement for punching shear 103".
+    [GeneratedRegex(@"(?<=\p{L}[^\d]*)\s+\d{1,4}$")]
+    private static partial Regex TrailingPageNumber();
+
+    // A contents line: words, then a lone page number ("6.5.5. Reinforcement for punching shear 103").
+    [GeneratedRegex(@"\p{L}{3,}\D*\s\d{1,4}$")]
+    private static partial Regex ContentsEntry();
+
+    /// <summary>A contents / list-of-figures page: ≥ 5 dotted leaders, or ≥ 5 lines (and ≥ 40 % of
+    /// the page's lines) that are words followed by a lone page number. Navigation, not knowledge —
+    /// its text isn't chunked and headings "on" it aren't section starts.</summary>
+    private static bool IsContentsPage(ChunkPage page)
+    {
+        var lines = page.Lines.Select(l => Normalise(l.Text)).Where(l => l.Length > 0).ToList();
+        if (lines.Count(l => TocLeader().IsMatch(l)) >= 5)
+        {
+            return true;
+        }
+
+        int entries = lines.Count(l => ContentsEntry().IsMatch(l));
+        return entries >= 5 && entries >= lines.Count * 0.4;
     }
 
     /// <summary>
@@ -372,7 +433,7 @@ public static partial class PdfRagChunker
             {
                 if (RealWord().IsMatch(c.Title))
                 {
-                    flat.Add(new SectionMarker(c.PageIndex, c.Display.Trim(), c.Number));
+                    flat.Add(new SectionMarker(c.PageIndex, TrailingPageNumber().Replace(c.Display.Trim(), string.Empty), c.Number));
                 }
 
                 Walk(c.Children);
@@ -400,7 +461,7 @@ public static partial class PdfRagChunker
             {
                 if (b.PageIndex is int page && !string.IsNullOrWhiteSpace(b.Title))
                 {
-                    flat.Add(new SectionMarker(page, Normalise(b.Title), null));
+                    flat.Add(new SectionMarker(page, TrailingPageNumber().Replace(Normalise(b.Title), string.Empty), null));
                 }
 
                 Walk(b.Children);
@@ -635,7 +696,7 @@ public static partial class PdfRagChunker
     private static bool LooksLikeHeading(string line) =>
         line.Length < 70 && !line.EndsWith('.') && ClauseHeadingShape().IsMatch(line);
 
-    [GeneratedRegex(@"^(?:\d+(?:\.\d+)*|Annex\s+\w+|[A-Z]\.\d)\s+\p{Lu}")]
+    [GeneratedRegex(@"^(?:\d+(?:\.\d+)*\.?|Annex\s+\w+|[A-Z]\.\d)\s+\p{Lu}")]
     private static partial Regex ClauseHeadingShape();
 
     // --- Windowing ---------------------------------------------------------------------
@@ -706,11 +767,12 @@ public static partial class PdfRagChunker
                 : body;
 
             var equations = new List<RagEquation>();
+            string compactBody = WhitespaceRun().Replace(body, string.Empty);
             for (int p = firstPage; p <= lastPage; p++)
             {
                 if (equationsByPage.TryGetValue(p, out List<RagEquation>? onPage))
                 {
-                    equations.AddRange(onPage.Where(e => body.Contains(e.Label, StringComparison.Ordinal)));
+                    equations.AddRange(onPage.Where(e => compactBody.Contains(e.Label, StringComparison.Ordinal)));
                 }
             }
 

@@ -943,6 +943,31 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
     (≥ 12 consecutive bare values, with the last "Table n.n" before them) → check. Chunk quality is the
     worst of everything; equations carry their own grade. Not done: re-ordering equation glyphs, OCR to
     LaTeX, real table extraction into the chunk (`PdfTableExtractor` still not wired in).
+- **Follow-up fixes (re-export review):**
+  - **Duplicate check is page-wide** (`kept`: code point → boxes), not the last 12 glyphs of the line —
+    an overprint / fake-bold pass PDFium reports as a separate line slipped through. IoU ≥ 0.5. The
+    ff-ligature exception now needs the second `f` *straight after* the first (`lastKept`), so a later
+    pass's `f` is still dropped.
+  - **C0 control characters**: flat (≤ 45 % of the last letter's height) and between letters/digits →
+    `-`; anything else → `U+FFFD` (visible, counted in `unmapped_glyphs`) — they're unknown ligatures /
+    symbols, an invisible `\x03` helped nobody.
+  - **Equation labels need a dot** (`(8.94)`, `(O.7)`, `(6.3N)`, `(6.2.a)`) — `(3)` paragraph numbers
+    were 65 false positives — and aren't accepted after a digit/dot (`4.3.2(1)`). Any match on the line
+    counts if it's the **rightmost glyph group** on that line, in the right 45 % of the page and **≥ 1.5
+    label heights clear** of the glyph to its left (a prose reference has a word space). So a label the
+    stream draws *before* its equation is found too (the text then reads "(6.3N) vmin = …"); the
+    regex lets letters touch the label because PDFium doesn't always insert a space before a far-off one.
+    Chunks match labels whitespace-insensitively. Annex O sample: 25 / 25 located (was 23).
+  - **Contents pages** (`IsContentsPage`: ≥ 5 dotted leaders, or ≥ 5 and ≥ 40 % of lines "words … lone
+    page number") aren't chunked, and markers on them are dropped. Marker titles lose a trailing page
+    number (`TrailingPageNumber`). `titleByNumber` keeps every dotted-numbered marker's title, so a
+    **body heading** paragraph (`BodyHeading`: "6.5.5. Reinforcement…", < 120 chars) whose outline entry
+    points elsewhere still starts its section. `ClauseHeadingShape` accepts "6.5.5." (number + dot) so
+    such a heading is its own paragraph rather than joined to the next line.
+  - **Exports default to the PDF's own folder** (`InitialDirectory`, chunks + measurements CSV).
+- **`PdfFolderSearch` totals are updated under one lock** — `Interlocked` on each separately let the
+  last file's report pair "3 of 3 files" with a match total another worker hadn't added yet (a ~1-in-10
+  flaky test once the new PDFium changed the timing).
 - App: `DocumentTabViewModel.ExportRagChunksCommand` (async — `Task.Run(Chunk + WriteJsonl)`),
   toolbar "Export chunks…". Batch/folder mode and catalog persistence are not built yet. Not done
   yet: page-image references for suspect chunks, tables as rows (`PdfTableExtractor` not wired in).

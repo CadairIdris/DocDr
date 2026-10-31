@@ -432,6 +432,8 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
             Title = "Export RAG chunks",
             Filter = "JSON Lines (*.jsonl)|*.jsonl",
             FileName = (Document.FilePath is { } p ? Path.GetFileNameWithoutExtension(p) : _baseTitle) + ".chunks.jsonl",
+            // Beside its own PDF — otherwise Windows reuses the last folder (another document's).
+            InitialDirectory = Document.FilePath is { } dir ? Path.GetDirectoryName(dir) : null,
             AddExtension = true,
             DefaultExt = ".jsonl",
         };
