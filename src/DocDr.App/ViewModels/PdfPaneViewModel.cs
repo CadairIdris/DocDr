@@ -859,8 +859,63 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             RequestRenderForCurrentPage();
         }
 
+        // Continuous scrolling: put the match itself in the middle of the viewport rather than
+        // top-aligning its page (which leaves a hit near the foot of the page off-screen or at the
+        // very bottom edge). Paged / grid modes keep the page-level jump.
+        if (!IsPaged && Mode != ViewMode.Grid && HitCentreFraction(hit) is { } centre)
+        {
+            ScrollToHitRequested?.Invoke(hit.PageIndex, centre.Y, centre.X);
+            return;
+        }
+
         ScrollToPageRequested?.Invoke(hit.PageIndex);
     }
+
+    /// <summary>Scroll so the given point of a page — (page index, fraction down, fraction across)
+    /// of its layout box — sits in the middle of the viewport. Raised for the active search hit.</summary>
+    public event Action<int, double, double>? ScrollToHitRequested;
+
+    /// <summary>Where the centre of a hit's rects falls on its page, as fractions of the page's
+    /// layout box (rotation- and crop-aware, same transform as the highlight overlay).</summary>
+    private Point? HitCentreFraction(SearchHit hit)
+    {
+        if (hit.Rects.Count == 0 || hit.PageIndex < 0 || hit.PageIndex >= Pages.Count)
+        {
+            return null;
+        }
+
+        PageSlotViewModel slot = Pages[hit.PageIndex];
+        if (slot.LayoutWidth <= 0 || slot.LayoutHeight <= 0)
+        {
+            return null;
+        }
+
+        double scale = SlotScale(slot);
+        PdfSize unrotated = _document.GetUnrotatedPageSize(hit.PageIndex);
+        PdfRotation rotation = _document.GetPageRotation(hit.PageIndex);
+        PdfPoint crop = _document.GetCropOrigin(hit.PageIndex);
+
+        double left = double.MaxValue, top = double.MaxValue, right = double.MinValue, bottom = double.MinValue;
+        foreach (PdfRect rect in hit.Rects)
+        {
+            DeviceRect d = PdfCoordinates.PageToDevice(rect, unrotated, rotation, scale, crop);
+            left = Math.Min(left, d.X);
+            top = Math.Min(top, d.Y);
+            right = Math.Max(right, d.X + d.Width);
+            bottom = Math.Max(bottom, d.Y + d.Height);
+        }
+
+        return new Point(
+            Math.Clamp((left + right) / 2 / slot.LayoutWidth, 0, 1),
+            Math.Clamp((top + bottom) / 2 / slot.LayoutHeight, 0, 1));
+    }
+
+    /// <summary>Breathing room around a search highlight, as a fraction of the line box's height
+    /// (on top of the small pad <see cref="PdfTextExtractor.MergeIntoLineRects"/> already adds,
+    /// which is shared with the tighter text-selection highlight). PDFium's char boxes hug the
+    /// glyph ink, so without this a match reads as a box drawn flush against the letters.</summary>
+    private const double SearchHighlightPadY = 0.22;
+    private const double SearchHighlightPadX = 0.30;
 
     private void ApplyHighlights()
     {
@@ -893,7 +948,19 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                 foreach (PdfRect rect in hit.Rects)
                 {
                     DeviceRect d = PdfCoordinates.PageToDevice(rect, unrotated, rotation, scale, crop);
-                    rects.Add(new HighlightRect(new Rect(d.X, d.Y, d.Width, d.Height), active));
+                    // Pad relative to the line's thickness on screen; on a page turned 90/270
+                    // the text runs vertically, so thickness is the width and the pads swap.
+                    bool sideways = rotation is PdfRotation.Clockwise90 or PdfRotation.CounterClockwise90;
+                    double line = sideways ? d.Width : d.Height;
+                    double padY = Math.Max(1.5, line * SearchHighlightPadY);
+                    double padX = Math.Max(2.0, line * SearchHighlightPadX);
+                    if (sideways)
+                    {
+                        (padX, padY) = (padY, padX);
+                    }
+
+                    rects.Add(new HighlightRect(
+                        new Rect(d.X - padX, d.Y - padY, d.Width + (2 * padX), d.Height + (2 * padY)), active));
                 }
             }
 

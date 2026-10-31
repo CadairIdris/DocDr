@@ -150,6 +150,16 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   `SearchBarFocusRequested` → the view focuses `SearchBox` at `Input` priority. Esc / ✕ →
   `CloseSearchBarCommand` = hide + `ClearSearch` (drops the highlights). `GoToSearchHitAsync`
   (find-in-files result) opens the bar so the term and match count are visible.
+- **The active hit is centred, not its page top-aligned** (Continuous / SinglePage-scrolling only;
+  paged + grid keep the page jump): `MoveToHit` → `HitCentreFraction` (hit rects' centre as fractions
+  of the slot's layout box, same transform as the overlay) → `ScrollToHitRequested(page, y, x)` →
+  `PdfPaneView.OnScrollToHitRequested` → `AlignPage(..., viewportAnchor: 0.5)` (measures `fraction`
+  against the slot's `LayoutHeight`, not the container) + horizontal centring when the page is
+  wider than the pane.
+- **Search highlights get extra screen-space padding** in `ApplyHighlights`
+  (`SearchHighlightPadY/X` = 22 % / 30 % of the line height, min 1.5 / 2 DIP, swapped on 90/270
+  pages) on top of `MergeIntoLineRects`' shared 12 % — the selection highlight stays tighter.
+  Corners rounded 2 DIP.
 
 ## Navigation panel (icon rail)
 

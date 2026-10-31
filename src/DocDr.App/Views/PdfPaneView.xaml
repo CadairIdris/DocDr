@@ -154,6 +154,7 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Rectangle Width="{Binding Bounds.Width}" Height="{Binding Bounds.Height}"
+                                       RadiusX="2" RadiusY="2"
                                        Fill="{Binding IsActive, Converter={StaticResource HighlightFill}}">
                                 <Rectangle.Style>
                                     <Style TargetType="Rectangle">

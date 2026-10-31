@@ -119,6 +119,7 @@ public partial class PdfPaneView : UserControl
             _pane.PagesReloaded -= OnPagesReloaded;
             _pane.SelectedFormatChanged -= OnSelectedFormatChanged;
             _pane.SearchBarFocusRequested -= OnSearchBarFocusRequested;
+            _pane.ScrollToHitRequested -= OnScrollToHitRequested;
         }
 
         _pane = e.NewValue as PdfPaneViewModel;
@@ -134,6 +135,7 @@ public partial class PdfPaneView : UserControl
         _pane.PagesReloaded += OnPagesReloaded;
         _pane.SelectedFormatChanged += OnSelectedFormatChanged;
         _pane.SearchBarFocusRequested += OnSearchBarFocusRequested;
+        _pane.ScrollToHitRequested += OnScrollToHitRequested;
 
         // WPF's TabControl reuses this single PdfPaneView across every tab, swapping the
         // DataContext underneath it — so a plain event hook isn't enough. Re-establish
@@ -585,6 +587,31 @@ public partial class PdfPaneView : UserControl
         AlignPage(pageIndex, fraction: 0, horizontalFraction: null, fromSync: false, attempts: 4);
     }
 
+    /// <summary>The active search hit changed: bring its page in and centre the match itself in
+    /// the viewport (vertically always; horizontally only when the page is wider than the pane).</summary>
+    private void OnScrollToHitRequested(int pageIndex, double yFraction, double xFraction)
+    {
+        if (_scrollViewer is null || _pane is null || _pane.IsPaged || PageItem(pageIndex) is not { } item)
+        {
+            return;
+        }
+
+        _programmaticScroll = true;
+        PageList.ScrollIntoView(item);
+        AlignPage(pageIndex, yFraction, horizontalFraction: null, fromSync: false, attempts: 4, viewportAnchor: 0.5);
+
+        Dispatcher.BeginInvoke(
+            () =>
+            {
+                if (_scrollViewer is { ScrollableWidth: > 0 } sv)
+                {
+                    double offset = (xFraction * sv.ExtentWidth) - (sv.ViewportWidth / 2);
+                    sv.ScrollToHorizontalOffset(Math.Clamp(offset, 0, sv.ScrollableWidth));
+                }
+            },
+            System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
     /// <summary>A linked pane moved: put the same relative spot of the (mapped) page at the top of
     /// this viewport. Treated as programmatic throughout, so it's never reported back.</summary>
     private void OnScrollToPositionRequested(ViewportPosition position)
@@ -604,8 +631,13 @@ public partial class PdfPaneView : UserControl
     /// container sits at the viewport top (0 = top-align the page), refining from the container's
     /// real position as neighbours realise. When done, the new position is reported — as a user
     /// move for a jump the user asked for (so a linked pane follows), silently for a sync.
+    /// <paramref name="viewportAnchor"/> &gt; 0 (a search hit: 0.5 = mid-viewport) instead puts that
+    /// point at that fraction down the viewport, with <paramref name="fraction"/> measured against the
+    /// page's own layout box rather than its container (which adds the inter-page margin).
     /// </summary>
-    private void AlignPage(int pageIndex, double fraction, double? horizontalFraction, bool fromSync, int attempts)
+    private void AlignPage(
+        int pageIndex, double fraction, double? horizontalFraction, bool fromSync, int attempts,
+        double viewportAnchor = 0)
     {
         Dispatcher.BeginInvoke(
             () =>
@@ -622,7 +654,14 @@ public partial class PdfPaneView : UserControl
                 double top = container is null
                     ? double.NaN
                     : container.TransformToVisual(_scrollViewer).Transform(new Point(0, 0)).Y;
-                double wanted = container is null ? 0 : -fraction * container.ActualHeight;
+                double wanted = container switch
+                {
+                    null => 0,
+                    { DataContext: PageSlotViewModel slot } when viewportAnchor > 0 && slot.LayoutHeight > 0 =>
+                        (viewportAnchor * _scrollViewer.ViewportHeight)
+                        - (((container.ActualHeight - slot.LayoutHeight) / 2) + (fraction * slot.LayoutHeight)),
+                    _ => -fraction * container.ActualHeight,
+                };
 
                 bool aligned = !double.IsNaN(top) && Math.Abs(top - wanted) <= 1.0;
                 if (!aligned && attempts > 0)
@@ -636,7 +675,7 @@ public partial class PdfPaneView : UserControl
                         PageList.ScrollIntoView(PageItem(pageIndex));
                     }
 
-                    AlignPage(pageIndex, fraction, horizontalFraction, fromSync, attempts - 1);
+                    AlignPage(pageIndex, fraction, horizontalFraction, fromSync, attempts - 1, viewportAnchor);
                     return;
                 }
 
