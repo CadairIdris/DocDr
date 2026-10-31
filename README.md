@@ -1,195 +1,119 @@
 # DocDr
 
-A Windows desktop PDF viewer, editor, and cataloguing tool. Built in stages
-(see [`_specs/001-pdf-desktop-app-spec.md`](_specs/001-pdf-desktop-app-spec.md)).
+A Windows desktop PDF viewer, editor and markup tool, built for working with large engineering
+standards and design documents. It can also export them as clean text for RAG and for AI agents.
 
-## Status
+## Features
 
-### Stage 8 — Design-code navigation (in progress)
+### Viewing
 
-- **Clause index**: the Navigator panel has a new tab (tree icon) that lists the numbered
-  clauses of a standard — detected from the page text, so it works even when the PDF has no
-  bookmarks. Tuned for dotted-decimal numbering (Eurocode, BS EN, ISO); annexes are picked up
-  too. The scan runs in the background on open. Clicking a clause jumps the left pane to its
-  page. Codes with letter-section numbering (e.g. AISC `D1.2a`) are not covered yet.
-- **Clickable cross-references**: once the clause index is built, textual references in the
-  page — "in accordance with 8.3.1", "see 6.2.5", "Annex L", "Figure 8.5", "Table 4.3" —
-  get a faint underline and become clickable, jumping to the referenced clause or to the
-  figure / table's page (matched by its caption).
-- **Extract table**: arm the toolbar toggle, drag a rectangle over a table, and DocDr
-  reconstructs its rows and columns — into a review grid you can **Copy (TSV)** into a
-  spreadsheet or **Save as CSV**. Rows and columns come from the table's ruled lines or, when
-  it has none, from the whitespace channels between cells. Draw the box tight around the table
-  body; nested multi-row headers may need a little tidying, but the data rows come out clean.
-- **Cite this**: right-click a clause in the index for **Copy citation**
-  (`{file}, cl. 6.5 (Concrete cover), p. 88`); or select text on a page and click **Cite**
-  in the popup to copy the quoted passage with its source, nearest clause, and page.
+- **Tabs and a home screen** with recent documents; open the same file in several tabs, or drag a
+  tab to the right to read **two documents side by side**, with optional **linked scrolling**.
+- **View modes** per pane: continuous, single page, two-page spread and a page grid. **Zoom**
+  25–800 %, fit width / page, Ctrl+wheel or trackpad pinch anchored on the cursor. Very high zoom
+  re-renders the visible part of the page at full resolution, so it stays sharp.
+- **Read mode** (`F11`): full screen, no chrome, one spread at a time.
+- **Split view**: a second independent pane on the same document.
+- A slim **status strip** at the bottom of each pane holds page navigation, zoom and view mode.
+- **Navigation rail** with panels for page thumbnails, bookmarks, clauses, comments and
+  annotations.
+- **Printed page labels** ("vii", "A-3") are used in the page box, panels and citations.
+- **Clickable links**: PDF links, bare URLs printed in the text, and clause / figure / table
+  cross-references (once the clause index is built).
+- **Dark mode**: System / Light / Dark (pages stay white).
 
-### Stage 6 — OCR (done)
+### Search
 
-- **OCR…** (toolbar): for a scanned PDF with no text layer, DocDr renders each text-less page
-  at 300 DPI, recognises it with Tesseract 5 (bundled English model), and bakes the words back
-  in as an **invisible text layer** — so search, text selection, clause detection, citation and
-  chunk export all start working on the scan. Pages that already have text are left alone.
-- A progress dialog shows the page count and can be cancelled; cancelling keeps the pages done
-  so far (re-run to finish the rest). Like watermark removal this edits page content and is not
-  undoable — the original file is safe until you save. ~2 s per page.
+- **Find bar** (`Ctrl+F`): matches stream in while the search runs, highlights are one padded box per
+  line, and the current match is scrolled to the centre. Phrases split across a line break are found.
+  Each page's text is extracted once and reused, so repeat searches are fast.
+- **Find in files** (`Ctrl+Shift+F`): search every PDF in a folder (optionally subfolders) with
+  snippets; clicking a result opens the document at that hit.
 
-### RAG chunk export (Stage 5 — partial)
+### Design-code navigation
 
-- **Export chunks…** (toolbar) splits the document's text into overlapping, retrieval-sized
-  passages and writes them as **JSONL** (one JSON object per line) for building a RAG index.
-- Sections come from the detected clause tree, or the bookmark outline, or the whole document;
-  each chunk carries a stable `id`, `text`, `source_path`, `doc_title`, `page_start`,
-  `page_end`, `section_title`, `chunk_index` and a `token_estimate`. Default ~600 tokens per
-  chunk (chars ÷ 4) with ~15% overlap. The `text` is prefixed with the document title and
-  section heading so the embedding carries where the passage sits.
-- Running headers / footers (lines that repeat across most pages), bare page numbers and
-  contents-page leaders are stripped; wrapped lines are joined and words de-hyphenated across
-  line breaks. Pages with no text layer are reported and skipped — run **OCR…** first.
+- **Clause index**: detects the numbered clauses and annexes of a standard (Eurocode / BS EN / ISO
+  dotted-decimal numbering) even without bookmarks; click to jump. The scan runs on demand and is
+  cached in the file when you save.
+- **Cross-references** like "see 6.2.5", "Annex L", "Figure 8.5" and "Table 4.3" become clickable.
+- **Cite this**: copy a clause or a selected passage as a citation with file, clause and page.
+- **Extract table**: drag a box over a table to rebuild its rows and columns; copy as TSV or save
+  as CSV.
 
-### Merge & bookmarks
+### Markup and comments
 
-- **Merge…** (home screen / toolbar): pick several PDFs, put them in order and give each a
-  bookmark title in the dialog, and DocDr combines them into one new document (opens in a new
-  tab — Save As to keep it). "Add a bookmark for each file" also pulls in numbered sub-headings
-  (`5.1 Introduction`, …) under each file.
-- **Generate from headings** (Bookmarks panel, when a document has none): builds an outline from
-  detected clause/section headings.
-- Generated bookmarks are written into the PDF on save, so other viewers see them too. Clause
-  and figure cross-references are re-detected every time a document is opened — nothing to save.
+- **Highlights** in five colours or a custom colour, **notes**, **freehand ink**, **text boxes**,
+  **callouts**, **revision clouds**, **rectangles / ellipses / lines / arrows**, and a **tick** tool.
+  Select anything to move or resize it; a floating **format bar** sets colour, line width, dashes,
+  fill, text colour, border and font size. Everything is undoable and saved as standard PDF
+  annotations that other readers display.
+- **Comments panel**: notes and commented highlights grouped by page, with **reply threads**,
+  **review status** (Accepted / Rejected / Cancelled / Completed), a checkmark, and the author and
+  date. Hover a note pin to read it without opening it.
+- **Annotations panel** lists all other markup; the **Markup** toggle hides or shows the overlay.
 
-### Page handling
+### Measuring
 
-- **Printed page labels** — a standard with roman front matter or prefixed appendix numbering
-  ("vii", "A-3") shows that label in the page box, the navigation panels and citations.
-- **Trim margins** (toolbar): crops every page to its visible content plus a small margin —
-  handy for scans and merged documents. One undo step; the crop is saved into the file.
-- **Bare URLs are clickable** — an `http`/`https`/`mailto` address printed as plain text opens
-  in your browser, even without a real link in the PDF.
-- Document Properties shows whether a PDF is tagged (accessible), encrypted, or re-labelled.
+- **Distance, perimeter and area** tools, click by click, with a live preview. **Snap** to the
+  drawing's end points, intersections, midpoints and lines (Ctrl to suspend, Shift for 45°); vertices
+  stay draggable and snap too.
+- **Scale** per document or per page, set as a ratio (1:50) or **calibrated** from a known length.
+  Each measurement keeps the scale it was taken at.
+- **Export measurements** to CSV.
 
-### Collage authoring
+### Editing pages and documents
 
-- **New document…** (home screen / toolbar): a blank page at A4 / A3 / A2 / A1 or a custom mm
-  size, portrait or landscape. Opens untitled in a new tab — Save As to keep it.
-- **Paste** (`Ctrl+V`): a screenshot or copied image lands as a movable, resizable picture in the
-  middle of the visible area; copied text lands as a text box. Paste analysis plots and results
-  tables side by side and annotate them.
-- **Shapes**: rectangle, ellipse, line and arrow tools alongside the existing callout / cloud /
-  text-box tools — drag to place, then move / resize / recolour. Everything is saved into the PDF
-  so other viewers see the finished collage.
-- **Format toolbar**: select any shape, line, text box, cloud, highlight or note and a small
-  floating bar appears with the controls that kind supports — outline colour, line thickness,
-  dashed on/off, fill colour, and for text boxes the text colour (black by default or matching the
-  outline), a border toggle and a font-size stepper. Lines and arrows drag by their end points.
-- **Custom colour**: a sixth "Custom…" swatch on the colour rail (and in the format bar) opens a
-  picker; the exact colour is remembered and saved into the PDF.
+- **Rotate, delete, insert** (another PDF or a blank page), **trim margins**, with undo / redo.
+- **Extract pages**: a selection, a range, or a whole chapter from a bookmark, as a new PDF with
+  its annotations and bookmarks.
+- **Merge** several PDFs into one, with a bookmark per file; **generate bookmarks** from detected
+  headings; rename / delete bookmarks.
+- **New document** (A4–A1 or custom size) and **paste** screenshots or text onto a page to build
+  collages.
+- **Remove watermark**: finds content repeated on most pages and strips only that, leaving the
+  rest of the page byte-for-byte intact.
+- **OCR** scanned pages (Tesseract, bundled English model) into an invisible text layer, so
+  search, selection, clauses and exports work on scans.
+- **Properties**: view and edit title, author, subject and keywords.
+- **Save / Save As / Print**. Printing uses the current in-memory state, markup included.
 
-### Dark mode
+### Export for agents and RAG
 
-- **System / Light / Dark** picker in the toolbar, persisted to `%APPDATA%\DocDr\settings.json`.
-  System follows the OS setting live.
-- Built on .NET 9's `Application.ThemeMode` (Fluent light/dark for the standard controls) plus
-  a small `Palette.Light` / `Palette.Dark` resource dictionary for DocDr's own surfaces.
-- PDF pages stay white; `MessageBox` dialogs stay OS-styled.
+Both exports share the same text cleaning:
+- running headers, footers and licence stamps are removed;
+- contents pages are skipped;
+- glyphs drawn twice and broken symbol-font characters are repaired where possible, and flagged
+  where not;
+- headings are tracked paragraph by paragraph.
 
-### Document properties (Stage 4 — partial)
-
-- **Properties…** dialog: view and edit the Info-dictionary fields (Title, Author, Subject,
-  Keywords, Creator), with Producer / dates / page count / file size shown read-only.
-- PDFium has no metadata *setter*, so on save DocDr appends an incremental-update Info object
-  to the bytes PDFium produced. This also re-attaches metadata that a structural edit
-  (rebuild) would otherwise drop, and stamps `ModDate`.
-
-### Stage 3 — Annotations (done)
-
-- **Highlight text**: drag to select text on a page, then pick one of five colours from
-  the popup. **Note**: "Note…" in that popup attaches a note to the highlight, or the
-  **💬 Note** toolbar toggle drops a standalone note pin where you click — drag the pin to
-  move it, double-click to edit.
-- **Freehand highlighter** (**✏️ Draw**): drag anywhere on the page to draw a marker-pen
-  stroke in the chosen colour; written out as a standard PDF `Ink` annotation.
-- Click any annotation to select it (accent outline / glow + trash button; `Delete` also
-  works). The nav panel's **Annotations** tab lists every one — labelled by kind — and
-  clicking a row jumps to it and highlights it on the page.
-- **Reply threads**: a note (or noted highlight) can carry a conversation — the editor
-  shows the replies, each with its author and time, and a box to add another. The whole
-  thread is stored on the annotation and round-trips through save/reload; other PDF readers
-  still show the opening note. The Annotations tab flags rows that have replies.
-- **Text box / callout / cloud** (toolbar toggles): a **text box** (drag a rectangle) is a
-  bordered box of text in a chosen colour and size; a **callout** (drag from what you're
-  pointing at to where the note goes) adds a leader line with an arrowhead; a **revision
-  cloud** (drag a rectangle) outlines a changed area with a scalloped border. Text boxes and
-  callouts shrink to fit their text until you resize them. Select a box to move it or drag a
-  corner handle to resize it; a selected callout also has a round handle on its arrow tip — drag
-  it to re-point the arrow. Double-click a box to edit; `Delete` to remove. All three are saved as
-  PDF stamps with a real appearance built from paths and text, so they print and show
-  correctly in any reader.
-- **👁 Markup** toolbar button hides / shows the whole overlay (highlights, notes, ink) —
-  a view toggle; the annotations are untouched and still saved.
-- Each annotation records its author and creation / modification dates in standard PDF
-  fields, and DocDr reads that data back from files annotated in other apps.
-- Annotations are DocDr's own model during a session (so they survive rotate / delete /
-  insert / undo and stay on the right page); on save they are written into the PDF as
-  standard `Highlight` / `Text` annotations, visible in any other reader.
-
-### Remove watermark (Stage 4 — partial)
-
-- **Watermark…** scans for content repeated across most pages — text stamps and
-  near-full-page overlay images — and lists each with a before/after page preview.
-  Tick what to strip; removal deletes just those operators from the page content
-  streams (so kerned tables and the rest of the page are left byte-for-byte intact)
-  and reloads the document. Not undoable — it clears the undo history, so save to a
-  copy to keep the original.
-
-### Stage 2 — Page editing (done)
-
-- **Rotate / delete / insert pages.** Targets the thumbnail-strip selection when the Pages
-  panel is showing it, otherwise the active pane's current page. Delete confirms first;
-  Insert brings in every page of another PDF, or a **blank page** sized to match the page
-  it follows (toolbar, or right-click a thumbnail).
-- **Undo / redo** (`Ctrl+Z` / `Ctrl+Y`, ~30 deep). The document is modelled as an ordered
-  list of page references into one or more source PDFs; structural edits rebuild the live
-  PDFium handle, undo restores an earlier version of the list.
-- **Save / Save As** (`Ctrl+S` / `Ctrl+Shift+S`). Files are loaded fully into memory so Save
-  overwrites the original in place. Dirty tabs show `•` and prompt on close.
-- **Print…** (`Ctrl+P`): a standard print dialog (printer, page range, copies); pages are
-  rasterised through PDFium at print resolution and fitted to the sheet, from the current
-  in-memory state — so page edits and the annotation overlay are included. Long ranges warn
-  first (the window is unresponsive while the job spools).
-
-### Stage 1 — Core viewer + PDFium plumbing (done)
-
-- Load a PDF via PDFium (`PDFiumCore`, Apache-2.0) and render pages to WPF.
-- Tabbed shell — several documents open at once, the same file openable in more than one tab.
-- Home screen with a **recent documents** list (persisted between sessions).
-- Optional **split view** (off by default): a second, fully independent pane on the same
-  document — independent page position, zoom, view mode, and text search.
-- Three view modes per pane: single-page, continuous (virtualised), and grid (rows of pages,
-  column count auto-fits the width at the current zoom).
-- **Read mode** (`⛶ Read` / `F11`): full-screen, chrome-free, one two-page spread at a time
-  sized to fill the screen. Arrow keys / space / scroll turn the spread; `Esc` exits and
-  restores the previous view.
-- Collapsible, resizable **navigation panel** per tab (the **Navigator** toolbar toggle, off
-  by default): an icon tab strip switches its section — page thumbnails, the bookmark outline,
-  or the markup list (comments, highlights, ink) — and clicking a row jumps to it.
-- **Clickable in-document links**: a table-of-contents entry, cross-reference, or URL in the
-  page (a PDF `/Link` annotation) is followed on click — internal links jump to the page,
-  `http`/`https`/`mailto` links open in the browser.
-- Per-pane full-text search: all matches, highlight overlays, match counter, next/previous.
-- Zoom (25–800%, Fit Width, Fit Page, 100%, **Ctrl+wheel / trackpad pinch**, anchored on the
-  cursor) and page navigation.
-
-Not yet (later stages): folder browser, SQLite catalog + duplicate finder.
+- **Export chunks…**: overlapping, section-tagged **JSONL** chunks for a RAG index. Each chunk
+  carries:
+  - its id, text, source file, title, PDF pages and printed page labels;
+  - its section and every section it spans;
+  - the end of the previous chunk, as `context_before`;
+  - every numbered **equation** in it, with a page bounding box;
+  - a `quality` grade (`ok` / `check` / `suspect`) with plain-language `issues`: unmapped glyphs,
+    scrambled equations, duplicated glyphs, flattened tables.
+- **Export HTML…**: structured HTML with headings, paragraphs, notes and page anchors. Every
+  equation, table and figure is an **image cropped from the page**, which is the authoritative
+  version. The text layer sits alongside for searching, and tables also get a grid read from the
+  text layer, marked unverified. Crops that may be cut off are flagged `crop_clipped`. A short
+  "How to read this export" section explains the conventions to the agent.
 
 ## Layout
 
 | Project | Purpose |
 |---|---|
-| `src/DocDr.Pdf` | PDFium wrapper: `PdfiumLibrary`, `PdfDocument` (in-memory load, page edit + undo/redo + save + metadata + annotations), `PageRenderer` (+ LRU cache), `PdfSearch`, `PdfTextExtractor`, `PdfMetadata` (+ `PdfMetadataWriter`, `PdfDate`), `PdfBookmarks`, `PdfLinks`, `PdfAnnotations` (+ `PdfAnnotationWriter`), `PdfWatermarks` (+ `PdfWatermarkStripper`). All PDFium calls are serialised process-wide. |
-| `src/DocDr.App` | WPF app (MVVM via CommunityToolkit.Mvvm): tab shell, panes, background render queue. |
-| `tests/DocDr.Pdf.Tests` | xUnit tests over `DocDr.Pdf`, including concurrency stress tests. Fixtures are generated at test time (`TestPdfBuilder`). |
+| `src/DocDr.Pdf` | PDFium wrapper and all document logic, WPF-free. It covers loading, rendering, editing with undo, saving, metadata, annotations, search, the text cache, clauses and cross-references, table extraction, watermark removal, measuring and snapping, extract / merge, and the chunk and HTML exports. All PDFium calls are serialised process-wide. |
+| `src/DocDr.Ocr` | Tesseract OCR engine (kept separate so the native OCR dependency stays out of `DocDr.Pdf`). |
+| `src/DocDr.App` | WPF app (MVVM via CommunityToolkit.Mvvm): tab shell, panes, panels, dialogs, background render queue. |
+| `tests/DocDr.Pdf.Tests` | xUnit tests over `DocDr.Pdf`, including concurrency stress tests. |
+| `tests/DocDr.App.Tests` | xUnit tests over the view models (Windows only). |
+| `tests/DocDr.TestSupport` | `TestPdfBuilder`: test PDFs are generated at test time, so there are no binary fixtures in the repo. |
+
+Developer notes (PDFium quirks, design decisions) live in [`CLAUDE.md`](CLAUDE.md); the original
+staged plan is in [`_specs/001-pdf-desktop-app-spec.md`](_specs/001-pdf-desktop-app-spec.md).
+Not built yet: folder browser, SQLite catalog and duplicate finder.
 
 ## Build & run
 
@@ -234,6 +158,7 @@ per-document concurrent rendering.
 ## Licence
 
 DocDr is [MIT](LICENSE). It bundles third-party components under their own permissive
-licences — PDFiumCore (Apache-2.0), PDFium (BSD-3-Clause), CommunityToolkit.Mvvm (MIT);
+licences — PDFiumCore (Apache-2.0), PDFium (BSD-3-Clause), CommunityToolkit.Mvvm (MIT), and
+Tesseract / Leptonica for OCR;
 see [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md), which `publish.ps1` copies into
 every build.
