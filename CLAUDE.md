@@ -878,5 +878,10 @@ for DocDr's own tokens. **All palette brushes must be referenced as `DynamicReso
 replaces the Fluent theme style for that control** — always
 `BasedOn="{StaticResource {x:Type X}}"`. **The .NET 9 Fluent `MenuItem` template references
 `CheckBoxBackground` / `CheckBoxBorderBrush` without defining them** — `Palette.Shared.xaml`
-supplies both (transparent) so opening a menu doesn't log "Resource not found". Fluent's default Button padding clips a fixed-width
+supplies both (transparent) so opening a menu doesn't log "Resource not found". **The Fluent
+`TextBox` always shows a clear-✕ while focused with text** (no property to disable it); `App.OnStartup`
+calls `TextBoxClearButton.HideInMultilineBoxes()` — a class-level `TextBox` `Loaded` handler that
+collapses the template's `ClearButton` (a local `Visibility` beats the template triggers) in
+`AcceptsReturn` boxes only; single-line boxes (find bar) keep it. Not an App-level implicit style:
+`BasedOn="{StaticResource {x:Type TextBox}}"` in App.xaml can resolve before Fluent is merged. Fluent's default Button padding clips a fixed-width
 icon button (see `GlyphButton` in `PdfPaneView.xaml`).
