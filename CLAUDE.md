@@ -796,5 +796,7 @@ API is `[Experimental("WPF0001")]` — suppressed) and swaps `Themes/Palette.{Li
 for DocDr's own tokens. **All palette brushes must be referenced as `DynamicResource`** (not
 `StaticResource`) so a theme swap takes effect. **A `<Style TargetType="X">` with no `BasedOn`
 replaces the Fluent theme style for that control** — always
-`BasedOn="{StaticResource {x:Type X}}"`. Fluent's default Button padding clips a fixed-width
+`BasedOn="{StaticResource {x:Type X}}"`. **The .NET 9 Fluent `MenuItem` template references
+`CheckBoxBackground` / `CheckBoxBorderBrush` without defining them** — `Palette.Shared.xaml`
+supplies both (transparent) so opening a menu doesn't log "Resource not found". Fluent's default Button padding clips a fixed-width
 icon button (see `GlyphButton` in `PdfPaneView.xaml`).

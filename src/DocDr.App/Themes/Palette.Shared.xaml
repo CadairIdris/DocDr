@@ -6,4 +6,11 @@
     <SolidColorBrush x:Key="ActiveHighlightBrush" Color="#66FF8A65" />
     <SolidColorBrush x:Key="ActiveHighlightPen" Color="#FF7043" />
     <SolidColorBrush x:Key="OverlayScrimBrush" Color="#B3101014" />
+
+    <!-- Fluent theme gap (.NET 9): the theme's own MenuItem submenu template references
+         CheckBoxBackground / CheckBoxBorderBrush for its checkmark box but never defines them,
+         so every menu item logged "Resource not found" when a menu opened. Transparent matches
+         what the theme's CheckBox brushes use (SubtleFillColorTransparent) in both themes. -->
+    <SolidColorBrush x:Key="CheckBoxBackground" Color="Transparent" />
+    <SolidColorBrush x:Key="CheckBoxBorderBrush" Color="Transparent" />
 </ResourceDictionary>
