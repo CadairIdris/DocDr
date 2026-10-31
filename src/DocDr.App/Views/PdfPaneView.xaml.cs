@@ -1109,7 +1109,8 @@ public partial class PdfPaneView : UserControl
         }
         else if (_lineEndpointMoving)
         {
-            _pane.PreviewLineEndpointMove(pagePoint.X - _moveAnchor.X, pagePoint.Y - _moveAnchor.Y);
+            _pane.PreviewLineEndpointMove(pagePoint.X - _moveAnchor.X, pagePoint.Y - _moveAnchor.Y,
+                suspendSnap: (Keyboard.Modifiers & ModifierKeys.Control) != 0);
         }
         else if (_selecting)
         {
@@ -1218,7 +1219,8 @@ public partial class PdfPaneView : UserControl
             PageList.ReleaseMouseCapture();
             Point up = e.GetPosition(_selectionSlot);
             PdfPoint p = _pane.DevicePointToPage(_selectionPageIndex, up.X, up.Y);
-            _pane.EndLineEndpointMove(p.X - _moveAnchor.X, p.Y - _moveAnchor.Y);
+            _pane.EndLineEndpointMove(p.X - _moveAnchor.X, p.Y - _moveAnchor.Y,
+                suspendSnap: (Keyboard.Modifiers & ModifierKeys.Control) != 0);
             return;
         }
 

@@ -253,4 +253,60 @@ public sealed class MeasureSnapTests : IDisposable
         pane.MeasurePointerLeft();
         Assert.Null(pane.Pages[0].SnapMarker);
     }
+
+    private PdfAnnotation PlaceFreeDistance(PdfPaneViewModel pane)
+    {
+        pane.MeasureClick(0, new PdfPoint(150, 150), constrain: false, suspendSnap: true);
+        pane.MeasureClick(0, new PdfPoint(250, 150), constrain: false, suspendSnap: true);
+        pane.ShapeTool = ShapeTool.None;
+        return Assert.Single(_doc.GetAnnotations(0));
+    }
+
+    [Fact]
+    public void A_dragged_vertex_snaps_onto_a_drawn_corner()
+    {
+        PdfPaneViewModel pane = Pane();
+        PdfAnnotation a = PlaceFreeDistance(pane);
+
+        // Drag the second end from (250,150) to near the (300,200) corner.
+        pane.BeginLineEndpointMove(a.Id, 1);
+        pane.PreviewLineEndpointMove(48.6, 51.1);
+        Assert.Equal("Endpoint", pane.Pages[0].SnapKind);
+        pane.EndLineEndpointMove(48.6, 51.1);
+
+        PdfAnnotation moved = Assert.Single(_doc.GetAnnotations(0));
+        Assert.Equal(new PdfPoint(300, 200), moved.Vertices[1]);
+        Assert.Equal(new PdfPoint(150, 150), moved.Vertices[0]);
+        Assert.Null(pane.Pages[0].SnapMarker); // cleared at the drop
+    }
+
+    [Fact]
+    public void Ctrl_drags_a_vertex_freely()
+    {
+        PdfPaneViewModel pane = Pane();
+        PdfAnnotation a = PlaceFreeDistance(pane);
+
+        pane.BeginLineEndpointMove(a.Id, 1);
+        pane.EndLineEndpointMove(48.6, 51.1, suspendSnap: true);
+
+        PdfPoint v = Assert.Single(_doc.GetAnnotations(0)).Vertices[1];
+        Assert.Equal(298.6, v.X, 6);
+        Assert.Equal(201.1, v.Y, 6);
+    }
+
+    [Fact]
+    public void A_plain_line_end_is_not_snapped()
+    {
+        PdfPaneViewModel pane = Pane();
+        pane.ShapeTool = ShapeTool.None;
+        _doc.AddAnnotation(0, PdfAnnotation.NewLine(new PdfPoint(150, 150), new PdfPoint(250, 150), 0xFF000000));
+        PdfAnnotation line = Assert.Single(_doc.GetAnnotations(0));
+
+        pane.BeginLineEndpointMove(line.Id, 1);
+        pane.EndLineEndpointMove(48.6, 51.1);
+
+        PdfPoint end = Assert.Single(_doc.GetAnnotations(0)).Leader[1];
+        Assert.Equal(298.6, end.X, 6);
+        Assert.Equal(201.1, end.Y, 6);
+    }
 }

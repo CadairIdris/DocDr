@@ -2873,50 +2873,82 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         return null;
     }
 
+    /// <summary>Page + start position of a measurement vertex being dragged (null for a line /
+    /// arrow end, which doesn't snap) — looked up once at the start, not on every mouse move.</summary>
+    private (int Page, PdfPoint Origin)? _vertexSnapOrigin;
+
     public void BeginLineEndpointMove(System.Guid id, int end)
     {
         _lineEndpointId = id;
         _lineEndpointIndex = end;
         _lineEndpointDeltaPage = (0, 0);
         SelectedAnnotationId = id;
+
+        (int page, PdfAnnotation? found) = FindAnnotation(id);
+        _vertexSnapOrigin = found is { IsMeasurement: true } a && end >= 0 && end < a.Vertices.Count
+            ? (page, a.Vertices[end])
+            : null;
     }
 
-    public void PreviewLineEndpointMove(double dxPage, double dyPage)
+    /// <summary>A measurement vertex dragged by (dx, dy) snaps to the drawing like a measuring click
+    /// (corner > crossing > midpoint > line; Ctrl suspends): returns the adjusted drag. Lines and
+    /// arrows (markup, not measurements) move freely.</summary>
+    private (double Dx, double Dy) SnapVertexDrag(double dxPage, double dyPage, bool suspendSnap)
+    {
+        if (_vertexSnapOrigin is not { } v)
+        {
+            return (dxPage, dyPage);
+        }
+
+        var target = new PdfPoint(v.Origin.X + dxPage, v.Origin.Y + dyPage);
+        PdfPoint snapped = Snap(v.Page, target, suspendSnap);
+        return (snapped.X - v.Origin.X, snapped.Y - v.Origin.Y);
+    }
+
+    public void PreviewLineEndpointMove(double dxPage, double dyPage, bool suspendSnap = false)
     {
         if (_lineEndpointId is null)
         {
             return;
         }
 
-        _lineEndpointDeltaPage = (dxPage, dyPage);
+        _lineEndpointDeltaPage = SnapVertexDrag(dxPage, dyPage, suspendSnap);
         BuildAnnotationOverlays();
     }
 
-    public void EndLineEndpointMove(double dxPage, double dyPage)
+    public void EndLineEndpointMove(double dxPage, double dyPage, bool suspendSnap = false)
     {
         System.Guid? id = _lineEndpointId;
         int end = _lineEndpointIndex;
+        // "Did the pointer actually move?" is judged on the raw drag; a snap may then move the
+        // vertex by less than a point (onto a corner it was already next to), which still counts.
+        bool moved = Math.Abs(dxPage) >= 1 || Math.Abs(dyPage) >= 1;
+        (double dx, double dy) = SnapVertexDrag(dxPage, dyPage, suspendSnap);
         _lineEndpointId = null;
         _lineEndpointDeltaPage = (0, 0);
+        _vertexSnapOrigin = null;
+        ClearSnapMarker();
         if (id is null)
         {
             return;
         }
 
         (int page, PdfAnnotation? found) = FindAnnotation(id.Value);
-        if (found is not { } a || (Math.Abs(dxPage) < 1 && Math.Abs(dyPage) < 1))
+        if (found is not { } a || !moved)
         {
             BuildAnnotationOverlays();
             return;
         }
 
-        _document.UpdateAnnotation(page, MoveLineEndpoint(a, end, dxPage, dyPage) with { Modified = System.DateTimeOffset.Now });
+        _document.UpdateAnnotation(page, MoveLineEndpoint(a, end, dx, dy) with { Modified = System.DateTimeOffset.Now });
     }
 
     public void CancelLineEndpointMove()
     {
         _lineEndpointId = null;
         _lineEndpointDeltaPage = (0, 0);
+        _vertexSnapOrigin = null;
+        ClearSnapMarker();
         BuildAnnotationOverlays();
     }
 

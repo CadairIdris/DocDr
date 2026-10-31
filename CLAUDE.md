@@ -350,9 +350,12 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   whenever a measuring tool is armed (so the marker shows before the first click); **Ctrl
   suspends, Shift's 45° constraint overrides**, and `DocumentTabViewModel.SnapToDrawing` (Measure ▾
   "Snap to drawing lines", default on) mirrors to `PdfPaneViewModel.SnapEnabled`. Calibration clicks
-  snap too. Dragging an existing vertex does **not** snap yet.
-- **Not yet** (pdfcraft has them): snapping while dragging a vertex, inserting vertices, compound
-  units (ft-in), different X/Y scales.
+  snap too. **Dragging a measurement vertex snaps as well**: `BeginLineEndpointMove` records
+  `_vertexSnapOrigin` (page + start vertex, measurements only — line / arrow ends stay free), and
+  `Preview/EndLineEndpointMove(dx, dy, suspendSnap)` run `SnapVertexDrag` (snap origin + drag, return
+  the adjusted drag); "did it move" is judged on the raw drag so a sub-point snap still commits.
+  The marker clears on drop / cancel.
+- **Not yet** (pdfcraft has them): inserting vertices, compound units (ft-in), different X/Y scales.
 
 ## Per-annotation format toolbar (`AnnotationFormatViewModel`)
 
