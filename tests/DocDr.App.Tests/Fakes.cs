@@ -13,7 +13,7 @@ internal sealed class FakeRenderQueue : IRenderQueue
 
     public void Enqueue(RenderRequest request) => Enqueued.Add(request);
 
-    public void Clear() => ClearCount++;
+    public void Clear(object owner) => ClearCount++;
 
     /// <summary>Bitmaps <see cref="TryGetCached"/> should report as already rendered, keyed by
     /// (page, width, height).</summary>

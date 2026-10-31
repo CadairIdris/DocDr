@@ -3331,7 +3331,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     {
         if (clearQueue)
         {
-            _queue.Clear();
+            _queue.Clear(this);
         }
 
         foreach (PageSlotViewModel slot in Pages)

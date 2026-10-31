@@ -451,8 +451,11 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 
 - One `BackgroundRenderQueue` worker rasterises pages. **Thumbnail-sized requests (≤ 320 px)
   go first**, oldest-first (the strip fills top-down); larger page renders keep newest-first
-  (the page just scrolled to). `Clear()` (zoom / doc swap) drops only page requests — thumbnail
-  requests never go stale. Without the thumbnail priority a fast page-scroll starved the strip.
+  (the page just scrolled to). `Clear(owner)` (that pane's zoom / DPI change) drops only *that
+  owner's* page requests — thumbnail requests never go stale. **The queue is one app-wide instance
+  shared by every pane in every tab**: an unscoped clear (as it once was) wiped other panes' pending
+  renders too, so a newly opened tab sat on its blurry placeholder until a scroll re-requested the
+  page. Closing a tab removes just that document's requests (`RemoveWhere(r.Document == closing)`). Without the thumbnail priority a fast page-scroll starved the strip.
 - **The worker `catch`es every per-request exception and keeps looping** — an uncaught throw
   there kills the worker and *every* page then renders blank forever (this was a real bug:
   extreme zoom → a `new byte[stride*height]` of hundreds of MB → `OutOfMemoryException` → dead worker).

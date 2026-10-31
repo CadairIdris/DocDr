@@ -18,9 +18,9 @@ public sealed class BackgroundRenderQueueTests : IDisposable
         _dir.Dispose();
     }
 
-    private RenderRequest Req(int page, int width) => new()
+    private RenderRequest Req(int page, int width, object? owner = null) => new()
     {
-        Owner = this,
+        Owner = owner ?? this,
         Document = _doc,
         PageIndex = page,
         PixelWidth = width,
@@ -79,5 +79,17 @@ public sealed class BackgroundRenderQueueTests : IDisposable
         Assert.True(BackgroundRenderQueue.IsStalePageRender(Req(1, 1600)));
         Assert.False(BackgroundRenderQueue.IsStalePageRender(Req(0, BackgroundRenderQueue.ThumbnailPixelWidth)));
         Assert.False(BackgroundRenderQueue.IsStalePageRender(Req(0, 200)));
+    }
+
+    [Fact]
+    public void Clear_only_drops_the_calling_owners_page_renders()
+    {
+        // The queue is shared by every pane in every tab. One pane's zoom/DPI change used to clear
+        // all of them, so a just-opened tab lost its first full render and stayed on the blurry
+        // placeholder until scrolled.
+        var otherPane = new object();
+        Assert.True(BackgroundRenderQueue.IsClearedBy(Req(0, 1600), this));
+        Assert.False(BackgroundRenderQueue.IsClearedBy(Req(0, 1600, otherPane), this));
+        Assert.False(BackgroundRenderQueue.IsClearedBy(Req(0, 200), this));
     }
 }

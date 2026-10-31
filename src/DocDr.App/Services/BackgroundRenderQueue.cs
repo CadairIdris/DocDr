@@ -66,14 +66,17 @@ public sealed class BackgroundRenderQueue : IDisposable, IRenderQueue
         _signal.Release();
     }
 
-    /// <summary>Drop queued-but-not-started <em>page</em> renders (they go stale on a zoom / document
-    /// swap). Thumbnail requests are kept — they're a fixed size, never stale, and cheap.</summary>
-    public void Clear()
+    /// <summary>Drop <paramref name="owner"/>'s queued-but-not-started <em>page</em> renders (they go
+    /// stale on that pane's zoom / DPI change). Thumbnail-sized requests are kept — they're a fixed
+    /// size, never stale, and cheap. Scoped to one owner because the queue is shared app-wide: an
+    /// unscoped clear from one pane's zoom also wiped every <em>other</em> pane's pending renders —
+    /// a newly opened tab then sat on its blurry placeholder until a scroll re-requested the page.</summary>
+    public void Clear(object owner)
     {
         lock (_gate)
         {
             foreach (RenderKey key in _pending
-                         .Where(kv => IsStalePageRender(kv.Value.Request))
+                         .Where(kv => IsClearedBy(kv.Value.Request, owner))
                          .Select(kv => kv.Key).ToList())
             {
                 _pending.Remove(key);
@@ -100,6 +103,10 @@ public sealed class BackgroundRenderQueue : IDisposable, IRenderQueue
     /// <summary>A queued render that <see cref="Clear"/> drops: a full-size page render (which goes
     /// stale on a zoom / document swap), as opposed to a fixed-size thumbnail.</summary>
     internal static bool IsStalePageRender(RenderRequest request) => request.PixelWidth > ThumbnailPixelWidth;
+
+    /// <summary>What <see cref="Clear"/> drops: <paramref name="owner"/>'s own page renders only.</summary>
+    internal static bool IsClearedBy(RenderRequest request, object owner) =>
+        ReferenceEquals(request.Owner, owner) && IsStalePageRender(request);
 
     private async Task WorkerLoopAsync()
     {
