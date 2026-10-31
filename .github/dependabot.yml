@@ -15,5 +15,3 @@ updates:
           - "bblanchon.PDFium.*"
     commit-message:
       prefix: "PDFium"
-    labels:
-      - "pdfium"
