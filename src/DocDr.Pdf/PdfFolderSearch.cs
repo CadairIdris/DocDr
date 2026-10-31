@@ -53,6 +53,7 @@ public static class PdfFolderSearch
 
         int filesScanned = 0;
         int totalMatches = 0;
+        var totalsLock = new object();
         int degree = Math.Max(1, Math.Min(MaxParallelism, Environment.ProcessorCount));
 
         Parallel.ForEach(
@@ -88,10 +89,15 @@ public static class PdfFolderSearch
                     error = ex.Message;
                 }
 
-                int scanned = Interlocked.Increment(ref filesScanned);
-                int matches = hits.Count > 0
-                    ? Interlocked.Add(ref totalMatches, hits.Count)
-                    : Volatile.Read(ref totalMatches);
+                // Both running totals move together, so a report never pairs "3 of 3 files" with a
+                // match count another worker hasn't added yet.
+                int scanned, matches;
+                lock (totalsLock)
+                {
+                    scanned = ++filesScanned;
+                    matches = totalMatches += hits.Count;
+                }
+
                 progress.Report(new FolderSearchProgress(path, hits, error, scanned, filePaths.Count, matches));
             });
     }

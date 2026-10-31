@@ -192,6 +192,7 @@ public sealed partial class DocumentTabViewModel
             Title = "Export measurements",
             Filter = "CSV (*.csv)|*.csv",
             FileName = $"{Path.GetFileNameWithoutExtension(_baseTitle)} measurements.csv",
+            InitialDirectory = Document.FilePath is { } pdf ? Path.GetDirectoryName(pdf) : null,
         };
         if (dialog.ShowDialog() != true)
         {
