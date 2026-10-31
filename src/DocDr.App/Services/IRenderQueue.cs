@@ -9,7 +9,9 @@ public interface IRenderQueue
 {
     void Enqueue(RenderRequest request);
 
-    void Clear();
+    /// <summary>Drop <paramref name="owner"/>'s queued page renders (not thumbnail-sized ones). The
+    /// queue is shared by every pane and tab, so this must never touch anyone else's requests.</summary>
+    void Clear(object owner);
 
     /// <summary>Drop queued-but-not-started requests matching <paramref name="predicate"/> (e.g. pages
     /// that have scrolled out of view). A render already in progress is unaffected. The predicate

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -22,26 +21,14 @@ public sealed record AnnotationEditorResult(
     public double FontSize { get; init; } = PdfAnnotation.DefaultFontSize;
 }
 
-/// <summary>One already-posted reply in the comment thread.</summary>
-public sealed class ThreadMessageViewModel(string? author, DateTimeOffset when, string text)
-{
-    public string Text { get; } = text;
-
-    public string Attribution
-    {
-        get
-        {
-            string who = string.IsNullOrWhiteSpace(author) ? "—" : author.Trim();
-            return $"{who} · {when.LocalDateTime:yyyy-MM-dd HH:mm}";
-        }
-    }
-}
-
-/// <summary>Backs the small modal editor for a comment / noted highlight, with its reply thread.</summary>
+/// <summary>
+/// Backs the small modal editor for a note / noted highlight / text box. Text (and a highlight's
+/// colour) only — the reply thread, review status and checkmark live in the Comments panel. The
+/// annotation's existing replies are passed through untouched so saving never drops them.
+/// </summary>
 public sealed partial class AnnotationEditorViewModel : ObservableObject
 {
-    private readonly List<PdfReply> _replies;
-    private readonly string _replyAuthor;
+    private readonly IReadOnlyList<PdfReply> _replies;
 
     public AnnotationEditorViewModel(
         PdfAnnotationKind kind, string? contents, string? colorKey, bool canDelete,
@@ -60,11 +47,8 @@ public sealed partial class AnnotationEditorViewModel : ObservableObject
         Modified = Format(modified);
         ShowModified = modified is { } m && created is { } c && (m - c).Duration() > TimeSpan.FromMinutes(1);
 
-        _replies = replies?.ToList() ?? [];
-        _replyAuthor = string.IsNullOrWhiteSpace(replyAuthor) ? Environment.UserName : replyAuthor;
-
-        Thread = [];
-        RebuildThread();
+        _replies = replies?.ToArray() ?? [];
+        _ = replyAuthor; // kept for call-site compatibility; replies are posted from the Comments panel
     }
 
     public PdfAnnotationKind Kind { get; }
@@ -90,9 +74,6 @@ public sealed partial class AnnotationEditorViewModel : ObservableObject
     /// <summary>Colour swatches show for highlights only; shapes / text boxes use the floating format toolbar.</summary>
     public bool ShowColors => IsHighlight;
 
-    /// <summary>Only comments and noted highlights carry a conversation — a text box / callout does not.</summary>
-    public bool AllowReplies => Kind is PdfAnnotationKind.Comment or PdfAnnotationKind.Highlight;
-
     public bool CanDelete { get; }
 
     public string Title => Kind switch
@@ -114,66 +95,30 @@ public sealed partial class AnnotationEditorViewModel : ObservableObject
             ? f
             : PdfAnnotation.DefaultFontSize;
 
-    /// <summary>The conversation so far: the opening comment then every reply, oldest first.</summary>
-    public ObservableCollection<ThreadMessageViewModel> Thread { get; }
-
-    /// <summary>Whether to show the thread panel — replies allowed for this kind, and at least one posted.</summary>
-    public bool ShowThread => AllowReplies && _replies.Count > 0;
-
     [ObservableProperty]
     private string _contents;
 
     [ObservableProperty]
     private string _selectedColorKey;
 
-    [ObservableProperty]
-    private string _newReply = string.Empty;
-
     /// <summary>Set by the host; invoked with the outcome.</summary>
     public Action<AnnotationEditorResult>? Closed { get; set; }
 
     [RelayCommand]
-    private void AddReply()
-    {
-        string text = NewReply.Trim();
-        if (text.Length == 0)
-        {
-            return;
-        }
-
-        _replies.Add(PdfReply.New(text, _replyAuthor));
-        NewReply = string.Empty;
-        OnPropertyChanged(nameof(ShowThread));
-        RebuildThread();
-    }
-
-    private void RebuildThread()
-    {
-        // The opening message is the editable box above with its own attribution line — the
-        // thread lists just the replies to it.
-        Thread.Clear();
-        foreach (PdfReply reply in _replies)
-        {
-            Thread.Add(new ThreadMessageViewModel(reply.Author, reply.Created, reply.Text));
-        }
-    }
-
-    [RelayCommand]
     private void Save()
     {
-        AddReply(); // commit any text still sitting in the reply box
         Closed?.Invoke(new AnnotationEditorResult(
-            AnnotationEditorOutcome.Save, Contents.Trim(), SelectedColorKey, _replies.ToArray())
+            AnnotationEditorOutcome.Save, Contents.Trim(), SelectedColorKey, _replies)
             { FontSize = FontSize });
     }
 
     [RelayCommand]
     private void Cancel() =>
         Closed?.Invoke(new AnnotationEditorResult(
-            AnnotationEditorOutcome.Cancel, Contents, SelectedColorKey, _replies.ToArray()));
+            AnnotationEditorOutcome.Cancel, Contents, SelectedColorKey, _replies));
 
     [RelayCommand]
     private void Delete() =>
         Closed?.Invoke(new AnnotationEditorResult(
-            AnnotationEditorOutcome.Delete, Contents, SelectedColorKey, _replies.ToArray()));
+            AnnotationEditorOutcome.Delete, Contents, SelectedColorKey, _replies));
 }

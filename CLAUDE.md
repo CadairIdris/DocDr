@@ -42,6 +42,30 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   `SaveToBytes` does this when metadata was edited *or* the handle was rebuilt (rebuild loses the
   Info dict). Metadata edits are not on the undo stack.
 
+## Extract pages (`PdfDocument.ExtractPages` / `PdfPageRange`)
+
+- **`PdfDocument.ExtractPages(pages, PdfExtractOptions)` → `byte[]`** (`PdfDocument.Extract.cs` — `PdfDocument`
+  is now `partial`): `FPDF_CreateNewDocument` + `FPDF_ImportPages(dest, Handle, "1,3-5", 0)` from the
+  **live handle** (edits / rotations / crops included; the source isn't touched), serialised with a
+  private `SaveHandle` (flag 2). The result is **never encrypted** — PDFium imports decrypted pages —
+  which is what makes one page of a BSI licensed copy shareable (the dialog warns). Annotations are
+  baked onto **only the extracted pages** (`BakeAnnotations(pages)` / `UnbakeAnnotations(pages)`
+  overloads — not all 400) when `IncludeAnnotations`. Then `PdfMetadataWriter.AppendInfo` (source Info
+  + new `Title`) and, if `IncludeBookmarks`, `PdfOutlineWriter.Append` of `SliceOutline(GetOutline(),
+  old→new page map)`: bookmarks outside the range are dropped but their in-range children promoted.
+- **`PdfPageRange.TryParse("3, 7-9, 12", pageCount, …)`** → sorted distinct 0-based indices (1-based
+  input, `–`/`—` as dashes, reversed ranges OK, `,`/`;`), with a plain-language error; `Format` is the
+  inverse ("1,3-5,8"). Page numbers are **file positions**, not page labels.
+- App (`DocumentTabViewModel.Extract.cs`): **Pages ▾ "Extract pages…"** and thumbnails' right-click
+  "Extract page(s)…" (`ThumbnailCommand.Extract`) pre-fill the thumbnail selection or the current page;
+  a bookmark's right-click **"Extract chapter…"** (`BookmarksViewModel.ExtractRequested`) pre-fills
+  `BookmarksViewModel.ChapterRange` — from its page to the page before the next bookmark in reading
+  order that is *not* its descendant and starts on a *later* page (same-page bookmarks aren't
+  boundaries), else to the end — and suggests "{doc} — {bookmark}" as the title.
+  `ExtractPagesWindow` / `ExtractPagesViewModel` (range + live "n pages" + error, title, include
+  annotations / bookmarks, open after) → `SaveFileDialog` (refuses the source path) → `Task.Run` →
+  `OpenFileRequested` → `MainViewModel.OpenPathAsync`.
+
 ## Watermark removal (`PdfWatermarkStripper`, Stage 4)
 
 - **`FPDFPageRemoveObject` + `FPDFPageGenerateContent` re-serialises the whole page from PDFium's
@@ -70,8 +94,9 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   totals) via `IProgress<T>` — no persistent index; every run is a fresh scan (there's no SQLite
   catalog yet to cache extracted text in). Per file it's just `PdfDocument.Load` +
   `new PdfSearch(doc).FindAll(term, options, ct, includeSnippets: true)`; `SearchHit.Snippet`
-  (new, opt-in — the in-pane search leaves it off) is captured in the same `FPDFTextFindNext`
-  pass as the rects, so there's no second text-extraction cost per hit.
+  (new, opt-in — the in-pane search leaves it off) is captured in the same text-page load as the
+  rects, so there's no second text-extraction cost per hit. (Each folder file is a fresh `Load`, so
+  it always takes the cold path below — one text-page load per page, same as before.)
 - **Parallelism is deliberately capped low** (`min(4, ProcessorCount)`, via `Parallel.ForEach`)
   — every PDFium call is still serialised through `PdfiumLibrary.SyncRoot`, so extra workers
   can't parallelise the PDFium work itself. What they overlap is one file's disk read /
@@ -116,10 +141,89 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   affect the same-line decision) — a highlight sitting exactly flush against the glyph edges reads
   as slightly clipped, particularly on ascenders/descenders.
 
+## Text cache + managed search (`PdfPageTextCache` / `PdfTextMatcher` / `PdfSearch.Search`)
+
+- **Each page's text is extracted once per document** — `PdfDocument.TextCache` (internal
+  `PdfPageTextCache`: page → `FPDFText_GetText` string, so string index == PDFium char index).
+  **Keyed on `ContentVersion`**: a lookup/store at a newer version drops every entry; a store tagged
+  with an older version is ignored (text read before an edit can't be served after it). Strings
+  only (a 400-page standard ≈ a few MB; 64 M-char backstop); char boxes are *not* cached.
+  `PdfTextExtractor.GetPageText` goes through it, so the clause scan, RAG chunker, OCR
+  `PagesWithoutText` and headings all share one extraction with search.
+- **Search no longer runs `FPDFText_FindStart` per page per query.** `PdfSearch.SearchPage`:
+  cached text → `PdfTextMatcher.Find` in managed code, and PDFium is opened **only for a page with
+  a match** (for its highlight boxes); uncached → one text-page load reads + caches the text and
+  matches + boxes in that same load (so a cold search costs what the old loop did).
+  `PdfSearch.PagesOpened` (internal) lets tests assert a warm search opens only matching pages.
+  A page whose `FPDFTextCountChars` ≠ text length (non-BMP glyphs → surrogate pairs) falls back to
+  PDFium's own find (`NativeFind`).
+- **Matcher semantics** (`PdfTextMatcher`): term trimmed; any whitespace run in page text (incl.
+  PDFium's `\r\n` between lines, and NULs) matches any whitespace run in the term — so a phrase
+  split across a line break *is* found (PDFium's find didn't); `MatchCase` → ordinal, else
+  `OrdinalIgnoreCase`; `MatchWholeWord` → letter/digit boundaries; `ConsecutiveMatches` →
+  overlapping. A match maps back through the collapse map to a PDFium `(start, count)`.
+- **Progressive**: `PdfSearch.Search(term, options, startPage, onBatch, ct)` visits `startPage`…end
+  then wraps, hands new hits to `onBatch` on the worker thread (first hit at once, then ≤ every
+  `BatchInterval` 120 ms, then a final flush) and returns all hits sorted. `FindAll` = `Search`
+  from page 0 with no callback.
+- **Pane** (`PdfPaneViewModel.SearchAsync`): starts at the current page (spread-left in TwoPage),
+  posts batches to the UI `SynchronizationContext` → `MergeSearchHits` → `ReplaceSearchHits`, which
+  keeps the selected hit by identity and **only the first batch selects + scrolls** (first hit at/
+  after the start page) — later batches update the count/highlights and never move the view. The
+  final `await` result replaces the list (same contents; batches were posted ahead of it).
+  **Enter on an unchanged query (`_searchedQuery`) = next match**, not a re-search; Prev/Next don't
+  restart a search that's still streaming. `ClearSearch` resets `IsSearching` itself (a cancelled
+  run's `finally` no longer owns `_searchCts`).
+
+## Main toolbar (`MainWindow.xaml`)
+
+- **One `ToolBar` row of 16×16 stroke icons with tooltips**, grouped by how often each thing is used:
+  File ▾ · Save · Undo · Redo │ Note · Draw · colour swatches · Text box · Callout · Cloud ·
+  Shape (split) ▾ · Markup eye │ Pages ▾ · Tools ▾ │ Split · Side by side · Link scrolling · Read │ Theme ▾.
+  Once-per-document actions live in the dropdowns: **File** (Open/New/Merge/Save/Save As/Print/
+  Properties/Find in files), **Pages** (rotate/delete/insert PDF/blank page), **Tools** (Extract table
+  as a checkable item, OCR, Remove watermark, Trim margins, Export chunks).
+- A dropdown is a plain `Button` with its own `ContextMenu`, opened under it by `DropDown_Click`
+  (code-behind) — the menu inherits the window `DataContext` and the Fluent `ContextMenu` style
+  (a `Menu` inside a `ToolBar` would pick up the classic ToolBar style). Per-tab buttons carry
+  `IsEnabled="{Binding HasTabs}"` since a null `SelectedTab.XCommand` binding leaves a control enabled.
+- Icon geometries are `Tb*` resources in `MainWindow.xaml`, drawn with `NavTabIcon` (stroke = the Path's own
+  inherited `TextElement.Foreground`, so checked/disabled states work); `MenuIcon` is an alias for menus. **Don't use a
+  `FindAncestor` (ButtonBase / MenuItem) binding for the stroke** — items in an unopened menu or a
+  collapsed ToolBar overflow aren't in a visual tree yet, and the lookup logs binding error 4.
+- **Shape split button**: `DocumentTabViewModel.IsBasicShapeActive` (on while rectangle/ellipse/line/arrow
+  is armed; turning it on arms `LastBasicShape`, which `OnShapeToolChanged` records). Its icon swaps
+  by `LastBasicShape`; the ▾ menu picks the shape. Markup toggle swaps eye / eye-off and its tooltip is
+  `MarkupToolTip`. Theme is a ▾ menu (`Theme_Click`), not a ComboBox.
+
+## Pane status strip + find bar (`PdfPaneView.xaml`)
+
+- **Page nav / zoom / view mode moved to a thin strip at the *bottom* of each pane** (Grid row 1;
+  the page `ListBox` and its popups are row 0). There is no pane toolbar above the page any more.
+  The strip hides in read mode like the old toolbar did.
+- **Search is a floating find bar** (`FindBar`, top-right of the page area, drawn after `PageList`
+  so it sits on top), shown by `PdfPaneViewModel.IsSearchBarOpen`. Opened by Ctrl+F (the pane's
+  own `PreviewKeyDown`, so the pane you're in gets it; a window `KeyBinding` to
+  `SelectedTab.LeftPane.OpenSearchBarCommand` is the fallback when focus is outside every pane) or
+  the strip's magnifier toggle (`SearchToggle_Click`). `OpenSearchBar()` raises
+  `SearchBarFocusRequested` → the view focuses `SearchBox` at `Input` priority. Esc / ✕ →
+  `CloseSearchBarCommand` = hide + `ClearSearch` (drops the highlights). `GoToSearchHitAsync`
+  (find-in-files result) opens the bar so the term and match count are visible.
+- **The active hit is centred, not its page top-aligned** (Continuous / SinglePage-scrolling only;
+  paged + grid keep the page jump): `MoveToHit` → `HitCentreFraction` (hit rects' centre as fractions
+  of the slot's layout box, same transform as the overlay) → `ScrollToHitRequested(page, y, x)` →
+  `PdfPaneView.OnScrollToHitRequested` → `AlignPage(..., viewportAnchor: 0.5)` (measures `fraction`
+  against the slot's `LayoutHeight`, not the container) + horizontal centring when the page is
+  wider than the pane.
+- **Search highlights get extra screen-space padding** in `ApplyHighlights`
+  (`SearchHighlightPadY/X` = 22 % / 30 % of the line height, min 1.5 / 2 DIP, swapped on 90/270
+  pages) on top of `MergeIntoLineRects`' shared 12 % — the selection highlight stays tighter.
+  Corners rounded 2 DIP.
+
 ## Navigation panel (icon rail)
 
 - **`NavigationRailView`** is a ~40px always-visible strip (column 0 of `DocumentTabView`) with
-  four icon buttons — Pages / Bookmarks / Clauses / Comments. Each runs
+  five icon buttons — Pages / Bookmarks / Clauses / Comments / Annotations (markup). Each runs
   `DocumentTabViewModel.ShowNavigationSectionCommand(NavigationTab)`: opens the panel to that
   section, or collapses it if it's already open on that section. Active-section highlight (accent
   bar) via `NavRailActiveConverter` (values `[NavigationTab, IsNavigationPanelVisible]`, param =
@@ -202,10 +306,80 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   leader plumbing — `MoveShape` shifts both endpoints together, `TryHitShapeBox` does a
   segment-distance test). `PdfStampAppearance`: `Ellipse` = 4-bezier path (`kappa`), `Line`/`Arrow`
   = `DrawLeader(..., arrow:)`.
+- **Tick** (`PdfAnnotationKind.Tick`, appended last to the enum; `ShapeTool.Tick`; toolbar ✓ after
+  Cloud) — stamp-backed, box in `Quads[0]`, drawn from `PdfAnnotation.TickPoints(box)` (3 points,
+  shared by `PdfStampAppearance.DrawTick` and the overlay `Polyline`, mapped point-by-point so it
+  turns with a rotated page). `NewTick` sets `LineWidth = DefaultTickLineWidth` (3 pt). **The tool
+  is not one-shot**: a click drops an 18 pt tick (`DefaultTickSize`) centred on the point, a drag
+  sizes it, the new tick isn't selected (no format bar per tick), and Esc / the toolbar disarms.
+  Moves/resizes/selects like the other box kinds; format bar = colour + width. It's markup, so it
+  lists in the Annotations panel.
 - **Shape colour round-trips via `/DocDrShape`, not `FPDFAnnotGetColor`.** `FPDFAnnotGetColor`
   fails on a reloaded stamp that carries an appearance stream, and `ReadColor` then falls back to
   yellow (`0xFFFFD54F`). `PdfShapeCodec.Shape` carries a `uint? Color` (null when 0); `Decode`
   uses `shape.Color ?? colorArgb`.
+
+## Measuring (`PdfMeasure` / `PdfMeasureScale`, modelled on pdfcraft's measure tool)
+
+- **Kinds** `MeasureDistance` / `MeasurePerimeter` (open polyline) / `MeasureArea` (closed polygon,
+  shoelace) — appended to `PdfAnnotationKind`, **stamp-backed**: vertices in `Strokes[0]` (exposed as
+  `PdfAnnotation.Vertices`; `Quads` empty), `PdfAnnotation.Scale` = the `PdfMeasureScale` it was taken
+  at. **Every measurement stores its own scale** (like ISO 32000 §12.9's per-annotation `/Measure`), so
+  changing a page's scale never changes earlier values. The value is always *computed* from vertices
+  + scale (`PdfMeasure.Value` / `Caption`), so dragging a vertex updates it.
+- **`PdfMeasureScale(UnitsPerPoint, Unit, Label, Decimals)`**: `FromDrawingRatio(50, "m")` ("1:50"),
+  `FromRatio(paper, unit, real, unit)`, `Calibrate(pagePoints, realLength, unit)`, `Default` = 1:1 sheet
+  mm. Units mm/cm/m/in/ft. Area captions are `unit²`.
+- **Saved** via `/DocDrShape` (vertices in the `Leader` array + `Upp`/`Unit`/`ScaleLabel`/`Dec`). PDFium
+  can't write `/Measure` dictionaries, so other viewers see only the appearance: lines (area tinted
+  `0x33` alpha), a distance's end bars (`PdfMeasure.EndTicks`), and the caption on a white backing
+  (`CaptionRect`, Helvetica metrics). The annot `/Rect` = `AppearanceBounds` (vertices + caption) or the
+  caption would be clipped; `/Contents` = `PdfMeasure.Describe` ("Distance 3.25 m") and is **not**
+  read back as a note (decode nulls it). Acrobat-authored `/Measure` annotations are not imported.
+- **Interaction** (`PdfPaneViewModel` "Measuring" region; `ShapeTool.MeasureDistance/Perimeter/Area/
+  Calibrate`): **click-by-click, not drag** — `PdfPaneView` routes a mouse-down to `MeasureClick`
+  (or `MeasureFinish` on a double-click for perimeter/area) *before* the generic shape branch, rubber-
+  bands on mouse-move (`MeasureHover`), and in `PageList_PreviewKeyDown` Enter = finish, Backspace =
+  drop last vertex, Esc = abandon (a second Esc disarms). Shift = 45° (`Constrain45`). Distance /
+  calibrate finish on the 2nd click. A click on the same spot as the last vertex adds nothing (the
+  first half of a double-click). **Tools stay armed**; a measurement lives on one page (a click on
+  another page restarts there). Live preview = `PageSlotViewModel.MeasurePreview*` (dashed accent
+  line, tinted area, value badge by the pointer; an area also shows its running perimeter). New
+  measurements use the swatch colour, except the default yellow → `DefaultMeasureColorArgb` (red).
+- **Editing**: select by a segment / inside the area / the caption (`HitsMeasurement`); move like any
+  shape (`MoveShape` shifts all vertices); **every vertex is draggable** — `TryHitLineEndpoint` /
+  `MoveLineEndpoint` were generalised from a line's two ends to any measurement vertex. Format bar =
+  colour + line width. Listed in the Annotations panel with value + scale.
+- **Scales** (`DocumentTabViewModel.Measure.cs`): a document scale + per-page overrides, *session
+  state* — on open `InferScales` recovers them from the newest measurement overall / per page; a
+  structural page edit drops the per-page overrides (indices shift). Panes ask via `ScaleProvider`.
+  `MeasureScaleWindow` / `MeasureScaleViewModel`: ratio form (1 : N + unit), or — after
+  `ShapeTool.Calibrate` + two clicks (`CalibrationMeasured`, dialog posted via `BeginInvoke`) — the
+  known length; decimals; apply to all pages / this page. The bottom strip shows `ScaleText`
+  ("Scale 1:50 · m"), click → Set scale. Toolbar **Measure ▾** (lit while a tool is armed):
+  Distance / Perimeter / Area, Set scale…, Calibrate…, Export measurements (CSV) — `MeasurementsCsv`
+  (invariant numbers, formula-leading cells prefixed `'`, RFC-4180 quoting).
+- **Snapping** (`PdfSnapGeometry`, `DocDr.Pdf`): `Extract(doc, page)` walks every path object, recursing
+  into Form XObjects (`FPDFFormObjCountObjects/GetObject`, depth ≤ 16) and composing each object's
+  `FPDFPageObjGetMatrix` with its parent's; reads MOVETO/LINETO/BEZIERTO (**PDFium reports a cubic as
+  three BEZIERTO points** — c1, c2, end — flattened to 8 segments) and `FPDFPathSegmentGetClose`.
+  Capped at `MaxSegments` (20 000 → `Truncated`). Glyphs, images, clipping and OCG visibility are
+  ignored. Indexed in a 24-pt grid (each segment registered in the cells it passes through, sampled
+  at half-cell steps). `Snap(p, tol)` priority: **end point > intersection (among the 48 closest
+  segments) > midpoint > nearest point on a line**, the stronger kind winning even if a weaker one
+  is nearer. App: `PdfPaneViewModel` loads a page's geometry on first measuring hover
+  (`LoadSnapGeometryAsync`, `Task.Run`, dropped if `_pageDataGeneration` moved; cleared in
+  `ReloadPages`), snaps hover + clicks within `SnapTolerancePx` (9 screen px), and draws
+  `PageSlotViewModel.SnapMarker`/`SnapKind` (square / ✕ / triangle / circle + caption). Hover runs
+  whenever a measuring tool is armed (so the marker shows before the first click); **Ctrl
+  suspends, Shift's 45° constraint overrides**, and `DocumentTabViewModel.SnapToDrawing` (Measure ▾
+  "Snap to drawing lines", default on) mirrors to `PdfPaneViewModel.SnapEnabled`. Calibration clicks
+  snap too. **Dragging a measurement vertex snaps as well**: `BeginLineEndpointMove` records
+  `_vertexSnapOrigin` (page + start vertex, measurements only — line / arrow ends stay free), and
+  `Preview/EndLineEndpointMove(dx, dy, suspendSnap)` run `SnapVertexDrag` (snap origin + drag, return
+  the adjusted drag); "did it move" is judged on the raw drag so a sub-point snap still commits.
+  The marker clears on drop / cancel.
+- **Not yet** (pdfcraft has them): inserting vertices, compound units (ft-in), different X/Y scales.
 
 ## Per-annotation format toolbar (`AnnotationFormatViewModel`)
 
@@ -323,9 +497,31 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   and stashes it in the parent annotation's private `/DocDrThread` string key; the reader
   decodes it back. Round-trips through PDFium and any reader that keeps unknown keys; other
   readers still see the opening comment. Replies are part of the immutable `PdfAnnotation`
-  record, so they snapshot with history and are undoable like any other annotation edit. The
-  editor (`AnnotationEditorViewModel`) shows replies as a list with a reply box; the nav-panel
-  row shows a reply count.
+  record, so they snapshot with history and are undoable like any other annotation edit.
+  **Replies are posted from the Comments panel, not the editor** — `AnnotationEditorViewModel`
+  is text (+ highlight colour) only and passes the existing `Replies` through untouched.
+- **Comments panel** (`NavigationTab.Comments`, `CommentsViewModel` / `CommentsPanelView`) is split
+  from the **Annotations panel** (`NavigationTab.Annotations`, `AnnotationListViewModel`, now markup
+  only). `CommentClassifier.IsComment` = a note, or a highlight with note text or replies; every
+  annotation is in exactly one panel. Comments are grouped by page (collapsible `CommentPageGroup
+  ViewModel`); each `CommentCardViewModel` shows icon · author · date · status chip · ✓ · ⋯, the
+  text, the reply thread, and (selected card only) an "Add a reply" box (Ctrl+Enter / Post). The
+  ⋯ menu: Edit… (opens the editor via `LeftPane.EditAnnotationCommand`), Set status ▸, Mark with
+  checkmark, Copy text, Delete. Every change is a new record → `UpdateRequested` →
+  `DocumentTabViewModel.OnCommentUpdateRequested` → `Document.UpdateAnnotation` (undoable) →
+  `AnnotationsChanged` → `Comments.Reload`, which **keeps the selected card, half-written replies
+  (by id) and collapsed page groups**. Selecting a note on the page (`LeftPane.SelectedAnnotationId`)
+  selects its card (`Comments.Select`) and `BringIntoViewWhen` scrolls it into view.
+- **Review status + checkmark** — `PdfAnnotation.Status` (`PdfReviewStatus`: None / Accepted /
+  Cancelled / Completed / Rejected, the PDF "Review" state model) and `IsMarked` (the "Marked"
+  model). Standard PDF puts these on a separate `/IRT` reply annotation, which PDFium can't link, so
+  they round-trip as private keys `/DocDrStatus` (enum name) and `/DocDrMarked` ("true"), written
+  only when set (`PdfAnnotationWriter`) and read for every managed subtype (`PdfAnnotations`
+  wraps each `result.Add` in a local `Add` that applies them). Ignored by other readers.
+- **Note icon** = a filled speech bubble (`NoteIconBody` + `NoteIconLines` in `App.xaml`, 24×24,
+  fill = note colour, darkened outline/lines) — the page pin (accent frame when selected) and the
+  Comments cards both use it. The rail's Comments button keeps the outline bubble
+  (`IconAnnotations`); Annotations uses the pen (`IconMarkup`).
 - **Stamp-backed shapes** (`PdfAnnotationKind.TextBox` / `Callout` / `Cloud`): PDFium has no
   setter for `/CL`, `/Vertices` or `/BE`, so these are written as **`Stamp` (subtype 13)**
   annotations whose appearance `PdfStampAppearance.Build` assembles from real page objects —
@@ -406,8 +602,11 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 
 - One `BackgroundRenderQueue` worker rasterises pages. **Thumbnail-sized requests (≤ 320 px)
   go first**, oldest-first (the strip fills top-down); larger page renders keep newest-first
-  (the page just scrolled to). `Clear()` (zoom / doc swap) drops only page requests — thumbnail
-  requests never go stale. Without the thumbnail priority a fast page-scroll starved the strip.
+  (the page just scrolled to). `Clear(owner)` (that pane's zoom / DPI change) drops only *that
+  owner's* page requests — thumbnail requests never go stale. **The queue is one app-wide instance
+  shared by every pane in every tab**: an unscoped clear (as it once was) wiped other panes' pending
+  renders too, so a newly opened tab sat on its blurry placeholder until a scroll re-requested the
+  page. Closing a tab removes just that document's requests (`RemoveWhere(r.Document == closing)`). Without the thumbnail priority a fast page-scroll starved the strip.
 - **The worker `catch`es every per-request exception and keeps looping** — an uncaught throw
   there kills the worker and *every* page then renders blank forever (this was a real bug:
   extreme zoom → a `new byte[stride*height]` of hundreds of MB → `OutOfMemoryException` → dead worker).
@@ -660,8 +859,36 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 - `RagChunkOptions.IncludeSectionHeading` (default true) prefixes `text` with
   "`{doc title} — {section}\n\n`" (contextual-retrieval-lite). The windower reserves 160 chars
   for it (`maxChars = MaxChars − 160`) so the finished text still lands ≤ `MaxChars`.
+- **Text comes from `PdfChunkText.ReadPage`, not `GetPageText`** — per char `FPDFTextGetUnicode` +
+  `FPDFTextGetCharBox`, then the pure `BuildPage` (unit-tested with real char sequences). **PDFium
+  returns a non-BMP character (𝑘 U+1D458) as two chars, one per UTF-16 surrogate, sharing the glyph's
+  box** — `BuildPage` re-pairs them (a lone half → U+FFFD). Per page it yields
+  `ChunkLine(Text, InMargin, HasMath)`: **doubled glyphs** — a *non-ASCII* code point at IoU ≥ 0.6 with
+  one of the last 12 kept on the line — are dropped. The cause is usually the font's own ToUnicode:
+  Word's maths export maps one glyph to a doubled string (`<0747> <D835DC58D835DC58>` = "𝑘𝑘"). ASCII
+  is exempt because a ligature glyph legitimately expands to repeated letters at one box ("ff"); maths letters / ℎ are NFKC-normalised to plain ones (𝜏→τ, 𝑐→c); `InMargin` = every glyph in
+  the top/bottom 8 % band. **`PageNumberLine` only drops a line when `InMargin`** — mid-page a lone
+  "1"/"3"/"d"/"v" is an equation fragment (a stacked ⅓ exponent, a variable under a fraction bar), and
+  the old filter (digits + roman numerals `[ivxlcdm]`) silently deleted them.
+- **Quality flags** (`PdfTextQuality`): every `RagChunk` has `quality` (`ok` / `check` / `suspect`) +
+  `issues` (plain-language reasons). `suspect` = U+FFFD / private-use / control chars ("unmapped") or
+  characters outside the expected technical-Latin/Greek/Cyrillic/maths/symbol ranges ("unexpected" —
+  a symbol font with a broken `/ToUnicode` comes out as Syriac/Oriya letters: `݇` for k, `ଵ ଷ` for ⅓).
+  A 128-code-point block holding ≥ 20 % of the document's otherwise-unexpected letters is the
+  document's own script (`ScriptProfile`), not flagged. `check` = the chunk has maths
+  (`IsMathCodePoint`: maths alphanumerics, operators, super/subscripts) whose 2-D layout is flattened.
+  Only flagged, not repaired.
+- **Most of that garbage is DocDr's PDFium (4688), not the PDF.** Checked against BS EN 1992-1-1:2023
+  p.143 / Annex O: the Word-made `CambriaMath` Type0 font's ToUnicode *does* map 𝑘, 𝑓, 𝑑 and the
+  script-size `1`/`3` of a ⅓ exponent, but PDFium ~4700 ignores some of those entries (others written
+  identically work) and falls back to the raw CID as Unicode — CID 0747 → U+0747 Syriac, 0B35 → Oriya
+  `ଵ`, 1246 → Ethiopic `ቆ`. PDFium 4763 reproduces the agent's exact output; current PDFium
+  (pypdfium2 / chromium 8076) extracts the same pages correctly except glyphs the map itself sends to
+  U+FFFD (big parentheses, the radical). Annex O: 166 garbage chars on 4763 vs 16 on current, and
+  4763 also loses "(O.5)". Upgrading PDFiumCore is the real fix. `RagChunkResult.SuspectPages` / `DoubledGlyphsRemoved` feed the export summary dialog.
 - App: `DocumentTabViewModel.ExportRagChunksCommand` (async — `Task.Run(Chunk + WriteJsonl)`),
-  toolbar "Export chunks…". Batch/folder mode and catalog persistence are not built yet.
+  toolbar "Export chunks…". Batch/folder mode and catalog persistence are not built yet. Not done
+  yet: page-image references for suspect chunks, tables as rows (`PdfTableExtractor` not wired in).
 
 ## Read mode (Stage 1)
 
@@ -763,5 +990,12 @@ API is `[Experimental("WPF0001")]` — suppressed) and swaps `Themes/Palette.{Li
 for DocDr's own tokens. **All palette brushes must be referenced as `DynamicResource`** (not
 `StaticResource`) so a theme swap takes effect. **A `<Style TargetType="X">` with no `BasedOn`
 replaces the Fluent theme style for that control** — always
-`BasedOn="{StaticResource {x:Type X}}"`. Fluent's default Button padding clips a fixed-width
+`BasedOn="{StaticResource {x:Type X}}"`. **The .NET 9 Fluent `MenuItem` template references
+`CheckBoxBackground` / `CheckBoxBorderBrush` without defining them** — `Palette.Shared.xaml`
+supplies both (transparent) so opening a menu doesn't log "Resource not found". **The Fluent
+`TextBox` always shows a clear-✕ while focused with text** (no property to disable it); `App.OnStartup`
+calls `TextBoxClearButton.HideInMultilineBoxes()` — a class-level `TextBox` `Loaded` handler that
+collapses the template's `ClearButton` (a local `Visibility` beats the template triggers) in
+`AcceptsReturn` boxes only; single-line boxes (find bar) keep it. Not an App-level implicit style:
+`BasedOn="{StaticResource {x:Type TextBox}}"` in App.xaml can resolve before Fluent is merged. Fluent's default Button padding clips a fixed-width
 icon button (see `GlyphButton` in `PdfPaneView.xaml`).

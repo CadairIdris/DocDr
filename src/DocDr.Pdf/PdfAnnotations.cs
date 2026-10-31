@@ -50,6 +50,12 @@ public static class PdfAnnotations
     /// managed annotations), so it isn't paying for a separate <c>FPDF_LoadPage</c>/<c>ClosePage</c>
     /// round trip per concern. The document lock must still be held.
     /// </summary>
+    /// <summary>Private key holding a comment's <see cref="PdfReviewStatus"/> name.</summary>
+    internal const string StatusKey = "DocDrStatus";
+
+    /// <summary>Private key set to "true" when a comment carries its checkmark.</summary>
+    internal const string MarkedKey = "DocDrMarked";
+
     internal static IReadOnlyList<PdfAnnotation> ReadFromPage(FpdfPageT page)
     {
         int count = fpdf_annot.FPDFPageGetAnnotCount(page);
@@ -78,6 +84,12 @@ public static class PdfAnnotations
                 DateTimeOffset? modified = PdfDate.TryParse(ReadString(annot, "M"), out DateTimeOffset m) ? m : null;
                 Guid id = Guid.TryParse(ReadString(annot, "NM"), out Guid nm) ? nm : Guid.NewGuid();
                 IReadOnlyList<PdfReply> replies = PdfReplyCodec.Decode(ReadString(annot, "DocDrThread"));
+                PdfReviewStatus status = Enum.TryParse(ReadString(annot, StatusKey), ignoreCase: true, out PdfReviewStatus st)
+                    && Enum.IsDefined(st)
+                    ? st
+                    : PdfReviewStatus.None;
+                bool marked = string.Equals(ReadString(annot, MarkedKey), "true", StringComparison.OrdinalIgnoreCase);
+                void Add(PdfAnnotation a) => result.Add(a with { Status = status, IsMarked = marked });
 
                 if (ourStamp)
                 {
@@ -91,7 +103,7 @@ public static class PdfAnnotations
 
                     if (shape is not null)
                     {
-                        result.Add(shape);
+                        Add(shape);
                     }
 
                     continue;
@@ -105,7 +117,7 @@ public static class PdfAnnotations
                         continue;
                     }
 
-                    result.Add(new PdfAnnotation(id, PdfAnnotationKind.Ink, [], ReadColor(annot),
+                    Add(new PdfAnnotation(id, PdfAnnotationKind.Ink, [], ReadColor(annot),
                         contents, author, created, modified)
                     {
                         Strokes = strokes,
@@ -121,7 +133,7 @@ public static class PdfAnnotations
                     ? ReadQuads(annot)
                     : [ReadRect(annot)];
 
-                result.Add(new PdfAnnotation(id, kind, quads, ReadColor(annot), contents, author, created, modified)
+                Add(new PdfAnnotation(id, kind, quads, ReadColor(annot), contents, author, created, modified)
                 {
                     Replies = replies,
                 });

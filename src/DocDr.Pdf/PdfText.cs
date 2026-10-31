@@ -11,17 +11,32 @@ public readonly record struct PdfCharBox(int Index, string Text, PdfRect Box);
 /// </summary>
 public static class PdfTextExtractor
 {
-    /// <summary>Extracted text of one page, in reading order as PDFium reports it.</summary>
+    /// <summary>Extracted text of one page, in reading order as PDFium reports it. Served from the
+    /// document's <see cref="PdfPageTextCache"/> when this page was already read at the current
+    /// <see cref="PdfDocument.ContentVersion"/> — the clause scan, chunk export, OCR's blank-page
+    /// check and search all share it, so a big standard's text is pulled out of PDFium once.</summary>
     public static string GetPageText(PdfDocument document, int pageIndex)
     {
         ArgumentNullException.ThrowIfNull(document);
         document.ValidatePageIndex(pageIndex);
 
-        return document.Locked(() => WithTextPage(document, pageIndex, textPage =>
+        int version = document.ContentVersion;
+        if (document.TextCache.TryGet(version, pageIndex, out string cached))
         {
-            int count = fpdf_text.FPDFTextCountChars(textPage);
-            return count <= 0 ? string.Empty : ReadText(textPage, 0, count);
-        }));
+            return cached;
+        }
+
+        string text = document.Locked(() => WithTextPage(document, pageIndex, ReadAllText));
+        document.TextCache.Store(version, pageIndex, text);
+        return text;
+    }
+
+    /// <summary>The whole page's text; string index == PDFium char index (for BMP text — see
+    /// <see cref="PdfSearch"/>, which checks the length against <c>FPDFTextCountChars</c>).</summary>
+    internal static string ReadAllText(FpdfTextpageT textPage)
+    {
+        int count = fpdf_text.FPDFTextCountChars(textPage);
+        return count <= 0 ? string.Empty : ReadText(textPage, 0, count);
     }
 
     /// <summary>Per-character boxes for one page.</summary>

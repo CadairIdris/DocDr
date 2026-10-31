@@ -186,10 +186,13 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         SearchText = string.Empty;
         _searchCts?.Cancel();
         _searchCts = null;
+        IsSearching = false; // the cancelled run's finally no longer owns _searchCts
         _charBoxCache.Clear();
         _charBoxOrder.Clear();
         _linkCache.Clear();
         _crossRefCache.Clear();
+        _snapCache.Clear();
+        _snapLoading.Clear();
         InvalidatePageDataLoads();
         ClearTextSelection();
         _detailTimer?.Stop();
@@ -470,6 +473,8 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
     partial void OnCurrentPageChanged(int value)
     {
+        OnPropertyChanged(nameof(ScaleText));
+
         if (_document.HasPageLabels)
         {
             OnPropertyChanged(nameof(PageCountText));
@@ -644,41 +649,97 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
     // --- Search ---------------------------------------------------------------------------
 
+    /// <summary>The floating find bar over the page area (Ctrl+F / the strip's magnifier).</summary>
+    [ObservableProperty]
+    private bool _isSearchBarOpen;
+
+    /// <summary>Asks the view to move keyboard focus into the find bar's text box.</summary>
+    public event Action? SearchBarFocusRequested;
+
+    /// <summary>Show the find bar and focus its box (Ctrl+F, or the strip's search button).</summary>
+    [RelayCommand]
+    public void OpenSearchBar()
+    {
+        IsSearchBarOpen = true;
+        SearchBarFocusRequested?.Invoke();
+    }
+
+    /// <summary>Hide the find bar and drop the current search highlights (Esc / ✕).</summary>
+    [RelayCommand]
+    private void CloseSearchBar()
+    {
+        IsSearchBarOpen = false;
+        ClearSearch();
+    }
+
+    /// <summary>The term + case option the current <see cref="_hits"/> came from — Enter on an
+    /// unchanged query steps to the next match instead of searching again.</summary>
+    private (string Term, bool MatchCase)? _searchedQuery;
+
+    /// <summary>
+    /// Search the document, streaming results in as pages are scanned (<see cref="PdfSearch.Search"/>):
+    /// it starts at the page being read and wraps round, and the first batch selects the first
+    /// match at or after that page — so on a big standard the nearest hit shows almost at once.
+    /// Later batches only add to the list and the count; they never move the view (the reader may
+    /// already be looking at that first hit, or have moved on). Page text is cached per document,
+    /// so refining or repeating a search only re-reads pages that match.
+    /// </summary>
     [RelayCommand]
     private async Task SearchAsync()
     {
+        string term = SearchText;
+
+        // Enter again on the same query = next match (Ctrl+F, type, Enter, Enter, Enter…).
+        if (!IsSearching && _hits.Count > 0 && _searchedQuery == (term, MatchCase))
+        {
+            MoveToHit((_activeHit + 1) % _hits.Count);
+            return;
+        }
+
         _searchCts?.Cancel();
         var cts = new CancellationTokenSource();
         _searchCts = cts;
 
         ResetSearchState();
 
-        string term = SearchText;
         if (string.IsNullOrWhiteSpace(term))
         {
             OnPropertyChanged(nameof(MatchSummary));
             return;
         }
 
+        int startPage = Mode == ViewMode.TwoPage ? SpreadLeftIndex : Math.Max(0, CurrentPage - 1);
+        SynchronizationContext? ui = SynchronizationContext.Current;
+
+        void OnBatch(IReadOnlyList<SearchHit> batch)
+        {
+            // Worker thread. Batches are ≤ ~8/s (PdfSearch.BatchInterval), so posting each is cheap.
+            ui?.Post(_ =>
+            {
+                if (ReferenceEquals(_searchCts, cts) && !cts.IsCancellationRequested)
+                {
+                    MergeSearchHits(batch, startPage);
+                }
+            }, null);
+        }
+
         IsSearching = true;
         try
         {
             PdfSearchOptions options = MatchCase ? PdfSearchOptions.MatchCase : PdfSearchOptions.None;
-            IReadOnlyList<SearchHit> hits =
-                await Task.Run(() => _search.FindAll(term, options, cts.Token), cts.Token).ConfigureAwait(true);
+            IReadOnlyList<SearchHit> hits = await Task.Run(
+                () => _search.Search(term, options, startPage, ui is null ? null : new Action<IReadOnlyList<SearchHit>>(OnBatch), cts.Token),
+                cts.Token).ConfigureAwait(true);
 
             if (cts.Token.IsCancellationRequested)
             {
                 return;
             }
 
-            _hits = hits;
-            TotalMatches = hits.Count;
-            ApplyHighlights();
-            if (hits.Count > 0)
-            {
-                MoveToHit(0);
-            }
+            // The complete, sorted list — normally identical to what the batches built up (they're
+            // posted ahead of this continuation), so this just settles the count and selection.
+            ReplaceSearchHits(hits, startPage);
+            _searchedQuery = (term, MatchCase);
         }
         catch (OperationCanceledException)
         {
@@ -694,13 +755,80 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         }
     }
 
+    private static int CompareHits(SearchHit a, SearchHit b) =>
+        a.PageIndex != b.PageIndex ? a.PageIndex.CompareTo(b.PageIndex) : a.CharStart.CompareTo(b.CharStart);
+
+    private void MergeSearchHits(IReadOnlyList<SearchHit> batch, int startPage)
+    {
+        var merged = new List<SearchHit>(_hits.Count + batch.Count);
+        merged.AddRange(_hits);
+        merged.AddRange(batch);
+        merged.Sort(CompareHits);
+        ReplaceSearchHits(merged, startPage);
+    }
+
+    /// <summary>Swap in a new hit list, keeping the selected hit selected (by identity — page +
+    /// char range). With nothing selected yet, select the first hit at or after
+    /// <paramref name="startPage"/> (wrapping) and scroll to it; otherwise only the count, the
+    /// "n / total" label and the highlights update.</summary>
+    private void ReplaceSearchHits(IReadOnlyList<SearchHit> hits, int startPage)
+    {
+        SearchHit? active = _activeHit >= 0 && _activeHit < _hits.Count ? _hits[_activeHit] : null;
+        _hits = hits;
+        TotalMatches = hits.Count;
+        if (hits.Count == 0)
+        {
+            _activeHit = -1;
+            CurrentMatchNumber = 0;
+            ApplyHighlights();
+            OnPropertyChanged(nameof(MatchSummary));
+            return;
+        }
+
+        if (active is null)
+        {
+            int first = 0;
+            for (int i = 0; i < hits.Count; i++)
+            {
+                if (hits[i].PageIndex >= startPage)
+                {
+                    first = i;
+                    break;
+                }
+            }
+
+            MoveToHit(first);
+            return;
+        }
+
+        int kept = -1;
+        for (int i = 0; i < hits.Count; i++)
+        {
+            if (hits[i].PageIndex == active.PageIndex && hits[i].CharStart == active.CharStart
+                && hits[i].CharCount == active.CharCount)
+            {
+                kept = i;
+                break;
+            }
+        }
+
+        _activeHit = kept >= 0 ? kept : 0;
+        CurrentMatchNumber = _activeHit + 1;
+        ApplyHighlights();
+    }
+
     [RelayCommand(CanExecute = nameof(CanNavigateMatches))]
     private async Task NextMatch()
     {
-        // Pressing Prev/Next with a typed-but-not-yet-run term should search, not do nothing.
+        // Pressing Prev/Next with a typed-but-not-yet-run term should search, not do nothing —
+        // unless a search is already streaming in, which would only be restarted from scratch.
         if (_hits.Count == 0)
         {
-            await SearchAsync();
+            if (!IsSearching)
+            {
+                await SearchAsync();
+            }
+
             return;
         }
 
@@ -712,10 +840,13 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     {
         if (_hits.Count == 0)
         {
-            await SearchAsync();
-            if (_hits.Count > 0)
+            if (!IsSearching)
             {
-                MoveToHit(_hits.Count - 1);
+                await SearchAsync();
+                if (_hits.Count > 0)
+                {
+                    MoveToHit(_hits.Count - 1);
+                }
             }
 
             return;
@@ -745,6 +876,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
         MatchCase = matchCase;
         SearchText = term;
+        IsSearchBarOpen = true;
         ResetSearchState();
 
         IsSearching = true;
@@ -796,6 +928,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     {
         _searchCts?.Cancel();
         _searchCts = null;
+        IsSearching = false; // the cancelled run's finally no longer owns _searchCts, so it won't
         SearchText = string.Empty;
         ResetSearchState();
         OnPropertyChanged(nameof(MatchSummary));
@@ -803,6 +936,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
     private void ResetSearchState()
     {
+        _searchedQuery = null;
         _hits = [];
         _activeHit = -1;
         TotalMatches = 0;
@@ -835,8 +969,63 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             RequestRenderForCurrentPage();
         }
 
+        // Continuous scrolling: put the match itself in the middle of the viewport rather than
+        // top-aligning its page (which leaves a hit near the foot of the page off-screen or at the
+        // very bottom edge). Paged / grid modes keep the page-level jump.
+        if (!IsPaged && Mode != ViewMode.Grid && HitCentreFraction(hit) is { } centre)
+        {
+            ScrollToHitRequested?.Invoke(hit.PageIndex, centre.Y, centre.X);
+            return;
+        }
+
         ScrollToPageRequested?.Invoke(hit.PageIndex);
     }
+
+    /// <summary>Scroll so the given point of a page — (page index, fraction down, fraction across)
+    /// of its layout box — sits in the middle of the viewport. Raised for the active search hit.</summary>
+    public event Action<int, double, double>? ScrollToHitRequested;
+
+    /// <summary>Where the centre of a hit's rects falls on its page, as fractions of the page's
+    /// layout box (rotation- and crop-aware, same transform as the highlight overlay).</summary>
+    private Point? HitCentreFraction(SearchHit hit)
+    {
+        if (hit.Rects.Count == 0 || hit.PageIndex < 0 || hit.PageIndex >= Pages.Count)
+        {
+            return null;
+        }
+
+        PageSlotViewModel slot = Pages[hit.PageIndex];
+        if (slot.LayoutWidth <= 0 || slot.LayoutHeight <= 0)
+        {
+            return null;
+        }
+
+        double scale = SlotScale(slot);
+        PdfSize unrotated = _document.GetUnrotatedPageSize(hit.PageIndex);
+        PdfRotation rotation = _document.GetPageRotation(hit.PageIndex);
+        PdfPoint crop = _document.GetCropOrigin(hit.PageIndex);
+
+        double left = double.MaxValue, top = double.MaxValue, right = double.MinValue, bottom = double.MinValue;
+        foreach (PdfRect rect in hit.Rects)
+        {
+            DeviceRect d = PdfCoordinates.PageToDevice(rect, unrotated, rotation, scale, crop);
+            left = Math.Min(left, d.X);
+            top = Math.Min(top, d.Y);
+            right = Math.Max(right, d.X + d.Width);
+            bottom = Math.Max(bottom, d.Y + d.Height);
+        }
+
+        return new Point(
+            Math.Clamp((left + right) / 2 / slot.LayoutWidth, 0, 1),
+            Math.Clamp((top + bottom) / 2 / slot.LayoutHeight, 0, 1));
+    }
+
+    /// <summary>Breathing room around a search highlight, as a fraction of the line box's height
+    /// (on top of the small pad <see cref="PdfTextExtractor.MergeIntoLineRects"/> already adds,
+    /// which is shared with the tighter text-selection highlight). PDFium's char boxes hug the
+    /// glyph ink, so without this a match reads as a box drawn flush against the letters.</summary>
+    private const double SearchHighlightPadY = 0.22;
+    private const double SearchHighlightPadX = 0.30;
 
     private void ApplyHighlights()
     {
@@ -869,7 +1058,19 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                 foreach (PdfRect rect in hit.Rects)
                 {
                     DeviceRect d = PdfCoordinates.PageToDevice(rect, unrotated, rotation, scale, crop);
-                    rects.Add(new HighlightRect(new Rect(d.X, d.Y, d.Width, d.Height), active));
+                    // Pad relative to the line's thickness on screen; on a page turned 90/270
+                    // the text runs vertically, so thickness is the width and the pads swap.
+                    bool sideways = rotation is PdfRotation.Clockwise90 or PdfRotation.CounterClockwise90;
+                    double line = sideways ? d.Width : d.Height;
+                    double padY = Math.Max(1.5, line * SearchHighlightPadY);
+                    double padX = Math.Max(2.0, line * SearchHighlightPadX);
+                    if (sideways)
+                    {
+                        (padX, padY) = (padY, padX);
+                    }
+
+                    rects.Add(new HighlightRect(
+                        new Rect(d.X - padX, d.Y - padY, d.Width + (2 * padX), d.Height + (2 * padY)), active));
                 }
             }
 
@@ -1202,6 +1403,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                 var endpointHandles = new List<Rect>();
                 Rect leaderTipHandle = default;
                 Geometry? cloud = null;
+                var tick = new PointCollection();
+                var measure = new PointCollection();
+                Geometry? measureTicks = null;
+                string measureLabel = string.Empty;
+                Rect measureLabelBox = default;
 
                 if (annotation.Kind == PdfAnnotationKind.Comment)
                 {
@@ -1210,6 +1416,48 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                     const double pin = 26;
                     box = new Rect(d.X, Math.Max(0, d.Y + d.Height - pin), pin, pin);
                     marker = new Rect(box.Right - 4, Math.Max(0, box.Top - 22), 18, 18); // trash, above the pin
+                }
+                else if (annotation.IsMeasurement)
+                {
+                    foreach (PdfPoint p in annotation.Vertices)
+                    {
+                        (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale, crop);
+                        measure.Add(new Point(x, y));
+                    }
+
+                    if (annotation.Kind == PdfAnnotationKind.MeasureDistance)
+                    {
+                        var bars = new GeometryGroup();
+                        foreach ((PdfPoint from, PdfPoint to) in PdfMeasure.EndTicks(annotation.Vertices))
+                        {
+                            (double x1, double y1) = PdfCoordinates.PageToDevicePoint(from, unrotated, rotation, scale, crop);
+                            (double x2, double y2) = PdfCoordinates.PageToDevicePoint(to, unrotated, rotation, scale, crop);
+                            bars.Children.Add(new LineGeometry(new Point(x1, y1), new Point(x2, y2)));
+                        }
+
+                        bars.Freeze();
+                        measureTicks = bars;
+                    }
+
+                    // The caption: same text and Helvetica-metric box as the saved appearance, kept
+                    // upright on screen (a rotated page's saved caption turns with the page).
+                    measureLabel = PdfMeasure.Caption(annotation);
+                    PdfPoint anchor = PdfMeasure.CaptionAnchor(annotation.Kind, annotation.Vertices);
+                    (double ax, double ay) = PdfCoordinates.PageToDevicePoint(anchor, unrotated, rotation, scale, crop);
+                    double lw = (PdfTextWrap.MeasureHelvetica(measureLabel, PdfMeasure.CaptionFontSize)
+                        + (2 * PdfMeasure.CaptionPadding)) * scale * 1.08; // slack: system font vs AFM
+                    double lh = (PdfMeasure.CaptionFontSize + (2 * PdfMeasure.CaptionPadding)) * scale;
+                    measureLabelBox = new Rect(ax - (lw / 2), ay - (lh / 2), lw, lh);
+                    marker = new Rect(Math.Max(0, measureLabelBox.Right - 4), Math.Max(0, measureLabelBox.Top - 22), 18, 18);
+
+                    if (annotation.Id == SelectedAnnotationId)
+                    {
+                        const double es = 11;
+                        foreach (Point v in measure)
+                        {
+                            endpointHandles.Add(new Rect(v.X - (es / 2), v.Y - (es / 2), es, es));
+                        }
+                    }
                 }
                 else if (annotation.Kind is PdfAnnotationKind.Line or PdfAnnotationKind.Arrow)
                 {
@@ -1238,7 +1486,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                 }
                 else if (annotation.Kind is PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout
                     or PdfAnnotationKind.Cloud or PdfAnnotationKind.Image or PdfAnnotationKind.Rectangle
-                    or PdfAnnotationKind.Ellipse)
+                    or PdfAnnotationKind.Ellipse or PdfAnnotationKind.Tick)
                 {
                     DeviceRect d = PdfCoordinates.PageToDevice(annotation.Box, unrotated, rotation, scale, crop);
                     box = new Rect(d.X, d.Y, d.Width, d.Height);
@@ -1261,6 +1509,17 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                     if (annotation.Kind == PdfAnnotationKind.Cloud)
                     {
                         cloud = ShapeGeometry.Cloud(box, 8 * scale);
+                    }
+
+                    if (annotation.Kind == PdfAnnotationKind.Tick)
+                    {
+                        // Page-space points mapped one by one, so a tick on a rotated page turns
+                        // with the page exactly as its saved appearance does.
+                        foreach (PdfPoint p in PdfAnnotation.TickPoints(annotation.Box))
+                        {
+                            (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale, crop);
+                            tick.Add(new Point(x, y));
+                        }
                     }
 
                     if (annotation.Id == SelectedAnnotationId)
@@ -1313,6 +1572,12 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                     EndpointHandles = endpointHandles,
                     LeaderTipHandle = leaderTipHandle,
                     CloudGeometry = cloud,
+                    TickPoints = tick,
+                    MeasurePoints = measure,
+                    MeasureEndTicks = measureTicks,
+                    MeasureLabel = measureLabel,
+                    MeasureLabelBox = measureLabelBox,
+                    MeasureLabelFontSize = Math.Max(4, PdfMeasure.CaptionFontSize * scale),
                     BoxText = annotation.Contents ?? string.Empty,
                     BoxFontSize = Math.Max(4, (annotation.FontSize > 0 ? annotation.FontSize : PdfAnnotation.DefaultFontSize) * scale),
                     NoteText = annotation.Contents ?? string.Empty,
@@ -1862,6 +2127,9 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     [ObservableProperty]
     private ShapeTool _shapeTool;
 
+    /// <summary>Side (points) of a tick dropped with a plain click.</summary>
+    internal const double DefaultTickSize = 18;
+
     private int _shapePage = -1;
     private PdfPoint _shapeAnchor;
     private PdfPoint _shapeHead;
@@ -1898,8 +2166,24 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             return;
         }
 
-        ShapeTool = ShapeTool.None; // one-shot
         uint shapeColour = CurrentAnnotationColorArgb;
+
+        if (tool == ShapeTool.Tick)
+        {
+            // Not one-shot: checking a drawing means ticking item after item. A click drops a
+            // standard-size tick centred on the point; a drag sizes it. Not selected, so no format
+            // bar pops up per tick (click one afterwards to restyle it). Esc / the toolbar disarms.
+            var dragged = new PdfRect(
+                Math.Min(a.X, b.X), Math.Max(a.Y, b.Y), Math.Max(a.X, b.X), Math.Min(a.Y, b.Y));
+            PdfRect tickBox = dragged.Width >= 8 && dragged.Height >= 8
+                ? dragged
+                : new PdfRect(a.X - (DefaultTickSize / 2), a.Y + (DefaultTickSize / 2),
+                              a.X + (DefaultTickSize / 2), a.Y - (DefaultTickSize / 2));
+            _document.AddAnnotation(page, PdfAnnotation.NewTick(tickBox, shapeColour, Author));
+            return;
+        }
+
+        ShapeTool = ShapeTool.None; // one-shot
 
         if (tool is ShapeTool.Line or ShapeTool.Arrow)
         {
@@ -2129,6 +2413,44 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         return new PdfRect(left, top, right, top - height);
     }
 
+    /// <summary>Near any segment (incl. an area's closing edge), inside an area, or on the caption.</summary>
+    internal static bool HitsMeasurement(PdfAnnotation a, PdfPoint pt, double tolerance)
+    {
+        IReadOnlyList<PdfPoint> v = a.Vertices;
+        bool closed = a.Kind == PdfAnnotationKind.MeasureArea;
+        int segments = closed ? v.Count : v.Count - 1;
+        for (int i = 0; i < segments; i++)
+        {
+            if (DistanceToSegment(pt, v[i], v[(i + 1) % v.Count]) <= tolerance)
+            {
+                return true;
+            }
+        }
+
+        if (closed && PointInPolygon(pt, v))
+        {
+            return true;
+        }
+
+        PdfRect c = PdfMeasure.CaptionRect(a);
+        return pt.X >= c.Left && pt.X <= c.Right && pt.Y >= c.Bottom && pt.Y <= c.Top;
+    }
+
+    private static bool PointInPolygon(PdfPoint p, IReadOnlyList<PdfPoint> poly)
+    {
+        bool inside = false;
+        for (int i = 0, j = poly.Count - 1; i < poly.Count; j = i++)
+        {
+            if ((poly[i].Y > p.Y) != (poly[j].Y > p.Y)
+                && p.X < ((poly[j].X - poly[i].X) * (p.Y - poly[i].Y) / (poly[j].Y - poly[i].Y)) + poly[i].X)
+            {
+                inside = !inside;
+            }
+        }
+
+        return inside;
+    }
+
     private static double DistanceToSegment(PdfPoint p, PdfPoint a, PdfPoint b)
     {
         double dx = b.X - a.X, dy = b.Y - a.Y;
@@ -2181,9 +2503,14 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
                 return a.Id;
             }
 
+            if (a.IsMeasurement && HitsMeasurement(a, pt, 6 / Math.Max(0.05, scale)))
+            {
+                return a.Id;
+            }
+
             if (a.Kind is not (PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout
                 or PdfAnnotationKind.Cloud or PdfAnnotationKind.Comment or PdfAnnotationKind.Image
-                or PdfAnnotationKind.Rectangle or PdfAnnotationKind.Ellipse))
+                or PdfAnnotationKind.Rectangle or PdfAnnotationKind.Ellipse or PdfAnnotationKind.Tick))
             {
                 continue;
             }
@@ -2264,6 +2591,11 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
             return a with { Strokes = [shifted] };
         }
 
+        if (a.IsMeasurement)
+        {
+            return a with { Strokes = [a.Vertices.Select(p => new PdfPoint(p.X + dx, p.Y + dy)).ToArray()] };
+        }
+
         var box = new PdfRect(a.Box.Left + dx, a.Box.Top + dy, a.Box.Right + dx, a.Box.Bottom + dy);
         if (a.Kind == PdfAnnotationKind.Callout && a.Leader.Count >= 1)
         {
@@ -2294,7 +2626,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         PdfAnnotation? a = _document.GetAnnotations(pageIndex).FirstOrDefault(x => x.Id == sel);
         if (a is null || a.Kind is not (PdfAnnotationKind.TextBox or PdfAnnotationKind.Callout
             or PdfAnnotationKind.Cloud or PdfAnnotationKind.Image or PdfAnnotationKind.Rectangle
-            or PdfAnnotationKind.Ellipse))
+            or PdfAnnotationKind.Ellipse or PdfAnnotationKind.Tick))
         {
             return null;
         }
@@ -2515,15 +2847,24 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         }
 
         PdfAnnotation? a = _document.GetAnnotations(pageIndex).FirstOrDefault(x => x.Id == sel);
-        if (a is null || a.Kind is not (PdfAnnotationKind.Line or PdfAnnotationKind.Arrow) || a.Leader.Count < 2)
+        if (a is null)
+        {
+            return null;
+        }
+
+        // Line / arrow: its two ends. Measurement: any vertex (the value follows the drag).
+        IReadOnlyList<PdfPoint> points = a.IsMeasurement ? a.Vertices
+            : a.Kind is PdfAnnotationKind.Line or PdfAnnotationKind.Arrow ? a.Leader
+            : [];
+        if (points.Count < 2)
         {
             return null;
         }
 
         double tol = 12 / Math.Max(0.05, SlotScale(Pages[pageIndex]));
-        for (int i = 0; i < 2; i++)
+        for (int i = 0; i < points.Count; i++)
         {
-            if (Math.Abs(pt.X - a.Leader[i].X) <= tol && Math.Abs(pt.Y - a.Leader[i].Y) <= tol)
+            if (Math.Abs(pt.X - points[i].X) <= tol && Math.Abs(pt.Y - points[i].Y) <= tol)
             {
                 return (a.Id, i);
             }
@@ -2532,63 +2873,453 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         return null;
     }
 
+    /// <summary>Page + start position of a measurement vertex being dragged (null for a line /
+    /// arrow end, which doesn't snap) — looked up once at the start, not on every mouse move.</summary>
+    private (int Page, PdfPoint Origin)? _vertexSnapOrigin;
+
     public void BeginLineEndpointMove(System.Guid id, int end)
     {
         _lineEndpointId = id;
         _lineEndpointIndex = end;
         _lineEndpointDeltaPage = (0, 0);
         SelectedAnnotationId = id;
+
+        (int page, PdfAnnotation? found) = FindAnnotation(id);
+        _vertexSnapOrigin = found is { IsMeasurement: true } a && end >= 0 && end < a.Vertices.Count
+            ? (page, a.Vertices[end])
+            : null;
     }
 
-    public void PreviewLineEndpointMove(double dxPage, double dyPage)
+    /// <summary>A measurement vertex dragged by (dx, dy) snaps to the drawing like a measuring click
+    /// (corner > crossing > midpoint > line; Ctrl suspends): returns the adjusted drag. Lines and
+    /// arrows (markup, not measurements) move freely.</summary>
+    private (double Dx, double Dy) SnapVertexDrag(double dxPage, double dyPage, bool suspendSnap)
+    {
+        if (_vertexSnapOrigin is not { } v)
+        {
+            return (dxPage, dyPage);
+        }
+
+        var target = new PdfPoint(v.Origin.X + dxPage, v.Origin.Y + dyPage);
+        PdfPoint snapped = Snap(v.Page, target, suspendSnap);
+        return (snapped.X - v.Origin.X, snapped.Y - v.Origin.Y);
+    }
+
+    public void PreviewLineEndpointMove(double dxPage, double dyPage, bool suspendSnap = false)
     {
         if (_lineEndpointId is null)
         {
             return;
         }
 
-        _lineEndpointDeltaPage = (dxPage, dyPage);
+        _lineEndpointDeltaPage = SnapVertexDrag(dxPage, dyPage, suspendSnap);
         BuildAnnotationOverlays();
     }
 
-    public void EndLineEndpointMove(double dxPage, double dyPage)
+    public void EndLineEndpointMove(double dxPage, double dyPage, bool suspendSnap = false)
     {
         System.Guid? id = _lineEndpointId;
         int end = _lineEndpointIndex;
+        // "Did the pointer actually move?" is judged on the raw drag; a snap may then move the
+        // vertex by less than a point (onto a corner it was already next to), which still counts.
+        bool moved = Math.Abs(dxPage) >= 1 || Math.Abs(dyPage) >= 1;
+        (double dx, double dy) = SnapVertexDrag(dxPage, dyPage, suspendSnap);
         _lineEndpointId = null;
         _lineEndpointDeltaPage = (0, 0);
+        _vertexSnapOrigin = null;
+        ClearSnapMarker();
         if (id is null)
         {
             return;
         }
 
         (int page, PdfAnnotation? found) = FindAnnotation(id.Value);
-        if (found is not { } a || (Math.Abs(dxPage) < 1 && Math.Abs(dyPage) < 1))
+        if (found is not { } a || !moved)
         {
             BuildAnnotationOverlays();
             return;
         }
 
-        _document.UpdateAnnotation(page, MoveLineEndpoint(a, end, dxPage, dyPage) with { Modified = System.DateTimeOffset.Now });
+        _document.UpdateAnnotation(page, MoveLineEndpoint(a, end, dx, dy) with { Modified = System.DateTimeOffset.Now });
     }
 
     public void CancelLineEndpointMove()
     {
         _lineEndpointId = null;
         _lineEndpointDeltaPage = (0, 0);
+        _vertexSnapOrigin = null;
+        ClearSnapMarker();
         BuildAnnotationOverlays();
     }
 
     internal static PdfAnnotation MoveLineEndpoint(PdfAnnotation a, int end, double dx, double dy)
     {
-        if (a.Leader.Count < 2 || end is < 0 or > 1)
+        IReadOnlyList<PdfPoint> source = a.IsMeasurement ? a.Vertices : a.Leader;
+        if (source.Count < 2 || end < 0 || end >= source.Count)
         {
             return a;
         }
 
-        PdfPoint[] pts = a.Leader.ToArray();
+        PdfPoint[] pts = source.ToArray();
         pts[end] = new PdfPoint(pts[end].X + dx, pts[end].Y + dy);
         return a with { Strokes = [pts] };
+    }
+
+    // --- Measuring ---------------------------------------------------------------------------
+    // Click-by-click (not drag): distance / calibrate finish on the second click; perimeter / area
+    // on a double-click or Enter. Backspace drops the last vertex, Esc abandons the measurement,
+    // Shift snaps the segment to 45°. The tool stays armed for the next measurement.
+
+    private int _measurePage = -1;
+    private readonly List<PdfPoint> _measurePoints = [];
+    private PdfPoint? _measureHover;
+
+    /// <summary>The colour a measurement gets when the swatch is still the highlighter's default
+    /// yellow, which is unreadable as a thin line on white paper.</summary>
+    internal const uint DefaultMeasureColorArgb = 0xFFC62828;
+
+    /// <summary>The drawing scale for a page (set by the tab, which owns per-page scales).</summary>
+    public Func<int, PdfMeasureScale>? ScaleProvider { get; set; }
+
+    public PdfMeasureScale ScaleForPage(int pageIndex) =>
+        ScaleProvider?.Invoke(pageIndex) ?? PdfMeasureScale.Default;
+
+    /// <summary>"Scale 1:50 · m" for the current page — the status strip's scale button.</summary>
+    public string ScaleText
+    {
+        get
+        {
+            PdfMeasureScale s = ScaleForPage(Math.Max(0, CurrentPage - 1));
+            return $"Scale {s.Label} · {s.Unit}";
+        }
+    }
+
+    /// <summary>The tab changed a scale: refresh the strip (existing measurements keep their own).</summary>
+    public void RefreshScale() => OnPropertyChanged(nameof(ScaleText));
+
+    /// <summary>The status strip's scale button was clicked.</summary>
+    public event Action? SetScaleRequested;
+
+    [RelayCommand]
+    private void RequestSetScale() => SetScaleRequested?.Invoke();
+
+    /// <summary>A calibration line was drawn: (page index, its length in PDF points).</summary>
+    public event Action<int, double>? CalibrationMeasured;
+
+    public bool IsMeasureTool => ShapeTool is ShapeTool.MeasureDistance or ShapeTool.MeasurePerimeter
+        or ShapeTool.MeasureArea or ShapeTool.Calibrate;
+
+    /// <summary>At least one vertex placed (Esc / Backspace / Enter act on it).</summary>
+    public bool HasMeasureInProgress => _measurePoints.Count > 0;
+
+    /// <summary>Distance / calibrate take exactly two clicks; the others finish on demand.</summary>
+    public bool MeasureFinishesOnSecondClick => ShapeTool is ShapeTool.MeasureDistance or ShapeTool.Calibrate;
+
+    partial void OnShapeToolChanged(ShapeTool value)
+    {
+        ClearMeasure();
+        ClearSnapMarker();
+        OnPropertyChanged(nameof(IsMeasureTool));
+    }
+
+    private PdfAnnotationKind MeasureKind => ShapeTool switch
+    {
+        ShapeTool.MeasurePerimeter => PdfAnnotationKind.MeasurePerimeter,
+        ShapeTool.MeasureArea => PdfAnnotationKind.MeasureArea,
+        _ => PdfAnnotationKind.MeasureDistance,
+    };
+
+    // --- Snapping to the drawing ----------------------------------------------------------
+    // A page's linework is extracted once (PdfSnapGeometry, background thread, like link data)
+    // the first time the pointer measures over it, then every hover / click snaps to the nearest
+    // corner, crossing, midpoint or line within SnapTolerancePx on screen. Ctrl suspends it;
+    // Shift's 45° constraint takes precedence over it.
+
+    /// <summary>How close (screen pixels) the pointer must be for a snap.</summary>
+    internal const double SnapTolerancePx = 9;
+
+    private readonly Dictionary<int, PdfSnapGeometry> _snapCache = [];
+    private readonly HashSet<int> _snapLoading = [];
+    private int _snapMarkerPage = -1;
+
+    /// <summary>Snap measuring clicks to the drawing's lines (mirrored from the tab; on by default).</summary>
+    [ObservableProperty]
+    private bool _snapEnabled = true;
+
+    partial void OnSnapEnabledChanged(bool value)
+    {
+        if (!value)
+        {
+            ClearSnapMarker();
+        }
+    }
+
+    /// <summary>Use known geometry for a page (tests; also how a background load lands).</summary>
+    internal void SetSnapGeometry(int pageIndex, PdfSnapGeometry geometry) => _snapCache[pageIndex] = geometry;
+
+    /// <summary><paramref name="point"/> snapped to the page's drawing if snapping is on and something
+    /// drawn is close enough; the marker is updated either way. Kicks off the page's geometry load
+    /// on first use (that hover just doesn't snap yet).</summary>
+    private PdfPoint Snap(int pageIndex, PdfPoint point, bool suspend)
+    {
+        if (!SnapEnabled || suspend || pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            ClearSnapMarker();
+            return point;
+        }
+
+        if (!_snapCache.TryGetValue(pageIndex, out PdfSnapGeometry? geometry))
+        {
+            LoadSnapGeometryAsync(pageIndex);
+            ClearSnapMarker();
+            return point;
+        }
+
+        PageSlotViewModel slot = Pages[pageIndex];
+        double scale = SlotScale(slot);
+        PdfSnap? snap = geometry.Snap(point, SnapTolerancePx / Math.Max(0.05, scale));
+        if (snap is not { } s)
+        {
+            ClearSnapMarker();
+            return point;
+        }
+
+        if (_snapMarkerPage != pageIndex)
+        {
+            ClearSnapMarker();
+        }
+
+        (double x, double y) = PdfCoordinates.PageToDevicePoint(s.Point,
+            _document.GetUnrotatedPageSize(pageIndex), _document.GetPageRotation(pageIndex), scale,
+            _document.GetCropOrigin(pageIndex));
+        slot.SnapMarker = new Point(x, y);
+        slot.SnapKind = s.Kind.ToString();
+        _snapMarkerPage = pageIndex;
+        return s.Point;
+    }
+
+    private void ClearSnapMarker()
+    {
+        if (_snapMarkerPage >= 0 && _snapMarkerPage < Pages.Count)
+        {
+            Pages[_snapMarkerPage].SnapMarker = null;
+            Pages[_snapMarkerPage].SnapKind = string.Empty;
+        }
+
+        _snapMarkerPage = -1;
+    }
+
+    private async void LoadSnapGeometryAsync(int pageIndex)
+    {
+        if (!_snapLoading.Add(pageIndex))
+        {
+            return;
+        }
+
+        int generation = _pageDataGeneration;
+        PdfSnapGeometry geometry;
+        try
+        {
+            geometry = await Task.Run(() => PdfSnapGeometry.Extract(_document, pageIndex)).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is PdfException or ObjectDisposedException or OperationCanceledException)
+        {
+            geometry = PdfSnapGeometry.Empty; // nothing to snap to on this page — don't retry forever
+        }
+
+        _snapLoading.Remove(pageIndex);
+        if (!_disposed && generation == _pageDataGeneration)
+        {
+            _snapCache[pageIndex] = geometry;
+        }
+    }
+
+    /// <summary>The pointer left the pages (or the tool was put away): drop the snap marker.</summary>
+    public void MeasurePointerLeft() => ClearSnapMarker();
+
+    public void MeasureClick(int pageIndex, PdfPoint point, bool constrain, bool suspendSnap = false)
+    {
+        if (!IsMeasureTool || pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return;
+        }
+
+        if (!(constrain && _measurePoints.Count > 0 && pageIndex == _measurePage))
+        {
+            point = Snap(pageIndex, point, suspendSnap);
+        }
+
+        if (_measurePoints.Count > 0 && pageIndex != _measurePage)
+        {
+            ClearMeasure(); // a measurement lives on one page
+        }
+
+        _measurePage = pageIndex;
+        if (constrain && _measurePoints.Count > 0)
+        {
+            point = PdfMeasure.Constrain45(_measurePoints[^1], point);
+        }
+
+        // A second click on the same spot (the first half of a double-click already placed it)
+        // adds nothing.
+        if (_measurePoints.Count == 0 || PdfMeasure.Distance(_measurePoints[^1], point) >= 0.5)
+        {
+            _measurePoints.Add(point);
+        }
+
+        _measureHover = null;
+        if (MeasureFinishesOnSecondClick && _measurePoints.Count >= 2)
+        {
+            MeasureFinish();
+            return;
+        }
+
+        UpdateMeasurePreview();
+    }
+
+    /// <summary>The pointer moved with a measuring tool armed: show where it would snap, and
+    /// rubber-band the measurement in progress (if any, on that page) to it.</summary>
+    public void MeasureHover(int pageIndex, PdfPoint point, bool constrain, bool suspendSnap = false)
+    {
+        if (!IsMeasureTool)
+        {
+            return;
+        }
+
+        bool inProgressHere = HasMeasureInProgress && pageIndex == _measurePage;
+        if (inProgressHere && constrain)
+        {
+            ClearSnapMarker();
+            point = PdfMeasure.Constrain45(_measurePoints[^1], point);
+        }
+        else
+        {
+            point = Snap(pageIndex, point, suspendSnap);
+        }
+
+        if (inProgressHere)
+        {
+            _measureHover = point;
+            UpdateMeasurePreview();
+        }
+    }
+
+    /// <summary>Finish (double-click / Enter): add the measurement, or report the calibration line.
+    /// Too few points just abandons it.</summary>
+    public void MeasureFinish()
+    {
+        PdfAnnotationKind kind = MeasureKind;
+        int page = _measurePage;
+        PdfPoint[] points = [.. _measurePoints];
+        bool calibrating = ShapeTool == ShapeTool.Calibrate;
+        ClearMeasure();
+
+        if (page < 0)
+        {
+            return;
+        }
+
+        if (calibrating)
+        {
+            ShapeTool = ShapeTool.None; // one-shot: the dialog takes over
+            if (points.Length >= 2)
+            {
+                CalibrationMeasured?.Invoke(page, PdfMeasure.Distance(points[0], points[1]));
+            }
+
+            return;
+        }
+
+        if (points.Length < PdfMeasure.MinimumPoints(kind))
+        {
+            return;
+        }
+
+        uint colour = InkColorKey == AnnotationColors.Default ? DefaultMeasureColorArgb : CurrentAnnotationColorArgb;
+        _document.AddAnnotation(page, PdfAnnotation.NewMeasurement(kind, points, colour, ScaleForPage(page), Author));
+    }
+
+    /// <summary>Backspace: drop the last placed vertex.</summary>
+    public void MeasureUndoVertex()
+    {
+        if (_measurePoints.Count == 0)
+        {
+            return;
+        }
+
+        _measurePoints.RemoveAt(_measurePoints.Count - 1);
+        if (_measurePoints.Count == 0)
+        {
+            ClearMeasure();
+        }
+        else
+        {
+            UpdateMeasurePreview();
+        }
+    }
+
+    /// <summary>Esc: abandon the measurement in progress (the tool stays armed).</summary>
+    public void MeasureCancel() => ClearMeasure();
+
+    private void ClearMeasure()
+    {
+        if (_measurePage >= 0 && _measurePage < Pages.Count)
+        {
+            PageSlotViewModel slot = Pages[_measurePage];
+            slot.MeasurePreview = null;
+            slot.MeasurePreviewLabel = string.Empty;
+        }
+
+        _measurePoints.Clear();
+        _measureHover = null;
+        _measurePage = -1;
+    }
+
+    private void UpdateMeasurePreview()
+    {
+        if (_measurePage < 0 || _measurePage >= Pages.Count)
+        {
+            return;
+        }
+
+        PageSlotViewModel slot = Pages[_measurePage];
+        double scale = SlotScale(slot);
+        PdfSize unrotated = _document.GetUnrotatedPageSize(_measurePage);
+        PdfRotation rotation = _document.GetPageRotation(_measurePage);
+        PdfPoint crop = _document.GetCropOrigin(_measurePage);
+
+        var points = new List<PdfPoint>(_measurePoints);
+        if (_measureHover is { } hover)
+        {
+            points.Add(hover);
+        }
+
+        var device = new PointCollection(points.Count);
+        foreach (PdfPoint p in points)
+        {
+            (double x, double y) = PdfCoordinates.PageToDevicePoint(p, unrotated, rotation, scale, crop);
+            device.Add(new Point(x, y));
+        }
+
+        bool area = ShapeTool == ShapeTool.MeasureArea;
+        PdfAnnotationKind kind = area && points.Count >= 3 ? PdfAnnotationKind.MeasureArea : PdfAnnotationKind.MeasureDistance;
+        PdfMeasureScale pageScale = ScaleForPage(_measurePage);
+        string label = points.Count >= 2
+            ? PdfMeasure.Format(kind, PdfMeasure.Value(kind, points, pageScale), pageScale)
+            : string.Empty;
+        if (area && points.Count >= 3)
+        {
+            // Show the running perimeter too — handy when you need both.
+            PdfMeasureScale s = pageScale;
+            label += "  ·  " + PdfMeasure.Format(PdfAnnotationKind.MeasureDistance,
+                PdfMeasure.ClosedLength(points) * s.UnitsPerPoint, s);
+        }
+
+        slot.MeasurePreview = device;
+        slot.MeasurePreviewClosed = area && points.Count >= 3;
+        slot.MeasurePreviewLabel = label;
+        Point last = device.Count > 0 ? device[^1] : default;
+        slot.MeasurePreviewLabelAt = new Point(last.X + 14, last.Y + 10);
     }
 
     public void CancelShape()
@@ -3240,7 +3971,7 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     {
         if (clearQueue)
         {
-            _queue.Clear();
+            _queue.Clear(this);
         }
 
         foreach (PageSlotViewModel slot in Pages)

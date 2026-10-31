@@ -20,6 +20,9 @@
                 <ContextMenu>
                     <MenuItem Header="Rename" InputGestureText="F2" Click="RenameMenuItem_Click" />
                     <MenuItem Header="Delete" InputGestureText="Del" Click="DeleteMenuItem_Click" />
+                    <Separator />
+                    <MenuItem Header="Extract chapter…" Click="ExtractMenuItem_Click"
+                              ToolTip="Save this bookmark's pages (to the next chapter) as a new PDF" />
                 </ContextMenu>
             </TreeView.ContextMenu>
             <TreeView.ItemContainerStyle>

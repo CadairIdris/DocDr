@@ -1,5 +1,18 @@
 namespace DocDr.Pdf;
 
+/// <summary>
+/// A comment's review state — the PDF "Review" state model's values (ISO 32000 §12.5.6.3,
+/// <c>/StateModel /Review</c>). Shown and set from the Comments panel.
+/// </summary>
+public enum PdfReviewStatus
+{
+    None,
+    Accepted,
+    Cancelled,
+    Completed,
+    Rejected,
+}
+
 /// <summary>The annotation kinds DocDr authors and round-trips.</summary>
 public enum PdfAnnotationKind
 {
@@ -35,6 +48,18 @@ public enum PdfAnnotationKind
 
     /// <summary>A straight line with an arrowhead at its end point (a <c>Stamp</c> appearance).</summary>
     Arrow,
+
+    /// <summary>A checker's tick (✓) drawn in its box (a <c>Stamp</c> appearance).</summary>
+    Tick,
+
+    /// <summary>A measured distance between two points (a <c>Stamp</c> appearance + caption).</summary>
+    MeasureDistance,
+
+    /// <summary>The length of a connected line through several points.</summary>
+    MeasurePerimeter,
+
+    /// <summary>The area of a closed polygon.</summary>
+    MeasureArea,
 }
 
 /// <summary>
@@ -103,6 +128,46 @@ public sealed record PdfAnnotation(
     /// <summary>Replies to this comment, oldest first. Empty for a thread with no replies yet.</summary>
     public IReadOnlyList<PdfReply> Replies { get; init; } = [];
 
+    /// <summary>Review status set from the Comments panel (the PDF "Review" state model).</summary>
+    public PdfReviewStatus Status { get; init; }
+
+    /// <summary>The comment's checkmark (the PDF "Marked" state model) — a private to-do tick.</summary>
+    public bool IsMarked { get; init; }
+
+    /// <summary>The drawing scale a measurement was taken at (null for other kinds — and for a
+    /// measurement, null means <see cref="PdfMeasureScale.Default"/>).</summary>
+    public PdfMeasureScale? Scale { get; init; }
+
+    /// <summary>A measurement's vertices (unrotated page space) — <see cref="Strokes"/>[0].</summary>
+    public IReadOnlyList<PdfPoint> Vertices =>
+        PdfMeasure.IsMeasureKind(Kind) && Strokes.Count > 0 ? Strokes[0] : [];
+
+    /// <summary>Whether this is a distance / perimeter / area measurement.</summary>
+    public bool IsMeasurement => PdfMeasure.IsMeasureKind(Kind);
+
+    /// <summary>A new measurement through <paramref name="points"/> at <paramref name="scale"/>.</summary>
+    public static PdfAnnotation NewMeasurement(
+        PdfAnnotationKind kind, IReadOnlyList<PdfPoint> points, uint colorArgb, PdfMeasureScale scale, string? author = null)
+    {
+        if (!PdfMeasure.IsMeasureKind(kind))
+        {
+            throw new ArgumentException("Not a measurement kind.", nameof(kind));
+        }
+
+        if (points.Count < PdfMeasure.MinimumPoints(kind))
+        {
+            throw new ArgumentException("Too few points for this measurement.", nameof(points));
+        }
+
+        DateTimeOffset now = DateTimeOffset.Now;
+        return new(Guid.NewGuid(), kind, [], colorArgb, null, author, now, now)
+        {
+            Strokes = [points.ToArray()],
+            Scale = scale,
+            AutoSize = false,
+        };
+    }
+
     /// <summary>Encoded (PNG) bytes for a <see cref="PdfAnnotationKind.Image"/>; null otherwise.</summary>
     public byte[]? ImageData { get; init; }
 
@@ -113,7 +178,8 @@ public sealed record PdfAnnotation(
     public static bool IsStampKind(PdfAnnotationKind kind) => kind is PdfAnnotationKind.TextBox
         or PdfAnnotationKind.Callout or PdfAnnotationKind.Cloud or PdfAnnotationKind.Image
         or PdfAnnotationKind.Rectangle or PdfAnnotationKind.Ellipse or PdfAnnotationKind.Line
-        or PdfAnnotationKind.Arrow;
+        or PdfAnnotationKind.Arrow or PdfAnnotationKind.Tick
+        || PdfMeasure.IsMeasureKind(kind);
 
     /// <summary>PDF annotation subtype number for <see cref="Kind"/> (matches the PDF spec / PDFium).</summary>
     public int Subtype => Kind switch
@@ -256,6 +322,31 @@ public sealed record PdfAnnotation(
 
     public static PdfAnnotation NewEllipse(PdfRect box, uint colorArgb, string? author = null) =>
         NewBoxShape(PdfAnnotationKind.Ellipse, box, colorArgb, author);
+
+    /// <summary>Default stroke width (points) for a new tick — bolder than an outline so it reads as
+    /// a deliberate mark at drawing-checking zoom.</summary>
+    public const double DefaultTickLineWidth = 3;
+
+    public static PdfAnnotation NewTick(PdfRect box, uint colorArgb, string? author = null) =>
+        NewBoxShape(PdfAnnotationKind.Tick, box, colorArgb, author) with { LineWidth = DefaultTickLineWidth };
+
+    /// <summary>
+    /// The tick's three points (short stroke down, long stroke up) inside <paramref name="box"/>, in
+    /// the same unrotated page space as the box (bottom-left origin). One definition shared by the
+    /// PDF appearance and the on-screen overlay so they can't drift apart.
+    /// </summary>
+    public static IReadOnlyList<PdfPoint> TickPoints(PdfRect box)
+    {
+        double left = Math.Min(box.Left, box.Right), right = Math.Max(box.Left, box.Right);
+        double bottom = Math.Min(box.Top, box.Bottom), top = Math.Max(box.Top, box.Bottom);
+        double w = right - left, h = top - bottom;
+        return
+        [
+            new PdfPoint(left + (0.12 * w), bottom + (0.52 * h)),
+            new PdfPoint(left + (0.40 * w), bottom + (0.16 * h)),
+            new PdfPoint(left + (0.90 * w), bottom + (0.88 * h)),
+        ];
+    }
 
     private static PdfAnnotation NewBoxShape(PdfAnnotationKind kind, PdfRect box, uint colorArgb, string? author)
     {

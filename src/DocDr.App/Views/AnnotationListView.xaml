@@ -50,7 +50,7 @@
             </ListBox.ItemTemplate>
         </ListBox>
 
-        <TextBlock Text="No annotations yet. Select text on a page to highlight it."
+        <TextBlock Text="No markup yet. Highlight text, draw, or add shapes from the toolbar. Notes are in the Comments panel."
                    Foreground="{DynamicResource HintTextBrush}" FontSize="11"
                    HorizontalAlignment="Center" VerticalAlignment="Top" Margin="10,16"
                    TextWrapping="Wrap" TextAlignment="Center"

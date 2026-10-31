@@ -40,6 +40,14 @@ public partial class BookmarksPanelView : UserControl
         }
     }
 
+    private void ExtractMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (Tree.SelectedItem is BookmarkNodeViewModel node)
+        {
+            ViewModel?.RequestExtract(node);
+        }
+    }
+
     private void DeleteMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (Tree.SelectedItem is BookmarkNodeViewModel node)

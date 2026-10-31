@@ -64,3 +64,54 @@ public sealed class PdfReplyTests
         Assert.DoesNotContain("DocDrThread", raw);
     }
 }
+
+public sealed class PdfReviewStatusTests
+{
+    private static PdfDocument Make(TempWorkspace ws) =>
+        PdfDocument.Load(TestPdfBuilder.WritePdf(ws.Path("s.pdf"), ["one", "two"]));
+
+    [Fact]
+    public void Review_status_and_checkmark_round_trip_through_save_and_reload()
+    {
+        using var ws = new TempWorkspace();
+        byte[] saved;
+
+        using (PdfDocument doc = Make(ws))
+        {
+            doc.AddAnnotation(0, PdfAnnotation.NewComment(new PdfRect(72, 700, 90, 682), "Check cover", "rob")
+                with { Status = PdfReviewStatus.Accepted, IsMarked = true });
+            doc.AddAnnotation(1, PdfAnnotation.NewHighlight([new PdfRect(72, 700, 200, 680)], 0xFFFFD54Fu, "noted", "rob")
+                with { Status = PdfReviewStatus.Rejected });
+            doc.AddAnnotation(1, PdfAnnotation.NewComment(new PdfRect(300, 700, 318, 682), "plain", "rob"));
+            saved = doc.SaveToBytes();
+        }
+
+        using PdfDocument reloaded = PdfDocument.Load(saved);
+        PdfAnnotation note = Assert.Single(reloaded.GetAnnotations(0));
+        Assert.Equal(PdfReviewStatus.Accepted, note.Status);
+        Assert.True(note.IsMarked);
+
+        PdfAnnotation highlight = reloaded.GetAnnotations(1).Single(a => a.Kind == PdfAnnotationKind.Highlight);
+        Assert.Equal(PdfReviewStatus.Rejected, highlight.Status);
+        Assert.False(highlight.IsMarked);
+
+        PdfAnnotation plain = reloaded.GetAnnotations(1).Single(a => a.Kind == PdfAnnotationKind.Comment);
+        Assert.Equal(PdfReviewStatus.None, plain.Status);
+        Assert.False(plain.IsMarked);
+    }
+
+    [Fact]
+    public void Setting_a_status_is_undoable()
+    {
+        using var ws = new TempWorkspace();
+        using PdfDocument doc = Make(ws);
+        doc.AddAnnotation(0, PdfAnnotation.NewComment(new PdfRect(72, 700, 90, 682), "root", "rob"));
+        PdfAnnotation created = doc.GetAnnotations(0)[0];
+
+        doc.UpdateAnnotation(0, created with { Status = PdfReviewStatus.Completed });
+        Assert.Equal(PdfReviewStatus.Completed, doc.GetAnnotations(0)[0].Status);
+
+        doc.Undo();
+        Assert.Equal(PdfReviewStatus.None, doc.GetAnnotations(0)[0].Status);
+    }
+}

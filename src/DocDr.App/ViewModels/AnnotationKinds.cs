@@ -19,6 +19,10 @@ public static class AnnotationKinds
         PdfAnnotationKind.Ellipse => "Ellipse",
         PdfAnnotationKind.Line => "Line",
         PdfAnnotationKind.Arrow => "Arrow",
+        PdfAnnotationKind.Tick => "Tick",
+        PdfAnnotationKind.MeasureDistance => "Distance",
+        PdfAnnotationKind.MeasurePerimeter => "Perimeter",
+        PdfAnnotationKind.MeasureArea => "Area",
         _ => "Annotation",
     };
 }

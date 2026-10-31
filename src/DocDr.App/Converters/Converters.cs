@@ -152,3 +152,20 @@ public sealed class EnumEqualsOrDefaultConverter : IValueConverter
         return Enum.ToObject(enumType, 0);
     }
 }
+
+/// <summary>A <see cref="DocDr.Pdf.PdfSnapKind"/> name → the snap marker's caption.</summary>
+public sealed class SnapKindLabelConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value?.ToString() switch
+        {
+            "Endpoint" => "End point",
+            "Intersection" => "Intersection",
+            "Midpoint" => "Midpoint",
+            "OnLine" => "On line",
+            _ => string.Empty,
+        };
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}

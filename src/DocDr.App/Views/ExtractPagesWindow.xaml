@@ -1,0 +1,54 @@
+<Window x:Class="DocDr.App.Views.ExtractPagesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:DocDr.App.ViewModels"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance vm:ExtractPagesViewModel}"
+        Title="Extract pages" SizeToContent="Height" Width="400"
+        Icon="/DocDr.App;component/Assets/DocDr.ico"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" ResizeMode="NoResize">
+    <Window.Resources>
+        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}" />
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+        </Style>
+    </Window.Resources>
+    <StackPanel Margin="18">
+        <TextBlock Text="Pages" FontWeight="SemiBold" Margin="0,0,0,6" />
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="RangeBox" Text="{Binding RangeText, UpdateSourceTrigger=PropertyChanged}"
+                     VerticalContentAlignment="Center" AutomationProperties.Name="Pages to extract" />
+            <TextBlock Grid.Column="1" Text="{Binding Summary}" VerticalAlignment="Center" Margin="10,0,0,0"
+                       Foreground="{DynamicResource SecondaryTextBrush}" />
+        </Grid>
+        <TextBlock Text="{Binding PageCountText}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"
+                   Foreground="{DynamicResource HintTextBrush}" />
+        <TextBlock Text="{Binding Error}" Foreground="#C62828" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap" />
+
+        <TextBlock Text="Title" FontWeight="SemiBold" Margin="0,12,0,6" />
+        <TextBox Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}" VerticalContentAlignment="Center"
+                 AutomationProperties.Name="Title of the new file" />
+
+        <CheckBox Content="Include my highlights, notes and markup" Margin="0,14,0,0"
+                  IsChecked="{Binding IncludeAnnotations}" IsEnabled="{Binding HasAnnotations}" />
+        <CheckBox Content="Include bookmarks for these pages" Margin="0,6,0,0"
+                  IsChecked="{Binding IncludeBookmarks}" />
+        <CheckBox Content="Open the new file" Margin="0,6,0,0" IsChecked="{Binding OpenAfter}" />
+
+        <TextBlock Margin="0,12,0,0" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource HintTextBrush}"
+                   Text="The new file keeps the pages' text and fonts. If the original is copy-protected, the extract isn't — take care who you share it with." />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Cancel" MinWidth="80" Padding="10,4" Margin="0,0,8,0" IsCancel="True"
+                    Command="{Binding CancelCommand}" />
+            <Button Content="Extract…" MinWidth="80" Padding="10,4" IsDefault="True"
+                    Command="{Binding ExtractCommand}" />
+        </StackPanel>
+    </StackPanel>
+</Window>

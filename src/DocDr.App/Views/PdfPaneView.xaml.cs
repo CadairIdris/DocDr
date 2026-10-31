@@ -44,6 +44,46 @@ public partial class PdfPaneView : UserControl
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         IsVisibleChanged += OnIsVisibleChanged;
+        PreviewKeyDown += OnPanePreviewKeyDown;
+    }
+
+    /// <summary>Ctrl+F anywhere inside this pane opens its find bar (the window's own Ctrl+F
+    /// binding is the fallback when focus is outside every pane).</summary>
+    private void OnPanePreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control && _pane is not null)
+        {
+            _pane.OpenSearchBar();
+            e.Handled = true;
+        }
+    }
+
+    private void SearchToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (_pane is null)
+        {
+            return;
+        }
+
+        if (_pane.IsSearchBarOpen)
+        {
+            _pane.CloseSearchBarCommand.Execute(null);
+            PageList.Focus();
+        }
+        else
+        {
+            _pane.OpenSearchBar();
+        }
+    }
+
+    private void OnSearchBarFocusRequested()
+    {
+        // After layout, so the bar has become visible and can take focus.
+        Dispatcher.BeginInvoke(() =>
+        {
+            SearchBox.Focus();
+            SearchBox.SelectAll();
+        }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -78,6 +118,8 @@ public partial class PdfPaneView : UserControl
             _pane.PropertyChanged -= OnPanePropertyChanged;
             _pane.PagesReloaded -= OnPagesReloaded;
             _pane.SelectedFormatChanged -= OnSelectedFormatChanged;
+            _pane.SearchBarFocusRequested -= OnSearchBarFocusRequested;
+            _pane.ScrollToHitRequested -= OnScrollToHitRequested;
         }
 
         _pane = e.NewValue as PdfPaneViewModel;
@@ -92,6 +134,8 @@ public partial class PdfPaneView : UserControl
         _pane.PropertyChanged += OnPanePropertyChanged;
         _pane.PagesReloaded += OnPagesReloaded;
         _pane.SelectedFormatChanged += OnSelectedFormatChanged;
+        _pane.SearchBarFocusRequested += OnSearchBarFocusRequested;
+        _pane.ScrollToHitRequested += OnScrollToHitRequested;
 
         // WPF's TabControl reuses this single PdfPaneView across every tab, swapping the
         // DataContext underneath it — so a plain event hook isn't enough. Re-establish
@@ -543,6 +587,31 @@ public partial class PdfPaneView : UserControl
         AlignPage(pageIndex, fraction: 0, horizontalFraction: null, fromSync: false, attempts: 4);
     }
 
+    /// <summary>The active search hit changed: bring its page in and centre the match itself in
+    /// the viewport (vertically always; horizontally only when the page is wider than the pane).</summary>
+    private void OnScrollToHitRequested(int pageIndex, double yFraction, double xFraction)
+    {
+        if (_scrollViewer is null || _pane is null || _pane.IsPaged || PageItem(pageIndex) is not { } item)
+        {
+            return;
+        }
+
+        _programmaticScroll = true;
+        PageList.ScrollIntoView(item);
+        AlignPage(pageIndex, yFraction, horizontalFraction: null, fromSync: false, attempts: 4, viewportAnchor: 0.5);
+
+        Dispatcher.BeginInvoke(
+            () =>
+            {
+                if (_scrollViewer is { ScrollableWidth: > 0 } sv)
+                {
+                    double offset = (xFraction * sv.ExtentWidth) - (sv.ViewportWidth / 2);
+                    sv.ScrollToHorizontalOffset(Math.Clamp(offset, 0, sv.ScrollableWidth));
+                }
+            },
+            System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
     /// <summary>A linked pane moved: put the same relative spot of the (mapped) page at the top of
     /// this viewport. Treated as programmatic throughout, so it's never reported back.</summary>
     private void OnScrollToPositionRequested(ViewportPosition position)
@@ -562,8 +631,13 @@ public partial class PdfPaneView : UserControl
     /// container sits at the viewport top (0 = top-align the page), refining from the container's
     /// real position as neighbours realise. When done, the new position is reported — as a user
     /// move for a jump the user asked for (so a linked pane follows), silently for a sync.
+    /// <paramref name="viewportAnchor"/> &gt; 0 (a search hit: 0.5 = mid-viewport) instead puts that
+    /// point at that fraction down the viewport, with <paramref name="fraction"/> measured against the
+    /// page's own layout box rather than its container (which adds the inter-page margin).
     /// </summary>
-    private void AlignPage(int pageIndex, double fraction, double? horizontalFraction, bool fromSync, int attempts)
+    private void AlignPage(
+        int pageIndex, double fraction, double? horizontalFraction, bool fromSync, int attempts,
+        double viewportAnchor = 0)
     {
         Dispatcher.BeginInvoke(
             () =>
@@ -580,7 +654,14 @@ public partial class PdfPaneView : UserControl
                 double top = container is null
                     ? double.NaN
                     : container.TransformToVisual(_scrollViewer).Transform(new Point(0, 0)).Y;
-                double wanted = container is null ? 0 : -fraction * container.ActualHeight;
+                double wanted = container switch
+                {
+                    null => 0,
+                    { DataContext: PageSlotViewModel slot } when viewportAnchor > 0 && slot.LayoutHeight > 0 =>
+                        (viewportAnchor * _scrollViewer.ViewportHeight)
+                        - (((container.ActualHeight - slot.LayoutHeight) / 2) + (fraction * slot.LayoutHeight)),
+                    _ => -fraction * container.ActualHeight,
+                };
 
                 bool aligned = !double.IsNaN(top) && Math.Abs(top - wanted) <= 1.0;
                 if (!aligned && attempts > 0)
@@ -594,7 +675,7 @@ public partial class PdfPaneView : UserControl
                         PageList.ScrollIntoView(PageItem(pageIndex));
                     }
 
-                    AlignPage(pageIndex, fraction, horizontalFraction, fromSync, attempts - 1);
+                    AlignPage(pageIndex, fraction, horizontalFraction, fromSync, attempts - 1, viewportAnchor);
                     return;
                 }
 
@@ -761,6 +842,27 @@ public partial class PdfPaneView : UserControl
             _pane.SelectedAnnotationId = null;
             _pane.BeginInk(target.Slot.PageIndex, pagePoint);
             PageList.CaptureMouse();
+            e.Handled = true;
+            return;
+        }
+
+        if (_pane.IsMeasureTool)
+        {
+            // Click-by-click: each click places a vertex; a double-click finishes a perimeter /
+            // area (its first half already placed the last vertex).
+            _pane.SelectedAnnotationId = null;
+            bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+            if (e.ClickCount >= 2 && !_pane.MeasureFinishesOnSecondClick)
+            {
+                _pane.MeasureFinish();
+            }
+            else
+            {
+                _pane.MeasureClick(target.Slot.PageIndex, pagePoint, shift,
+                    suspendSnap: (Keyboard.Modifiers & ModifierKeys.Control) != 0);
+            }
+
+            PageList.Focus(); // so Enter / Backspace / Esc reach PageList_PreviewKeyDown
             e.Handled = true;
             return;
         }
@@ -943,8 +1045,27 @@ public partial class PdfPaneView : UserControl
         }
     }
 
+    private void PageList_MouseLeave(object sender, MouseEventArgs e) => _pane?.MeasurePointerLeft();
+
     private void PageList_MouseMove(object sender, MouseEventArgs e)
     {
+        // Measuring: show the snap marker and rubber-band the measurement in progress (no button held).
+        if (_pane is { IsMeasureTool: true } measuring && !_panning)
+        {
+            if (FindSlot(e.OriginalSource as DependencyObject) is { } over)
+            {
+                Point at = e.GetPosition(over.Element);
+                measuring.MeasureHover(over.Slot.PageIndex,
+                    measuring.DevicePointToPage(over.Slot.PageIndex, at.X, at.Y),
+                    constrain: (Keyboard.Modifiers & ModifierKeys.Shift) != 0,
+                    suspendSnap: (Keyboard.Modifiers & ModifierKeys.Control) != 0);
+            }
+            else
+            {
+                measuring.MeasurePointerLeft(); // between pages / over the gutter
+            }
+        }
+
         if (_panning && _scrollViewer is not null)
         {
             Point now = e.GetPosition(this);
@@ -988,7 +1109,8 @@ public partial class PdfPaneView : UserControl
         }
         else if (_lineEndpointMoving)
         {
-            _pane.PreviewLineEndpointMove(pagePoint.X - _moveAnchor.X, pagePoint.Y - _moveAnchor.Y);
+            _pane.PreviewLineEndpointMove(pagePoint.X - _moveAnchor.X, pagePoint.Y - _moveAnchor.Y,
+                suspendSnap: (Keyboard.Modifiers & ModifierKeys.Control) != 0);
         }
         else if (_selecting)
         {
@@ -1097,7 +1219,8 @@ public partial class PdfPaneView : UserControl
             PageList.ReleaseMouseCapture();
             Point up = e.GetPosition(_selectionSlot);
             PdfPoint p = _pane.DevicePointToPage(_selectionPageIndex, up.X, up.Y);
-            _pane.EndLineEndpointMove(p.X - _moveAnchor.X, p.Y - _moveAnchor.Y);
+            _pane.EndLineEndpointMove(p.X - _moveAnchor.X, p.Y - _moveAnchor.Y,
+                suspendSnap: (Keyboard.Modifiers & ModifierKeys.Control) != 0);
             return;
         }
 
@@ -1126,6 +1249,25 @@ public partial class PdfPaneView : UserControl
 
     private void PageList_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (_pane is { HasMeasureInProgress: true } measuring)
+        {
+            switch (e.Key)
+            {
+                case Key.Enter:
+                    measuring.MeasureFinish();
+                    e.Handled = true;
+                    return;
+                case Key.Back:
+                    measuring.MeasureUndoVertex();
+                    e.Handled = true;
+                    return;
+                case Key.Escape:
+                    measuring.MeasureCancel(); // a second Esc then disarms the tool
+                    e.Handled = true;
+                    return;
+            }
+        }
+
         if (e.Key == Key.V && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && _pane is not null)
         {
             PasteAtVisibleCentre();

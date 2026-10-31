@@ -450,6 +450,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             _renderQueue, _images);
         tab.CloseRequested += (_, _) => CloseTab(tab);
         tab.MoveToOtherSideRequested += (_, _) => MoveTabToOtherSide(tab);
+        tab.OpenFileRequested += path => _ = OpenPathAsync(path);
         tab.CustomColorChanged += argb =>
         {
             _settings.LastCustomColor = argb;
@@ -695,7 +696,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             Tabs.Remove(tab);
             NormaliseGroups(); // may slide the right side over, end side-by-side, and drop the link
         });
-        _renderQueue.Clear();
+        // Only the closed document's requests (pages and thumbnails) — the queue is shared, and the
+        // other tabs' pending renders are still wanted.
+        PdfDocument closing = tab.Document;
+        _renderQueue.RemoveWhere(r => ReferenceEquals(r.Document, closing));
 
         tab.Dispose();
         StatusText = Tabs.Count > 0 ? $"{Tabs.Count} tab(s) open." : "Open a PDF to begin.";

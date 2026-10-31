@@ -40,6 +40,8 @@
                 <MenuItem Header="Delete page(s)" Command="{Binding ContextEditCommand}" CommandParameter="Delete" />
                 <MenuItem Header="Insert PDF after…" Command="{Binding ContextEditCommand}" CommandParameter="InsertAfter" />
                 <MenuItem Header="Insert blank page after" Command="{Binding ContextEditCommand}" CommandParameter="InsertBlankAfter" />
+                <Separator />
+                <MenuItem Header="Extract page(s)…" Command="{Binding ContextEditCommand}" CommandParameter="Extract" />
             </ContextMenu>
         </ListBox.ContextMenu>
         <ListBox.ItemTemplate>

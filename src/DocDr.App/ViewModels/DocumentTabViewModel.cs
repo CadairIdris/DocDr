@@ -79,6 +79,16 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Annotations.Reload(document);
         Annotations.AnnotationActivated += OnAnnotationActivated;
 
+        InitMeasuring();
+        Bookmarks.ExtractRequested += OnBookmarkExtractRequested;
+
+        Comments = new CommentsViewModel(System.Environment.UserName);
+        Comments.Reload(document, PageLabelFor);
+        Comments.CommentActivated += OnAnnotationActivated;
+        Comments.UpdateRequested += OnCommentUpdateRequested;
+        Comments.EditRequested += OnCommentEditRequested;
+        Comments.DeleteRequested += OnCommentDeleteRequested;
+
         LeftPane.TableRegionSelected += OnTableRegionSelected;
         RightPane.TableRegionSelected += OnTableRegionSelected;
 
@@ -107,6 +117,8 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     public ClausesViewModel Clauses { get; }
 
     public AnnotationListViewModel Annotations { get; }
+
+    public CommentsViewModel Comments { get; }
 
     public string Title => Document.IsDirty ? $"{_baseTitle} •" : _baseTitle;
 
@@ -177,12 +189,38 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     {
         LeftPane.ShapeTool = value;
         RightPane.ShapeTool = value;
+        OnPropertyChanged(nameof(IsMeasureToolActive));
         if (value != ShapeTool.None)
         {
             CommentToolActive = false;
             HighlighterToolActive = false;
             TableSelectActive = false;
             AnnotationsVisible = true;
+        }
+        if (IsBasicShape(value))
+            LastBasicShape = value;
+        OnPropertyChanged(nameof(IsBasicShapeActive));
+    }
+
+    private static bool IsBasicShape(ShapeTool tool) =>
+        tool is ShapeTool.Rectangle or ShapeTool.Ellipse or ShapeTool.Line or ShapeTool.Arrow;
+
+    /// <summary>The rectangle / ellipse / line / arrow tool last armed — what the toolbar's
+    /// shapes split button shows and re-arms on a plain click.</summary>
+    [ObservableProperty]
+    private ShapeTool _lastBasicShape = ShapeTool.Rectangle;
+
+    /// <summary>Toolbar shapes split button: on while any basic shape tool is armed;
+    /// switching it on arms <see cref="LastBasicShape"/>.</summary>
+    public bool IsBasicShapeActive
+    {
+        get => IsBasicShape(ShapeTool);
+        set
+        {
+            if (value)
+                ShapeTool = LastBasicShape;
+            else if (IsBasicShape(ShapeTool))
+                ShapeTool = ShapeTool.None;
         }
     }
 
@@ -194,10 +232,12 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     {
         LeftPane.AnnotationsVisible = value;
         RightPane.AnnotationsVisible = value;
-        OnPropertyChanged(nameof(MarkupButtonLabel));
+        OnPropertyChanged(nameof(MarkupToolTip));
     }
 
-    public string MarkupButtonLabel => AnnotationsVisible ? "👁 Markup" : "👁 Markup hidden";
+    public string MarkupToolTip => AnnotationsVisible
+        ? "Hide all highlights, notes and ink on the page"
+        : "Markup is hidden — click to show highlights, notes and ink again";
 
     [RelayCommand]
     private void ToggleAnnotations() => AnnotationsVisible = !AnnotationsVisible;
@@ -419,6 +459,28 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
                 summary += $"\n\n{result.PagesWithoutText.Count} page(s) had no extractable text and were skipped — OCR is not available yet.";
             }
 
+            int suspect = result.Chunks.Count(c => c.Quality == "suspect");
+            int check = result.Chunks.Count(c => c.Quality == "check");
+            if (suspect > 0)
+            {
+                string pages = string.Join(", ", result.SuspectPages.Take(12).Select(PageLabelFor))
+                    + (result.SuspectPages.Count > 12 ? ", …" : string.Empty);
+                summary += $"\n\n{suspect} chunk(s) are marked \"suspect\": their text contains symbols the PDF doesn't "
+                    + $"map to real characters (pages {pages}). The real symbols can't be recovered from the text "
+                    + "layer — check those pages against the page images.";
+            }
+
+            if (check > 0)
+            {
+                summary += $"\n\n{check} chunk(s) contain equations and are marked \"check\": fractions, roots and "
+                    + "exponents are flattened to one line.";
+            }
+
+            if (result.DoubledGlyphsRemoved > 0)
+            {
+                summary += $"\n\n{result.DoubledGlyphsRemoved:N0} doubled glyph(s) (drawn twice at the same spot) were removed.";
+            }
+
             MessageBox.Show(summary, "DocDr", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex) when (ex is PdfException or IOException or UnauthorizedAccessException)
@@ -632,6 +694,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
             case ThumbnailStripViewModel.ThumbnailCommand.Delete: DeletePages(); break;
             case ThumbnailStripViewModel.ThumbnailCommand.InsertAfter: InsertPdf(); break;
             case ThumbnailStripViewModel.ThumbnailCommand.InsertBlankAfter: InsertBlankPage(); break;
+            case ThumbnailStripViewModel.ThumbnailCommand.Extract: ExtractPages(); break;
         }
     }
 
@@ -738,12 +801,14 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
 
         LeftPane.ReloadPages(sizes);
         RightPane.ReloadPages(sizes);
+        OnPagesChangedForMeasuring();
         Thumbnails.Reload(sizes);
         Bookmarks.Reload(Document.GetOutline(), PageLabelFor);
         // Clauses are deliberately NOT rescanned here — like the outline, a structural edit leaves
         // an already-scanned tree's page numbers stale rather than paying for a full rescan on
         // every rotate/delete/insert; the user can hit "Scan for clause headings" again if needed.
         Annotations.Reload(Document);
+        Comments.Reload(Document, PageLabelFor);
         Thumbnails.SetCurrentPage(LeftPane.CurrentPage);
 
         OnPropertyChanged(nameof(Title));
@@ -784,6 +849,7 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         LeftPane.BuildAnnotationOverlays();
         RightPane.BuildAnnotationOverlays();
         Annotations.Reload(Document);
+        Comments.Reload(Document, PageLabelFor);
         OnPropertyChanged(nameof(HasAnnotations));
     });
 
@@ -825,6 +891,27 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         RightPane.SetClausePageMap(map);
     }
 
+    // Comments panel → document. UpdateAnnotation is undoable and raises AnnotationsChanged,
+    // which reloads the panel (it keeps the selected card and any half-written replies).
+    private void OnCommentUpdateRequested(int pageIndex, PdfAnnotation updated) =>
+        Document.UpdateAnnotation(pageIndex, updated);
+
+    private void OnCommentEditRequested(int pageIndex, Guid id)
+    {
+        LeftPane.SelectedAnnotationId = id;
+        LeftPane.EditAnnotationCommand.Execute(id);
+    }
+
+    private void OnCommentDeleteRequested(int pageIndex, Guid id)
+    {
+        if (LeftPane.SelectedAnnotationId == id)
+        {
+            LeftPane.SelectedAnnotationId = null;
+        }
+
+        Document.RemoveAnnotation(pageIndex, id);
+    }
+
     private void OnAnnotationActivated(int pageIndex, Guid id)
     {
         // Select on the left pane only — the nav list drives that pane, and selecting on both
@@ -853,6 +940,11 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         if (e.PropertyName == nameof(PdfPaneViewModel.CurrentPage))
         {
             Thumbnails.SetCurrentPage(LeftPane.CurrentPage);
+        }
+        else if (e.PropertyName == nameof(PdfPaneViewModel.SelectedAnnotationId))
+        {
+            // Clicking a note pin on the page selects its card in the Comments panel.
+            Comments.Select(LeftPane.SelectedAnnotationId);
         }
         else if (e.PropertyName == nameof(PdfPaneViewModel.CommentToolActive) && !LeftPane.CommentToolActive)
         {
@@ -895,6 +987,12 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
         Bookmarks.OutlineEdited -= OnBookmarksEdited;
         Thumbnails.EditRequested -= OnThumbnailEditRequested;
         Annotations.AnnotationActivated -= OnAnnotationActivated;
+        DisposeMeasuring();
+        Bookmarks.ExtractRequested -= OnBookmarkExtractRequested;
+        Comments.CommentActivated -= OnAnnotationActivated;
+        Comments.UpdateRequested -= OnCommentUpdateRequested;
+        Comments.EditRequested -= OnCommentEditRequested;
+        Comments.DeleteRequested -= OnCommentDeleteRequested;
         Clauses.Scanned -= OnClausesScanned;
         LeftPane.TableRegionSelected -= OnTableRegionSelected;
         RightPane.TableRegionSelected -= OnTableRegionSelected;

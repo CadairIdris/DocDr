@@ -35,6 +35,9 @@ public partial class App : Application
         Theme = new ThemeService(settings);
         Theme.Apply(settings.Theme);
 
+        // No drifting clear-✕ in multi-line text boxes (Fluent shows one with no off switch).
+        Views.TextBoxClearButton.HideInMultilineBoxes();
+
         // Opt-in data-binding diagnostics: set DOCDR_BINDING_LOG=<path> to record binding errors.
         if (Environment.GetEnvironmentVariable("DOCDR_BINDING_LOG") is { Length: > 0 } bindingLog)
         {

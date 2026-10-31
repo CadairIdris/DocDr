@@ -43,56 +43,193 @@ public sealed class PdfSearch
         _document = document ?? throw new ArgumentNullException(nameof(document));
     }
 
+    /// <summary>Pages this search has had to open in PDFium (text page loads) — for tests showing a
+    /// warm-cache search touches only the pages that match.</summary>
+    internal int PagesOpened => Volatile.Read(ref _pagesOpened);
+
+    private int _pagesOpened;
+
+    /// <summary>How long a progressive search accumulates hits before handing the next batch to
+    /// <c>onBatch</c> (the first hit is always handed over at once).</summary>
+    internal static readonly TimeSpan BatchInterval = TimeSpan.FromMilliseconds(120);
+
     /// <summary>
-    /// Find every match of <paramref name="term"/> across the whole document. The lock is taken
-    /// and released per page so a concurrent render in the other pane is never starved.
+    /// Find every match of <paramref name="term"/> across the whole document, in page order. The
+    /// lock is taken and released per page so a concurrent render in the other pane is never
+    /// starved. See <see cref="Search"/> for how pages are read.
     /// </summary>
-    /// <param name="includeSnippets">Also capture a few words of context around each match (an
-    /// extra <c>FPDFTextGetText</c> call per hit) — off by default since the in-pane viewer only
-    /// needs highlight rects; folder-wide search turns it on to show a preview line per result.</param>
+    /// <param name="includeSnippets">Also capture a few words of context around each match —
+    /// off by default since the in-pane viewer only needs highlight rects; folder-wide search
+    /// turns it on to show a preview line per result.</param>
     public IReadOnlyList<SearchHit> FindAll(
         string term, PdfSearchOptions options = PdfSearchOptions.None,
+        CancellationToken cancellationToken = default, bool includeSnippets = false) =>
+        Search(term, options, startPage: 0, onBatch: null, cancellationToken, includeSnippets);
+
+    /// <summary>
+    /// Progressive search: visits pages from <paramref name="startPage"/> to the end, then wraps to
+    /// the beginning, handing newly found hits to <paramref name="onBatch"/> (on the calling
+    /// thread) as it goes — the first hit immediately, then at most every
+    /// <see cref="BatchInterval"/>, then a final flush — so a viewer can show the match nearest the
+    /// reader long before a 400-page standard has been scanned. Returns every hit, sorted by page
+    /// then character.
+    /// <para>
+    /// Per page: if its text is already in the document's <see cref="PdfPageTextCache"/> the term
+    /// is matched in managed code (<see cref="PdfTextMatcher"/>) and PDFium is touched only when
+    /// there's a match (for its highlight boxes). Otherwise the page is opened once, its text read
+    /// and cached, and matched and boxed in that same load — so a cold search costs what the old
+    /// per-page <c>FPDFText_FindStart</c> loop did, and every later one costs almost nothing on
+    /// pages without a hit.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<SearchHit> Search(
+        string term, PdfSearchOptions options, int startPage,
+        Action<IReadOnlyList<SearchHit>>? onBatch,
         CancellationToken cancellationToken = default, bool includeSnippets = false)
     {
+        var all = new List<SearchHit>();
+        if (string.IsNullOrWhiteSpace(term))
+        {
+            return all;
+        }
+
+        int pageCount = _document.PageCount;
+        if (pageCount == 0)
+        {
+            return all;
+        }
+
+        int first = Math.Clamp(startPage, 0, pageCount - 1);
+        var pending = new List<SearchHit>();
+        var sinceFlush = System.Diagnostics.Stopwatch.StartNew();
+        bool flushedAny = false;
+
+        void Flush()
+        {
+            if (onBatch is null || pending.Count == 0)
+            {
+                return;
+            }
+
+            onBatch(pending.ToArray());
+            pending.Clear();
+            sinceFlush.Restart();
+            flushedAny = true;
+        }
+
+        for (int step = 0; step < pageCount; step++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int page = (first + step) % pageCount;
+
+            IReadOnlyList<SearchHit> pageHits = SearchPage(page, term, options, includeSnippets, cancellationToken);
+            if (pageHits.Count == 0)
+            {
+                continue;
+            }
+
+            all.AddRange(pageHits);
+            if (onBatch is not null)
+            {
+                pending.AddRange(pageHits);
+                if (!flushedAny || sinceFlush.Elapsed >= BatchInterval)
+                {
+                    Flush();
+                }
+            }
+        }
+
+        Flush();
+        all.Sort(static (a, b) => a.PageIndex != b.PageIndex
+            ? a.PageIndex.CompareTo(b.PageIndex)
+            : a.CharStart.CompareTo(b.CharStart));
+        return all;
+    }
+
+    private IReadOnlyList<SearchHit> SearchPage(
+        int page, string term, PdfSearchOptions options, bool includeSnippets, CancellationToken ct)
+    {
+        int version = _document.ContentVersion;
+        PdfPageTextCache cache = _document.TextCache;
+
+        if (cache.TryGet(version, page, out string cachedText))
+        {
+            List<(int Start, int Count)> ranges = PdfTextMatcher.Find(cachedText, term, options);
+            if (ranges.Count == 0)
+            {
+                return Array.Empty<SearchHit>();
+            }
+
+            return _document.Locked(() => PdfTextExtractor.WithTextPage<IReadOnlyList<SearchHit>>(_document, page, textPage =>
+            {
+                Interlocked.Increment(ref _pagesOpened);
+                // A page whose text doesn't line up 1:1 with PDFium's char indices (non-BMP
+                // glyphs → surrogate pairs) gets PDFium's own find instead.
+                return fpdf_text.FPDFTextCountChars(textPage) == cachedText.Length
+                    ? BuildHits(textPage, page, ranges, includeSnippets, ct)
+                    : NativeFind(textPage, page, term, options, includeSnippets, ct);
+            }));
+        }
+
+        return _document.Locked(() => PdfTextExtractor.WithTextPage<IReadOnlyList<SearchHit>>(_document, page, textPage =>
+        {
+            Interlocked.Increment(ref _pagesOpened);
+            string text = PdfTextExtractor.ReadAllText(textPage);
+            cache.Store(version, page, text);
+            if (fpdf_text.FPDFTextCountChars(textPage) != text.Length)
+            {
+                return NativeFind(textPage, page, term, options, includeSnippets, ct);
+            }
+
+            List<(int Start, int Count)> ranges = PdfTextMatcher.Find(text, term, options);
+            return ranges.Count == 0
+                ? Array.Empty<SearchHit>()
+                : BuildHits(textPage, page, ranges, includeSnippets, ct);
+        }));
+    }
+
+    private static IReadOnlyList<SearchHit> BuildHits(
+        FpdfTextpageT textPage, int page, List<(int Start, int Count)> ranges, bool includeSnippets,
+        CancellationToken ct)
+    {
+        var hits = new List<SearchHit>(ranges.Count);
+        foreach ((int start, int count) in ranges)
+        {
+            ct.ThrowIfCancellationRequested();
+            string snippet = includeSnippets ? BuildSnippet(textPage, start, count) : string.Empty;
+            hits.Add(new SearchHit(page, start, count, CollectRects(textPage, start, count), snippet));
+        }
+
+        return hits;
+    }
+
+    /// <summary>PDFium's own find, for the rare page whose extracted text can't be index-mapped.</summary>
+    private static IReadOnlyList<SearchHit> NativeFind(
+        FpdfTextpageT textPage, int page, string term, PdfSearchOptions options, bool includeSnippets,
+        CancellationToken ct)
+    {
         var hits = new List<SearchHit>();
-        if (string.IsNullOrEmpty(term))
+        ushort[] needle = PdfTextExtractor.ToWideString(term.Trim());
+        FpdfSchhandleT? search = fpdf_text.FPDFTextFindStart(textPage, ref needle[0], (uint)options, 0);
+        if (search is null || search.__Instance == IntPtr.Zero)
         {
             return hits;
         }
 
-        ushort[] needle = PdfTextExtractor.ToWideString(term);
-
-        for (int pageIndex = 0; pageIndex < _document.PageCount; pageIndex++)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            int page = pageIndex;
-
-            _document.Locked(() => PdfTextExtractor.WithTextPage(_document, page, textPage =>
+            while (fpdf_text.FPDFTextFindNext(search) != 0)
             {
-                FpdfSchhandleT? search = fpdf_text.FPDFTextFindStart(textPage, ref needle[0], (uint)options, 0);
-                if (search is null || search.__Instance == IntPtr.Zero)
-                {
-                    return 0;
-                }
-
-                try
-                {
-                    while (fpdf_text.FPDFTextFindNext(search) != 0)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        int start = fpdf_text.FPDFTextGetSchResultIndex(search);
-                        int count = fpdf_text.FPDFTextGetSchCount(search);
-                        string snippet = includeSnippets ? BuildSnippet(textPage, start, count) : string.Empty;
-                        hits.Add(new SearchHit(page, start, count, CollectRects(textPage, start, count), snippet));
-                    }
-                }
-                finally
-                {
-                    fpdf_text.FPDFTextFindClose(search);
-                }
-
-                return 0;
-            }));
+                ct.ThrowIfCancellationRequested();
+                int start = fpdf_text.FPDFTextGetSchResultIndex(search);
+                int count = fpdf_text.FPDFTextGetSchCount(search);
+                string snippet = includeSnippets ? BuildSnippet(textPage, start, count) : string.Empty;
+                hits.Add(new SearchHit(page, start, count, CollectRects(textPage, start, count), snippet));
+            }
+        }
+        finally
+        {
+            fpdf_text.FPDFTextFindClose(search);
         }
 
         return hits;

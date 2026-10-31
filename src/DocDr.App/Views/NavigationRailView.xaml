@@ -84,8 +84,21 @@
                 <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconClauses}" />
             </Button>
 
-            <Button Style="{StaticResource RailButton}" ToolTip="Comments, highlights and markup"
+            <Button Style="{StaticResource RailButton}" ToolTip="Comments — notes, replies and review status"
                     AutomationProperties.Name="Comments"
+                    Command="{Binding ShowNavigationSectionCommand}"
+                    CommandParameter="{x:Static vm:NavigationTab.Comments}">
+                <Button.Tag>
+                    <MultiBinding Converter="{StaticResource NavRailActive}" ConverterParameter="Comments">
+                        <Binding Path="NavigationTab" />
+                        <Binding Path="IsNavigationPanelVisible" />
+                    </MultiBinding>
+                </Button.Tag>
+                <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconAnnotations}" />
+            </Button>
+
+            <Button Style="{StaticResource RailButton}" ToolTip="Annotations — highlights, drawings, shapes and text boxes"
+                    AutomationProperties.Name="Annotations"
                     Command="{Binding ShowNavigationSectionCommand}"
                     CommandParameter="{x:Static vm:NavigationTab.Annotations}">
                 <Button.Tag>
@@ -94,7 +107,7 @@
                         <Binding Path="IsNavigationPanelVisible" />
                     </MultiBinding>
                 </Button.Tag>
-                <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconAnnotations}" />
+                <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconMarkup}" />
             </Button>
         </StackPanel>
     </Border>

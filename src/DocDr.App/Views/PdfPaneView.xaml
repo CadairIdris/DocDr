@@ -30,6 +30,17 @@
         <Geometry x:Key="IconContinuous">M5,0.5 H11 V6 H5 Z M5,10 H11 V15.5 H5 Z</Geometry>
         <Geometry x:Key="IconGrid">M2.5,2.5 H7 V7 H2.5 Z M9,2.5 H13.5 V7 H9 Z M2.5,9 H7 V13.5 H2.5 Z M9,9 H13.5 V13.5 H9 Z</Geometry>
 
+        <Geometry x:Key="IconSearch">M7,2.5 A4.5,4.5 0 1 1 7,11.5 A4.5,4.5 0 1 1 7,2.5 Z M10.2,10.2 L13.5,13.5</Geometry>
+
+        <!-- Bottom-strip toggle (find bar): compact, accent-filled while on. -->
+        <Style x:Key="StripToggle" TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Margin" Value="1,0" />
+            <Setter Property="Padding" Value="6,3" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
         <Style x:Key="ModeToggle" TargetType="RadioButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="MinHeight" Value="0" />
@@ -143,6 +154,7 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Rectangle Width="{Binding Bounds.Width}" Height="{Binding Bounds.Height}"
+                                       RadiusX="2" RadiusY="2"
                                        Fill="{Binding IsActive, Converter={StaticResource HighlightFill}}">
                                 <Rectangle.Style>
                                     <Style TargetType="Rectangle">
@@ -340,7 +352,36 @@
                                          IsHitTestVisible="False"
                                          Visibility="{Binding IsEllipse, Converter={StaticResource BoolToVisibility}}" />
 
-                                <!-- Selection border for a box-shaped annotation (image / rectangle / ellipse). -->
+                                <!-- Tick (✓). -->
+                                <Polyline Points="{Binding TickPoints}"
+                                          Stroke="{Binding ShapeBrush}" StrokeThickness="{Binding ShapeStrokeThickness}"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                          IsHitTestVisible="False"
+                                          Visibility="{Binding IsTick, Converter={StaticResource BoolToVisibility}}" />
+
+                                <!-- Measurements: the measured line / region, a distance's end bars, and the
+                                     caption on a white backing (same text + metrics as the saved appearance). -->
+                                <Polyline Points="{Binding MeasurePoints}"
+                                          Stroke="{Binding ShapeBrush}" StrokeThickness="{Binding ShapeStrokeThickness}"
+                                          StrokeLineJoin="Round" IsHitTestVisible="False"
+                                          Visibility="{Binding IsMeasureLine, Converter={StaticResource BoolToVisibility}}" />
+                                <Polygon Points="{Binding MeasurePoints}"
+                                         Stroke="{Binding ShapeBrush}" StrokeThickness="{Binding ShapeStrokeThickness}"
+                                         Fill="{Binding MeasureFillBrush}" StrokeLineJoin="Round" IsHitTestVisible="False"
+                                         Visibility="{Binding IsMeasureArea, Converter={StaticResource BoolToVisibility}}" />
+                                <Path Data="{Binding MeasureEndTicks}" Stroke="{Binding ShapeBrush}"
+                                      StrokeThickness="{Binding ShapeStrokeThickness}" IsHitTestVisible="False" />
+                                <Border Canvas.Left="{Binding MeasureLabelBox.X}" Canvas.Top="{Binding MeasureLabelBox.Y}"
+                                        Width="{Binding MeasureLabelBox.Width}" Height="{Binding MeasureLabelBox.Height}"
+                                        Background="#E6FFFFFF" BorderBrush="{Binding ShapeBrush}" BorderThickness="0.75"
+                                        IsHitTestVisible="False"
+                                        Visibility="{Binding HasMeasureLabel, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Text="{Binding MeasureLabel}" FontFamily="Arial"
+                                               FontSize="{Binding MeasureLabelFontSize}" Foreground="{Binding ShapeBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+
+                                <!-- Selection border for a box-shaped annotation (image / rectangle / ellipse / tick). -->
                                 <Rectangle Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
                                            Width="{Binding Box.Width}" Height="{Binding Box.Height}"
                                            Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" IsHitTestVisible="False"
@@ -375,43 +416,33 @@
                                                Foreground="{Binding TextBrush}" FontSize="{Binding BoxFontSize}" />
                                 </Border>
 
-                                <!-- Sticky-note pin (drag to move, click to select, double-click to edit).
-                                     Hit-test-visible only so the hover tooltip works — the Preview
-                                     mouse handlers on PageList still drive select / drag / edit. -->
-                                <Border Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
-                                        Width="{Binding Box.Width}" Height="{Binding Box.Height}"
-                                        CornerRadius="4,4,4,1" Background="{Binding ShapeBrush}"
-                                        ToolTipService.InitialShowDelay="300" ToolTipService.ShowDuration="60000"
-                                        Visibility="{Binding IsNote, Converter={StaticResource BoolToVisibility}}">
-                                    <Border.ToolTip>
+                                <!-- Sticky-note pin (drag to move, click to select, double-click to edit):
+                                     a speech bubble in the note's colour, framed in the accent colour
+                                     when selected. Hit-test-visible only so the hover tooltip works —
+                                     the Preview mouse handlers on PageList still drive select / drag / edit. -->
+                                <Grid Canvas.Left="{Binding Box.X}" Canvas.Top="{Binding Box.Y}"
+                                      Width="{Binding Box.Width}" Height="{Binding Box.Height}"
+                                      Background="Transparent"
+                                      ToolTipService.InitialShowDelay="300" ToolTipService.ShowDuration="60000"
+                                      Visibility="{Binding IsNote, Converter={StaticResource BoolToVisibility}}">
+                                    <Grid.ToolTip>
                                         <ToolTip Style="{StaticResource NoteTip}" />
-                                    </Border.ToolTip>
-                                    <Border.Style>
-                                        <Style TargetType="Border">
-                                            <Setter Property="BorderBrush" Value="White" />
-                                            <Setter Property="BorderThickness" Value="1.5" />
-                                            <Setter Property="Effect">
-                                                <Setter.Value>
-                                                    <DropShadowEffect BlurRadius="5" ShadowDepth="1.5" Opacity="0.4" />
-                                                </Setter.Value>
-                                            </Setter>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                                                    <Setter Property="BorderThickness" Value="2.5" />
-                                                    <Setter Property="Effect">
-                                                        <Setter.Value>
-                                                            <DropShadowEffect Color="#8A6FBF" BlurRadius="12" ShadowDepth="0" Opacity="1" />
-                                                        </Setter.Value>
-                                                    </Setter>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Border.Style>
-                                    <Path Data="M0,0 H9 M0,3 H9 M0,6 H5.5" Stretch="Uniform" Margin="6,7"
-                                          Stroke="White" StrokeThickness="1.4"
-                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
-                                </Border>
+                                    </Grid.ToolTip>
+                                    <Border Margin="-3" CornerRadius="4" BorderThickness="2"
+                                            BorderBrush="{DynamicResource AccentBrush}"
+                                            Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibility}}" />
+                                    <Viewbox>
+                                        <Viewbox.Effect>
+                                            <DropShadowEffect BlurRadius="4" ShadowDepth="1" Opacity="0.35" />
+                                        </Viewbox.Effect>
+                                        <Canvas Width="24" Height="24">
+                                            <Path Data="{StaticResource NoteIconBody}" Fill="{Binding ShapeBrush}"
+                                                  Stroke="#59000000" StrokeThickness="1.2" StrokeLineJoin="Round" />
+                                            <Path Data="{StaticResource NoteIconLines}" Stroke="#A6000000" StrokeThickness="1.5"
+                                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                                        </Canvas>
+                                    </Viewbox>
+                                </Grid>
 
                                 <!-- Edit-note glyph button (noted highlights only). -->
                                 <Button Canvas.Left="{Binding Marker.X}" Canvas.Top="{Binding Marker.Y}"
@@ -523,6 +554,60 @@
                               StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
                 </Canvas>
 
+                <!-- Measurement being drawn right now: placed vertices + the pointer, with the live value. -->
+                <Canvas IsHitTestVisible="False"
+                        Visibility="{Binding MeasurePreview, Converter={StaticResource NotNullToVisibility}}">
+                    <Polyline Points="{Binding MeasurePreview}" Stroke="{DynamicResource AccentBrush}"
+                              StrokeThickness="1.6" StrokeDashArray="5 3" StrokeLineJoin="Round" />
+                    <Polygon Points="{Binding MeasurePreview}" Fill="{DynamicResource AccentBrush}" Opacity="0.15"
+                             Visibility="{Binding MeasurePreviewClosed, Converter={StaticResource BoolToVisibility}}" />
+                    <Border Canvas.Left="{Binding MeasurePreviewLabelAt.X}" Canvas.Top="{Binding MeasurePreviewLabelAt.Y}"
+                            Background="{DynamicResource OverlayCardBrush}" BorderBrush="{DynamicResource AccentBrush}"
+                            BorderThickness="1" CornerRadius="4" Padding="6,2">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding MeasurePreviewLabel}" Value="">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding MeasurePreviewLabel}" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource PrimaryTextBrush}" />
+                    </Border>
+                </Canvas>
+
+                <!-- Snap marker: where the next measuring click lands on the drawing. Square = end
+                     point, X = crossing, triangle = midpoint, circle = on a line. -->
+                <Canvas IsHitTestVisible="False"
+                        Visibility="{Binding SnapMarker, Converter={StaticResource NotNullToVisibility}}">
+                    <Path Canvas.Left="{Binding SnapMarker.X}" Canvas.Top="{Binding SnapMarker.Y}"
+                          Stroke="#1565C0" StrokeThickness="1.8" Fill="#401565C0">
+                        <Path.Style>
+                            <Style TargetType="Path">
+                                <Setter Property="Data" Value="M-4.5,0 A4.5,4.5 0 1 1 4.5,0 A4.5,4.5 0 1 1 -4.5,0 Z" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SnapKind}" Value="Endpoint">
+                                        <Setter Property="Data" Value="M-5,-5 H5 V5 H-5 Z" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SnapKind}" Value="Intersection">
+                                        <Setter Property="Data" Value="M-5,-5 L5,5 M5,-5 L-5,5" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SnapKind}" Value="Midpoint">
+                                        <Setter Property="Data" Value="M0,-6 L5.5,4 H-5.5 Z" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Path.Style>
+                    </Path>
+                    <Border Canvas.Left="{Binding SnapMarker.X}" Canvas.Top="{Binding SnapMarker.Y}"
+                            Margin="9,-22,0,0" Padding="4,0" CornerRadius="3" Background="#E61565C0">
+                        <TextBlock Text="{Binding SnapKind, Converter={StaticResource SnapKindLabel}}"
+                                   FontSize="10" Foreground="White" />
+                    </Border>
+                </Canvas>
+
                 <!-- Shape being dragged out right now (box, plus a callout's leader + arrow). -->
                 <Canvas IsHitTestVisible="False"
                         Visibility="{Binding ShapePreview, Converter={StaticResource NotNullToVisibility}}">
@@ -566,103 +651,86 @@
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Pane toolbar (hidden in read mode) -->
-        <Border Grid.Row="0" Background="{DynamicResource ChromeBrush}"
-                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
+        <!-- Pane status strip (bottom, hidden in read mode): page navigation, zoom, view mode,
+             and the find-bar toggle. Lives under the page so the document gets the height. -->
+        <Border Grid.Row="1" Background="{DynamicResource ChromeBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
+                TextElement.FontSize="12"
                 Visibility="{Binding DataContext.IsReadMode, RelativeSource={RelativeSource AncestorType=Window},
                              Converter={StaticResource InverseBoolToVisibility}, FallbackValue=Visible}">
-            <WrapPanel Margin="4" Orientation="Horizontal">
-                <StackPanel Orientation="Horizontal" Margin="2,0" VerticalAlignment="Center">
-                    <Button Content="◄" Style="{StaticResource GlyphButton}" Command="{Binding PreviousPageCommand}" ToolTip="Previous page" />
-                    <TextBox x:Name="PageBox" Width="40" Margin="2,0" TextAlignment="Center"
-                             VerticalContentAlignment="Center"
-                             Text="{Binding CurrentPage, UpdateSourceTrigger=LostFocus}"
-                             KeyDown="PageBox_KeyDown" />
-                    <TextBlock Text="{Binding PageCountText}" VerticalAlignment="Center" Margin="2,0" />
-                    <Button Content="►" Style="{StaticResource GlyphButton}" Command="{Binding NextPageCommand}" ToolTip="Next page" />
-                </StackPanel>
+            <DockPanel Margin="4,1" LastChildFill="False">
+                <ToggleButton DockPanel.Dock="Right" Style="{StaticResource StripToggle}"
+                              IsChecked="{Binding IsSearchBarOpen, Mode=OneWay}"
+                              Click="SearchToggle_Click"
+                              AutomationProperties.Name="Find" ToolTip="Find in this document (Ctrl+F)">
+                    <Path Style="{StaticResource ModeIcon}" Data="{StaticResource IconSearch}" />
+                </ToggleButton>
+                <!-- The page's drawing scale (what new measurements use); click to change it. -->
+                <Button DockPanel.Dock="Right" Content="{Binding ScaleText}" Command="{Binding RequestSetScaleCommand}"
+                        Padding="8,2" Margin="0,0,6,0" VerticalAlignment="Center" FontSize="11"
+                        Background="Transparent" BorderThickness="0" Cursor="Hand"
+                        Foreground="{DynamicResource SecondaryTextBrush}"
+                        AutomationProperties.Name="Drawing scale"
+                        ToolTip="Drawing scale for measurements on this page — click to change it or calibrate" />
+                <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Margin="2,0" VerticalAlignment="Center">
+                        <Button Content="◄" Style="{StaticResource GlyphButton}" Command="{Binding PreviousPageCommand}" ToolTip="Previous page" />
+                        <TextBox x:Name="PageBox" Width="40" Margin="2,0" TextAlignment="Center"
+                                 VerticalContentAlignment="Center"
+                                 Text="{Binding CurrentPage, UpdateSourceTrigger=LostFocus}"
+                                 KeyDown="PageBox_KeyDown" />
+                        <TextBlock Text="{Binding PageCountText}" VerticalAlignment="Center" Margin="2,0" />
+                        <Button Content="►" Style="{StaticResource GlyphButton}" Command="{Binding NextPageCommand}" ToolTip="Next page" />
+                    </StackPanel>
 
-                <Border Width="1" Margin="6,2" Background="{DynamicResource BorderBrush}" />
+                    <Border Width="1" Margin="6,2" Background="{DynamicResource BorderBrush}" />
 
-                <StackPanel Orientation="Horizontal" Margin="2,0" VerticalAlignment="Center">
-                    <Button Content="−" Style="{StaticResource GlyphButton}" Command="{Binding ZoomOutCommand}" ToolTip="Zoom out" />
-                    <TextBlock Text="{Binding ZoomPercentText}" VerticalAlignment="Center"
-                               Width="46" TextAlignment="Center" />
-                    <Button Content="+" Style="{StaticResource GlyphButton}" Command="{Binding ZoomInCommand}" ToolTip="Zoom in" />
-                    <Button Content="100%" Margin="4,0,0,0" Padding="4,1" Command="{Binding ActualSizeCommand}" />
-                    <Button Content="Fit W" Margin="2,0,0,0" Padding="4,1" Command="{Binding FitWidthCommand}" />
-                    <Button Content="Fit P" Margin="2,0,0,0" Padding="4,1" Command="{Binding FitPageCommand}" />
-                </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="2,0" VerticalAlignment="Center">
+                        <Button Content="−" Style="{StaticResource GlyphButton}" Command="{Binding ZoomOutCommand}" ToolTip="Zoom out" />
+                        <TextBlock Text="{Binding ZoomPercentText}" VerticalAlignment="Center"
+                                   Width="46" TextAlignment="Center" />
+                        <Button Content="+" Style="{StaticResource GlyphButton}" Command="{Binding ZoomInCommand}" ToolTip="Zoom in" />
+                        <Button Content="100%" Margin="4,0,0,0" Padding="4,1" Command="{Binding ActualSizeCommand}" />
+                        <Button Content="Fit W" Margin="2,0,0,0" Padding="4,1" Command="{Binding FitWidthCommand}" />
+                        <Button Content="Fit P" Margin="2,0,0,0" Padding="4,1" Command="{Binding FitPageCommand}" />
+                    </StackPanel>
 
-                <Border Width="1" Margin="6,2" Background="{DynamicResource BorderBrush}" />
+                    <Border Width="1" Margin="6,2" Background="{DynamicResource BorderBrush}" />
 
-                <!-- No GroupName: these RadioButtons group by their StackPanel parent, so the
-                     left and right pane keep independent selections. A shared GroupName would
-                     put all six buttons (both panes) in one group, and the hidden right pane's
-                     binding would silently steal the check from the visible left pane on launch. -->
-                <StackPanel Orientation="Horizontal" Margin="2,0" VerticalAlignment="Center">
-                    <RadioButton Style="{StaticResource ModeToggle}"
-                                 Tag="{x:Static vm:ViewMode.SinglePage}" Checked="ModeRadio_Checked"
-                                 IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=SinglePage, Mode=OneWay}"
-                                 AutomationProperties.Name="Page" ToolTip="Single page">
-                        <Path Style="{StaticResource ModeIcon}" Data="{StaticResource IconSinglePage}" />
-                    </RadioButton>
-                    <RadioButton Style="{StaticResource ModeToggle}"
-                                 Tag="{x:Static vm:ViewMode.Continuous}" Checked="ModeRadio_Checked"
-                                 IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Continuous, Mode=OneWay}"
-                                 AutomationProperties.Name="Continuous" ToolTip="Continuous scroll">
-                        <Path Style="{StaticResource ModeIcon}" Data="{StaticResource IconContinuous}" />
-                    </RadioButton>
-                    <RadioButton Style="{StaticResource ModeToggle}"
-                                 Tag="{x:Static vm:ViewMode.Grid}" Checked="ModeRadio_Checked"
-                                 IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Grid, Mode=OneWay}"
-                                 AutomationProperties.Name="Grid" ToolTip="Grid of pages (columns auto-fit the width)">
-                        <Path Style="{StaticResource ModeIcon}" Data="{StaticResource IconGrid}" />
-                    </RadioButton>
-                </StackPanel>
-
-                <Border Width="1" Margin="6,2" Background="{DynamicResource BorderBrush}" />
-
-                <StackPanel Orientation="Horizontal" Margin="2,0" VerticalAlignment="Center">
-                    <Grid Width="150">
-                        <TextBox x:Name="SearchBox" VerticalContentAlignment="Center"
-                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="Search this view">
-                            <TextBox.InputBindings>
-                                <KeyBinding Key="Return" Command="{Binding SearchCommand}" />
-                            </TextBox.InputBindings>
-                        </TextBox>
-                        <TextBlock Text="Search this view…" Margin="7,0,0,0" VerticalAlignment="Center"
-                                   IsHitTestVisible="False" Foreground="{DynamicResource HintTextBrush}">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Visibility" Value="Collapsed" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding SearchText}" Value="">
-                                            <Setter Property="Visibility" Value="Visible" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
-                    </Grid>
-                    <ToggleButton Content="Aa" MinWidth="30" Padding="4,2" Margin="2,0"
-                                  IsChecked="{Binding MatchCase}" ToolTip="Match case" />
-                    <Button Content="Prev" Padding="4,1" Margin="2,0,0,0" Command="{Binding PreviousMatchCommand}" ToolTip="Previous match" />
-                    <Button Content="Next" Padding="4,1" Margin="2,0,0,0" Command="{Binding NextMatchCommand}" ToolTip="Next match" />
-                    <TextBlock Text="{Binding MatchSummary}" VerticalAlignment="Center" Margin="4,0" MinWidth="52" />
-                    <ProgressBar IsIndeterminate="True" Width="40" Height="6" Margin="2,0"
-                                 Visibility="{Binding IsSearching, Converter={StaticResource BoolToVisibility}}" />
-                </StackPanel>
-            </WrapPanel>
+                    <!-- No GroupName: these RadioButtons group by their StackPanel parent, so the
+                         left and right pane keep independent selections. A shared GroupName would
+                         put all six buttons (both panes) in one group, and the hidden right pane's
+                         binding would silently steal the check from the visible left pane on launch. -->
+                    <StackPanel Orientation="Horizontal" Margin="2,0" VerticalAlignment="Center">
+                        <RadioButton Style="{StaticResource ModeToggle}"
+                                     Tag="{x:Static vm:ViewMode.SinglePage}" Checked="ModeRadio_Checked"
+                                     IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=SinglePage, Mode=OneWay}"
+                                     AutomationProperties.Name="Page" ToolTip="Single page">
+                            <Path Style="{StaticResource ModeIcon}" Data="{StaticResource IconSinglePage}" />
+                        </RadioButton>
+                        <RadioButton Style="{StaticResource ModeToggle}"
+                                     Tag="{x:Static vm:ViewMode.Continuous}" Checked="ModeRadio_Checked"
+                                     IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Continuous, Mode=OneWay}"
+                                     AutomationProperties.Name="Continuous" ToolTip="Continuous scroll">
+                            <Path Style="{StaticResource ModeIcon}" Data="{StaticResource IconContinuous}" />
+                        </RadioButton>
+                        <RadioButton Style="{StaticResource ModeToggle}"
+                                     Tag="{x:Static vm:ViewMode.Grid}" Checked="ModeRadio_Checked"
+                                     IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Grid, Mode=OneWay}"
+                                     AutomationProperties.Name="Grid" ToolTip="Grid of pages (columns auto-fit the width)">
+                            <Path Style="{StaticResource ModeIcon}" Data="{StaticResource IconGrid}" />
+                        </RadioButton>
+                    </StackPanel>
+                </WrapPanel>
+            </DockPanel>
         </Border>
 
         <!-- Page surface (ItemsSource + ItemTemplate are set from code-behind per view mode) -->
-        <ListBox x:Name="PageList" Grid.Row="1"
+        <ListBox x:Name="PageList" Grid.Row="0"
                  Background="{DynamicResource PageBackgroundBrush}"
                  BorderThickness="0"
                  HorizontalContentAlignment="Center"
@@ -679,6 +747,7 @@
                  PreviewMouseUp="PageList_PreviewMouseUp"
                  PreviewMouseLeftButtonDown="PageList_MouseLeftButtonDown"
                  PreviewMouseMove="PageList_MouseMove"
+                 MouseLeave="PageList_MouseLeave"
                  PreviewMouseLeftButtonUp="PageList_MouseLeftButtonUp"
                  PreviewKeyDown="PageList_PreviewKeyDown">
             <ListBox.Style>
@@ -702,6 +771,12 @@
                         <DataTrigger Binding="{Binding ShapeTool}" Value="Cloud">
                             <Setter Property="Cursor" Value="Cross" />
                         </DataTrigger>
+                        <DataTrigger Binding="{Binding IsMeasureTool}" Value="True">
+                            <Setter Property="Cursor" Value="Cross" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding ShapeTool}" Value="Tick">
+                            <Setter Property="Cursor" Value="Cross" />
+                        </DataTrigger>
                     </Style.Triggers>
                 </Style>
             </ListBox.Style>
@@ -722,8 +797,57 @@
             </ListBox.ItemContainerStyle>
         </ListBox>
 
+        <!-- Find bar: floats over the top-right of the page area (clear of the scrollbar).
+             Ctrl+F or the strip's magnifier opens it; Esc / ✕ closes it and clears the hits. -->
+        <Border x:Name="FindBar" Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top"
+                Margin="0,8,24,0" Padding="6,4" CornerRadius="6"
+                Background="{DynamicResource OverlayCardBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                Visibility="{Binding IsSearchBarOpen, Converter={StaticResource BoolToVisibility}}">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.25" />
+            </Border.Effect>
+            <StackPanel Orientation="Horizontal">
+                <Grid Width="190">
+                    <TextBox x:Name="SearchBox" VerticalContentAlignment="Center"
+                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Search this view">
+                        <TextBox.InputBindings>
+                            <KeyBinding Key="Return" Command="{Binding SearchCommand}" />
+                            <KeyBinding Key="Escape" Command="{Binding CloseSearchBarCommand}" />
+                        </TextBox.InputBindings>
+                    </TextBox>
+                    <TextBlock Text="Search this view…" Margin="7,0,0,0" VerticalAlignment="Center"
+                               IsHitTestVisible="False" Foreground="{DynamicResource HintTextBrush}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SearchText}" Value="">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
+                <ToggleButton Content="Aa" MinWidth="30" Padding="4,2" Margin="2,0"
+                              IsChecked="{Binding MatchCase}" ToolTip="Match case" />
+                <Button Content="▲" Style="{StaticResource GlyphButton}" Margin="2,0,0,0" Command="{Binding PreviousMatchCommand}"
+                        AutomationProperties.Name="Previous match" ToolTip="Previous match" />
+                <Button Content="▼" Style="{StaticResource GlyphButton}" Margin="2,0,0,0" Command="{Binding NextMatchCommand}"
+                        AutomationProperties.Name="Next match" ToolTip="Next match" />
+                <TextBlock Text="{Binding MatchSummary}" VerticalAlignment="Center" Margin="4,0" MinWidth="52" />
+                <ProgressBar IsIndeterminate="True" Width="40" Height="6" Margin="2,0"
+                             Visibility="{Binding IsSearching, Converter={StaticResource BoolToVisibility}}" />
+                <Button Content="✕" Style="{StaticResource GlyphButton}" Margin="2,0,0,0"
+                        Command="{Binding CloseSearchBarCommand}"
+                        AutomationProperties.Name="Close find bar" ToolTip="Close (Esc)" />
+            </StackPanel>
+        </Border>
+
         <!-- Floating action popup shown after a text selection. -->
-        <Popup x:Name="SelectionPopup" Grid.Row="1" AllowsTransparency="True"
+        <Popup x:Name="SelectionPopup" Grid.Row="0" AllowsTransparency="True"
                Placement="MousePoint" StaysOpen="False" PopupAnimation="Fade">
             <Border Background="{DynamicResource OverlayCardBrush}" CornerRadius="6"
                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="6"
@@ -760,7 +884,7 @@
         </Popup>
 
         <!-- Floating format toolbar for the selected shape / line / text-box annotation. -->
-        <Popup x:Name="FormatBarPopup" Grid.Row="1" AllowsTransparency="True" StaysOpen="True"
+        <Popup x:Name="FormatBarPopup" Grid.Row="0" AllowsTransparency="True" StaysOpen="True"
                Placement="Relative" PlacementTarget="{Binding ElementName=PageList}"
                DataContext="{Binding SelectedFormat}">
             <Border x:Name="FormatBarHost" Background="{DynamicResource OverlayCardBrush}" CornerRadius="6"

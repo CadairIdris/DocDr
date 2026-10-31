@@ -141,5 +141,166 @@ public sealed class PdfRagChunkerTests
         Assert.True(root.TryGetProperty("section_title", out _));
         Assert.True(root.TryGetProperty("token_estimate", out _));
         Assert.Equal(0, root.GetProperty("chunk_index").GetInt32());
+        Assert.Equal("ok", root.GetProperty("quality").GetString());
+        Assert.Equal(JsonValueKind.Array, root.GetProperty("issues").ValueKind);
+    }
+
+    // --- Equation pages (the 8.94 pattern: a stacked ⅓ exponent, a lone variable, a footer page no.) ---
+
+    private static string EquationPage(TempWorkspace ws, string name, params TestPdfBuilder.Run[] extra)
+    {
+        var runs = new List<TestPdfBuilder.Run>
+        {
+            new("The design punching shear stress resistance should be calculated as follows", 72, 700, 10),
+            new("1", 330, 612, 6),   // ⅓ exponent: numerator…
+            new("3", 330, 600, 6),   // …and denominator, each a line of its own
+            new("d", 300, 560, 10),  // a variable alone under a fraction bar
+            new("where the shear force per unit width may be averaged", 72, 520, 10),
+            new("142", 72, 30, 10),  // the page number, in the footer band
+        };
+        runs.AddRange(extra);
+        return TestPdfBuilder.WriteRuns(ws.Path(name), runs);
+    }
+
+    private static string[] Words(RagChunkResult r) =>
+        string.Join(' ', r.Chunks.Select(c => c.Text)).Split(' ', '\n');
+
+    [Fact]
+    public void Lone_digits_and_letters_mid_page_are_kept_but_the_footer_page_number_is_dropped()
+    {
+        using var ws = new TempWorkspace();
+        using var doc = PdfDocument.Load(EquationPage(ws, "eq.pdf"));
+
+        string[] words = Words(PdfRagChunker.Chunk(doc, new RagChunkOptions { IncludeSectionHeading = false }));
+
+        Assert.Contains("1", words);
+        Assert.Contains("3", words);
+        Assert.Contains("d", words);
+        Assert.DoesNotContain("142", words);
+    }
+
+    [Fact]
+    public void A_glyph_drawn_twice_at_the_same_spot_is_kept_once()
+    {
+        using var ws = new TempWorkspace();
+        using var doc = PdfDocument.Load(EquationPage(ws, "dbl.pdf",
+            new TestPdfBuilder.Run("Rdc", 200, 450, 10),
+            new TestPdfBuilder.Run("Rdc", 200, 450, 10)));
+
+        RagChunkResult result = PdfRagChunker.Chunk(doc, new RagChunkOptions { IncludeSectionHeading = false });
+        string all = string.Join(' ', result.Chunks.Select(c => c.Text));
+
+        Assert.Equal(1, System.Text.RegularExpressions.Regex.Count(all, "R"));
+        Assert.DoesNotContain("RR", all);
+    }
+
+    // --- Quality flags ----------------------------------------------------------------------
+
+    private static PdfTextQuality.ScriptProfile LatinDoc() =>
+        PdfTextQuality.ScriptProfile.Build(["The design shear resistance of the slab is given by the expression below."]);
+
+    [Fact]
+    public void Plain_text_is_ok()
+    {
+        (string q, IReadOnlyList<string> issues) = PdfTextQuality.Assess("Concrete cover to reinforcement.", false, LatinDoc());
+        Assert.Equal("ok", q);
+        Assert.Empty(issues);
+    }
+
+    [Fact]
+    public void Unmapped_glyphs_and_foreign_script_symbols_make_a_chunk_suspect()
+    {
+        // The agent's report: "݇pb" (Syriac for k), "ଵ ଷ" (Oriya for 1/3), and replacement characters.
+        (string q, IReadOnlyList<string> issues) = PdfTextQuality.Assess(
+            "τRd,c = 0,6 γV ⋅ \u0747pb (100 ρl) \u0B35 \u0B37 \uFFFD", true, LatinDoc());
+
+        Assert.Equal("suspect", q);
+        Assert.Contains(issues, i => i.StartsWith("unmapped_glyphs: 1 ", StringComparison.Ordinal));
+        Assert.Contains(issues, i => i.StartsWith("unexpected_characters: 3 ", StringComparison.Ordinal));
+        Assert.Contains(issues, i => i.StartsWith("equations:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Maths_alone_asks_for_a_check_and_greek_symbols_are_not_suspect()
+    {
+        (string q, IReadOnlyList<string> issues) = PdfTextQuality.Assess("τRd,c ≤ 0,5 / γV · √fck", true, LatinDoc());
+        Assert.Equal("check", q);
+        Assert.Single(issues);
+    }
+
+    [Fact]
+    public void A_document_written_in_another_script_is_not_flagged_for_it()
+    {
+        var hindi = PdfTextQuality.ScriptProfile.Build(["\u0915\u0902\u0915\u094D\u0930\u0940\u091F \u0915\u0935\u0930"]);
+        Assert.Equal("ok", PdfTextQuality.Assess("\u0915\u0935\u0930 25 mm", false, hindi).Quality);
+    }
+
+    [Fact]
+    public void Maths_letters_are_normalised_to_plain_ones()
+    {
+        Assert.Equal("τ", PdfTextQuality.NormaliseMathLetter(0x1D70F)); // 𝜏 MATHEMATICAL ITALIC SMALL TAU
+        Assert.Equal("c", PdfTextQuality.NormaliseMathLetter(0x1D450)); // 𝑐
+        Assert.Equal("h", PdfTextQuality.NormaliseMathLetter(0x210E));  // ℎ
+        Assert.Equal("²", PdfTextQuality.NormaliseMathLetter(0x00B2));  // untouched outside the maths block
+        Assert.True(PdfTextQuality.IsMathCodePoint(0x1D70F));
+        Assert.True(PdfTextQuality.IsMathCodePoint(0x22C5));             // ⋅
+        Assert.False(PdfTextQuality.IsMathCodePoint('x'));
+    }
+
+    // --- Char-level line building (real PDFium char sequences from BS EN 1992-1-1 (8.94)) ---
+
+    private static PdfChunkText.RawChar C(int unit, double x, double y = 400) =>
+        new(unit, new PdfRect(x, y + 8, x + 5, y));
+
+    private static IEnumerable<PdfChunkText.RawChar> Text(string s, double x, double y = 400) =>
+        s.Select((ch, k) => C(ch, x + (k * 6), y));
+
+    [Fact]
+    public void A_maths_glyph_mapped_to_a_doubled_surrogate_pair_comes_out_once_as_a_plain_letter()
+    {
+        // Word's ToUnicode maps glyph 0747 to "𝑘𝑘" (D835 DC58 D835 DC58): four PDFium chars, one box.
+        var chars = new List<PdfChunkText.RawChar>
+        {
+            C(0xD835, 100), C(0xDC58, 100), C(0xD835, 100), C(0xDC58, 100),
+        };
+        chars.AddRange(Text("pb", 106));
+
+        ChunkPage page = PdfChunkText.BuildPage(chars, bottom: 0, top: 792);
+
+        Assert.Equal("kpb", page.Lines.Single().Text);
+        Assert.True(page.Lines.Single().HasMath);
+        Assert.Equal(1, page.DoubledGlyphsRemoved);
+    }
+
+    [Fact]
+    public void A_ligature_split_into_repeated_ascii_letters_is_left_alone()
+    {
+        // An "ff" ligature glyph expands to two 'f' chars sharing one box: "effect" must stay intact.
+        var chars = new List<PdfChunkText.RawChar> { C('e', 100), C('f', 106), C('f', 106) };
+        chars.AddRange(Text("ect", 112));
+
+        Assert.Equal("effect", PdfChunkText.BuildPage(chars, 0, 792).Lines.Single().Text);
+    }
+
+    [Fact]
+    public void A_lone_surrogate_becomes_a_replacement_character_not_an_exception()
+    {
+        ChunkPage page = PdfChunkText.BuildPage([C(0xD835, 100), C('x', 106)], 0, 792);
+        Assert.Equal("\uFFFDx", page.Lines.Single().Text);
+    }
+
+    [Fact]
+    public void Lines_split_on_newlines_and_only_header_or_footer_lines_count_as_margin()
+    {
+        var chars = new List<PdfChunkText.RawChar>();
+        chars.AddRange(Text("3", 300, 600));      // mid-page exponent
+        chars.Add(C('\r', 0)); chars.Add(C('\n', 0));
+        chars.AddRange(Text("142", 72, 30));      // footer page number
+
+        ChunkPage page = PdfChunkText.BuildPage(chars, 0, 792);
+
+        Assert.Equal(["3", "142"], page.Lines.Select(l => l.Text).ToArray());
+        Assert.False(page.Lines[0].InMargin);
+        Assert.True(page.Lines[1].InMargin);
     }
 }

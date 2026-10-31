@@ -267,6 +267,26 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Toolbar dropdown: a plain button that opens its own <see cref="ContextMenu"/>
+    /// underneath it on a left click.</summary>
+    private void DropDown_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { ContextMenu: { } menu } button)
+        {
+            menu.PlacementTarget = button;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
+        }
+    }
+
+    private void Theme_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: Services.AppTheme theme } && _viewModel is { } vm)
+        {
+            vm.SelectedTheme = theme;
+        }
+    }
+
     private void InkColor_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: string key } || _viewModel?.SelectedTab is not { } tab)

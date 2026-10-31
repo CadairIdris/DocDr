@@ -17,6 +17,7 @@ public sealed class AnnotationKindsTests
     [InlineData(PdfAnnotationKind.Ellipse, "Ellipse")]
     [InlineData(PdfAnnotationKind.Line, "Line")]
     [InlineData(PdfAnnotationKind.Arrow, "Arrow")]
+    [InlineData(PdfAnnotationKind.Tick, "Tick")]
     public void Label_names_each_kind(PdfAnnotationKind kind, string expected) =>
         Assert.Equal(expected, AnnotationKinds.Label(kind));
 

@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:views="clr-namespace:DocDr.App.Views"
         xmlns:vm="clr-namespace:DocDr.App.ViewModels"
+        xmlns:services="clr-namespace:DocDr.App.Services"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance vm:MainViewModel}"
         Title="{Binding WindowTitle}" Height="820" Width="1280"
@@ -24,6 +25,9 @@
         <KeyBinding Modifiers="Control" Key="Y" Command="{Binding SelectedTab.RedoCommand}" />
         <KeyBinding Modifiers="Control" Key="O" Command="{Binding OpenCommand}" />
         <KeyBinding Modifiers="Control+Shift" Key="F" Command="{Binding FindInFilesCommand}" />
+        <!-- Fallback when focus is outside every pane; inside a pane, PdfPaneView handles Ctrl+F
+             itself so the find bar opens on the pane you're in. -->
+        <KeyBinding Modifiers="Control" Key="F" Command="{Binding SelectedTab.LeftPane.OpenSearchBarCommand}" />
         <KeyBinding Key="F11" Command="{Binding ToggleReadModeCommand}" />
         <KeyBinding Key="Escape" Command="{Binding ExitReadModeCommand}" />
     </Window.InputBindings>
@@ -136,60 +140,123 @@
                 </MultiDataTrigger>
             </Style.Triggers>
         </Style>
+
+        <!-- Toolbar icons (16×16 stroke paths, drawn with the NavTabIcon style from App.xaml so
+             they follow the button's Foreground — accent-on-checked, greyed when disabled). -->
+        <Geometry x:Key="TbFile">M1.5,4 H6 L7.5,5.5 H14.5 V13 H1.5 Z</Geometry>
+        <Geometry x:Key="TbSave">M2.5,2.5 H11 L13.5,5 V13.5 H2.5 Z M5,2.5 V5.5 H10 V2.5 M5,13.5 V9.5 H11 V13.5</Geometry>
+        <Geometry x:Key="TbUndo">M5,3.5 L2.5,6 L5,8.5 M2.5,6 H10 A3,3 0 0 1 10,12 H6</Geometry>
+        <Geometry x:Key="TbRedo">M11,3.5 L13.5,6 L11,8.5 M13.5,6 H6 A3,3 0 0 0 6,12 H10</Geometry>
+        <Geometry x:Key="TbDraw">M10.5,2.5 L13.5,5.5 L6,13 H3 V10 Z M9,4 L12,7</Geometry>
+        <Geometry x:Key="TbTextBox">M2.5,3.5 H13.5 V12.5 H2.5 Z M5.5,6 H10.5 M8,6 V10.5</Geometry>
+        <Geometry x:Key="TbCallout">M6,2.5 H14 V9 H6 Z M7.5,9 L2.5,13.5</Geometry>
+        <Geometry x:Key="TbCloud">M4.5,12 A2.5,2.5 0 0 1 3.5,7 A2.8,2.8 0 0 1 8,4.5 A3,3 0 0 1 12.8,6.8 A2.6,2.6 0 0 1 12,12 Z</Geometry>
+        <Geometry x:Key="TbTick">M3,8.5 L6.5,12 L13,4</Geometry>
+        <Geometry x:Key="TbRuler">M2.5,10.5 L10.5,2.5 L13.5,5.5 L5.5,13.5 Z M5,8 L6.5,9.5 M7,6 L8.5,7.5 M9,4 L10.5,5.5</Geometry>
+        <Geometry x:Key="TbMeasureDistance">M2.5,8 H13.5 M2.5,5.5 V10.5 M13.5,5.5 V10.5</Geometry>
+        <Geometry x:Key="TbMeasurePerimeter">M2.5,12.5 L6,4 L10,10 L13.5,3.5</Geometry>
+        <Geometry x:Key="TbMeasureArea">M2.5,12.5 L4,3.5 L12,2.5 L13.5,11 Z</Geometry>
+        <Geometry x:Key="TbRectangle">M2.5,4 H13.5 V12 H2.5 Z</Geometry>
+        <Geometry x:Key="TbEllipse">M2.5,8 A5.5,4 0 1 1 13.5,8 A5.5,4 0 1 1 2.5,8 Z</Geometry>
+        <Geometry x:Key="TbLine">M3,13 L13,3</Geometry>
+        <Geometry x:Key="TbArrow">M3,13 L13,3 M8,3 H13 V8</Geometry>
+        <Geometry x:Key="TbEye">M1.5,8 Q8,1.5 14.5,8 Q8,14.5 1.5,8 Z M8,6 A2,2 0 1 1 8,10 A2,2 0 1 1 8,6 Z</Geometry>
+        <Geometry x:Key="TbEyeOff">M1.5,8 Q8,1.5 14.5,8 Q8,14.5 1.5,8 Z M8,6 A2,2 0 1 1 8,10 A2,2 0 1 1 8,6 Z M2.5,13.5 L13.5,2.5</Geometry>
+        <Geometry x:Key="TbPages">M5,1.5 H13 V11.5 M3,4 H11 V14.5 H3 Z</Geometry>
+        <Geometry x:Key="TbTools">M2.5,4 H13.5 M2.5,8 H13.5 M2.5,12 H13.5 M5,2.5 V5.5 M10.5,6.5 V9.5 M7,10.5 V13.5</Geometry>
+        <Geometry x:Key="TbSplit">M2,2.5 H14 V13.5 H2 Z M8,2.5 V13.5</Geometry>
+        <Geometry x:Key="TbSideBySide">M2.5,5.5 H13 M10.5,3 L13,5.5 L10.5,8 M13.5,10.5 H3 M5.5,8 L3,10.5 L5.5,13</Geometry>
+        <Geometry x:Key="TbLink">M6.5,9.5 L9.5,6.5 M7,5 L8.5,3.5 A2.6,2.6 0 0 1 12.5,7.5 L11,9 M9,11 L7.5,12.5 A2.6,2.6 0 0 1 3.5,8.5 L5,7</Geometry>
+        <Geometry x:Key="TbRead">M2.5,6 V2.5 H6 M10,2.5 H13.5 V6 M13.5,10 V13.5 H10 M6,13.5 H2.5 V10</Geometry>
+        <Geometry x:Key="TbTheme">M8,2.5 A5.5,5.5 0 1 1 8,13.5 A5.5,5.5 0 1 1 8,2.5 Z M8,2.5 V13.5 M8,5 H11.5 M8,8 H13.5 M8,11 H11.5</Geometry>
+        <Geometry x:Key="TbChevron">M0.5,0.5 L3,3 L5.5,0.5</Geometry>
+
+        <!-- The small ▾ after a toolbar dropdown's icon. -->
+        <Style x:Key="TbChevronPath" TargetType="Path" BasedOn="{StaticResource NavTabIcon}">
+            <Setter Property="Width" Value="6" />
+            <Setter Property="Height" Value="4" />
+            <Setter Property="Margin" Value="3,1,0,0" />
+            <Setter Property="Data" Value="{StaticResource TbChevron}" />
+        </Style>
+
+        <!-- Icon in a toolbar dropdown's MenuItem — NavTabIcon already strokes with its own inherited
+             foreground, so this is just a named alias for menu use. -->
+        <Style x:Key="MenuIcon" TargetType="Path" BasedOn="{StaticResource NavTabIcon}" />
     </Window.Resources>
 
     <Grid>
     <DockPanel>
         <ToolBarTray DockPanel.Dock="Top"
                      Visibility="{Binding IsReadMode, Converter={StaticResource InverseBoolToVisibility}}">
+            <!-- One row, grouped by how often each thing is used: once-per-document actions
+                 (file, page edits, document tools) live in dropdowns; the tools you reach for
+                 constantly (annotation) stay on the bar as icons. Dropdowns are a Button that
+                 opens its own ContextMenu (DropDown_Click), so the menu inherits the window's
+                 DataContext and the Fluent ContextMenu style. -->
             <ToolBar>
-                <Button Command="{Binding OpenCommand}" Content="Open PDF…" Padding="10,3" />
-                <Button Command="{Binding NewDocumentCommand}" Content="New…" Padding="8,3" Margin="4,0,0,0"
-                        AutomationProperties.Name="New document"
-                        ToolTip="Create a blank page to build a collage on" />
-                <Button Command="{Binding MergeCommand}" Content="Merge…" Padding="8,3" Margin="4,0,0,0"
-                        AutomationProperties.Name="Merge PDFs"
-                        ToolTip="Combine several PDFs into one new document" />
-                <Button Command="{Binding FindInFilesCommand}" Content="Find in files…" Padding="8,3" Margin="4,0,0,0"
-                        AutomationProperties.Name="Find in files"
-                        ToolTip="Search every PDF in a folder for a term (Ctrl+Shift+F)" />
+                <!-- ── File ──────────────────────────────────────────────── -->
+                <Button Padding="6,4" Click="DropDown_Click"
+                        AutomationProperties.Name="File menu"
+                        ToolTip="File — open, new, merge, save as, print, properties, find in files">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbFile}" />
+                        <Path Style="{StaticResource TbChevronPath}" />
+                    </StackPanel>
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="_Open PDF…" Command="{Binding OpenCommand}" InputGestureText="Ctrl+O" />
+                            <MenuItem Header="_New document…" Command="{Binding NewDocumentCommand}"
+                                      ToolTip="Create a blank page to build a collage on" />
+                            <MenuItem Header="_Merge PDFs…" Command="{Binding MergeCommand}"
+                                      ToolTip="Combine several PDFs into one new document" />
+                            <Separator />
+                            <MenuItem Header="_Save" Command="{Binding SelectedTab.SaveCommand}"
+                                      IsEnabled="{Binding HasTabs}" InputGestureText="Ctrl+S" />
+                            <MenuItem Header="Save _As…" Command="{Binding SelectedTab.SaveAsCommand}"
+                                      IsEnabled="{Binding HasTabs}" InputGestureText="Ctrl+Shift+S" />
+                            <Separator />
+                            <MenuItem Header="_Print…" Command="{Binding SelectedTab.PrintCommand}"
+                                      IsEnabled="{Binding HasTabs}" InputGestureText="Ctrl+P"
+                                      ToolTip="Print the document with edits and annotations" />
+                            <MenuItem Header="P_roperties…" Command="{Binding SelectedTab.ShowPropertiesCommand}"
+                                      IsEnabled="{Binding HasTabs}"
+                                      ToolTip="View / edit document metadata" />
+                            <Separator />
+                            <MenuItem Header="_Find in files…" Command="{Binding FindInFilesCommand}"
+                                      InputGestureText="Ctrl+Shift+F"
+                                      ToolTip="Search every PDF in a folder for a term" />
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+                <Button Padding="6,4" Margin="2,0,0,0" Command="{Binding SelectedTab.SaveCommand}"
+                        IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Save" ToolTip="Save (Ctrl+S)">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbSave}" />
+                </Button>
+                <Button Padding="6,4" Margin="2,0,0,0" Command="{Binding SelectedTab.UndoCommand}"
+                        AutomationProperties.Name="Undo" ToolTip="Undo (Ctrl+Z)">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbUndo}" />
+                </Button>
+                <Button Padding="6,4" Margin="2,0,0,0" Command="{Binding SelectedTab.RedoCommand}"
+                        AutomationProperties.Name="Redo" ToolTip="Redo (Ctrl+Y)">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbRedo}" />
+                </Button>
                 <Separator />
-                <Button Content="Watermark…" Padding="8,3"
-                        Command="{Binding SelectedTab.RemoveWatermarksCommand}"
-                        IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Remove watermark"
-                        ToolTip="Find and remove content repeated on every page" />
-                <Button Content="OCR…" Padding="8,3" Margin="4,0,0,0"
-                        Command="{Binding SelectedTab.OcrDocumentCommand}"
-                        IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Recognise text"
-                        ToolTip="Recognise text on scanned pages and add a searchable layer" />
-                <Button Content="Trim margins" Padding="8,3" Margin="4,0,0,0"
-                        Command="{Binding SelectedTab.TrimMarginsCommand}"
-                        IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Trim margins"
-                        ToolTip="Crop every page to its visible content plus a small margin" />
-                <Separator />
-                <ToggleButton Content="Split view" Padding="8,3" Style="{StaticResource ToolToggle}"
-                              IsEnabled="{Binding HasTabs}"
-                              IsChecked="{Binding SelectedTab.IsSplitView, Mode=TwoWay}"
-                              ToolTip="Show a second, independent pane for this document" />
-                <Button Content="⇆ Side by side" Padding="8,3" Margin="4,0,0,0"
-                        Command="{Binding SelectedTab.MoveToOtherSideCommand}" IsEnabled="{Binding HasTabs}"
-                        AutomationProperties.Name="Move to other side"
-                        ToolTip="Dock this document on the other side of the window — or drag its tab to the right edge" />
-                <ToggleButton Content="🔗 Link scrolling" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
-                              IsEnabled="{Binding IsSideBySide}"
-                              IsChecked="{Binding IsScrollLinked, Mode=TwoWay}"
-                              AutomationProperties.Name="Link scrolling"
-                              ToolTip="Scroll and zoom the two side-by-side documents together. Line them up first — the page offset between them is kept." />
-                <ToggleButton Content="💬 Note" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
+
+                <!-- ── Annotate ─────────────────────────────────────────── -->
+                <ToggleButton Padding="6,4" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.CommentToolActive, Mode=TwoWay}"
                               AutomationProperties.Name="Note tool"
-                              ToolTip="Click a page to drop a note. Or select text and use the highlight popup." />
-                <ToggleButton Content="✏️ Draw" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
+                              ToolTip="Note — click a page to drop a note. Or select text and use the highlight popup.">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource IconAnnotations}" />
+                </ToggleButton>
+                <ToggleButton Padding="6,4" Margin="2,0,0,0" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.HighlighterToolActive, Mode=TwoWay}"
                               AutomationProperties.Name="Highlighter tool"
-                              ToolTip="Draw freehand highlighter strokes on the page" />
+                              ToolTip="Draw — freehand highlighter strokes on the page">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbDraw}" />
+                </ToggleButton>
                 <ItemsControl ItemsSource="{Binding SelectedTab.InkColorKeys}" VerticalAlignment="Center" Margin="2,0,0,0"
                               IsEnabled="{Binding HasTabs}">
                     <ItemsControl.ItemsPanel>
@@ -222,128 +289,274 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <ToggleButton Content="Text box" Padding="8,3" Margin="8,0,0,0" Style="{StaticResource ToolToggle}"
+                <ToggleButton Padding="6,4" Margin="6,0,0,0" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
                                           Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=TextBox}"
                               AutomationProperties.Name="Text box tool"
-                              ToolTip="Drag on the page to drop a text box" />
-                <ToggleButton Content="Callout" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
+                              ToolTip="Text box — drag on the page to drop a text box">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbTextBox}" />
+                </ToggleButton>
+                <ToggleButton Padding="6,4" Margin="2,0,0,0" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
                                           Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Callout}"
                               AutomationProperties.Name="Callout tool"
-                              ToolTip="Drag from what you're pointing at to where the note goes" />
-                <ToggleButton Content="Cloud" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
+                              ToolTip="Callout — drag from what you're pointing at to where the note goes">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbCallout}" />
+                </ToggleButton>
+                <ToggleButton Padding="6,4" Margin="2,0,0,0" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
                                           Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Cloud}"
                               AutomationProperties.Name="Cloud tool"
-                              ToolTip="Drag a rectangle to cloud a revised area" />
-                <ToggleButton Content="▭" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
+                              ToolTip="Cloud — drag a rectangle to cloud a revised area">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbCloud}" />
+                </ToggleButton>
+                <ToggleButton Padding="6,4" Margin="2,0,0,0" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"
                               IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
-                                          Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Rectangle}"
-                              AutomationProperties.Name="Rectangle tool" ToolTip="Drag a rectangle" />
-                <ToggleButton Content="◯" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
+                                          Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Tick}"
+                              AutomationProperties.Name="Tick tool"
+                              ToolTip="Tick — click to tick an item (drag to size it). Stays on for the next one; Esc to stop.">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbTick}" StrokeThickness="1.8" />
+                </ToggleButton>
+                <!-- Shapes split button: the toggle re-arms the last basic shape used; the ▾
+                     picks a different one. -->
+                <ToggleButton Padding="6,4" Margin="2,0,0,0" Style="{StaticResource ToolToggle}"
                               IsEnabled="{Binding HasTabs}"
-                              IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
-                                          Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Ellipse}"
-                              AutomationProperties.Name="Ellipse tool" ToolTip="Drag an ellipse" />
-                <ToggleButton Content="╱" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
-                              IsEnabled="{Binding HasTabs}"
-                              IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
-                                          Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Line}"
-                              AutomationProperties.Name="Line tool" ToolTip="Drag a straight line" />
-                <ToggleButton Content="→" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
-                              IsEnabled="{Binding HasTabs}"
-                              IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
-                                          Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Arrow}"
-                              AutomationProperties.Name="Arrow tool" ToolTip="Drag from the tail to the arrowhead" />
-                <Button Padding="8,3" Margin="6,0,0,0"
-                        Content="{Binding SelectedTab.MarkupButtonLabel}"
+                              IsChecked="{Binding SelectedTab.IsBasicShapeActive, Mode=TwoWay}"
+                              AutomationProperties.Name="Shape tool"
+                              ToolTip="Shape — drag a rectangle, ellipse, line or arrow (▾ to choose)">
+                    <Path>
+                        <Path.Style>
+                            <Style TargetType="Path" BasedOn="{StaticResource NavTabIcon}">
+                                <Setter Property="Data" Value="{StaticResource TbRectangle}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedTab.LastBasicShape}" Value="Ellipse">
+                                        <Setter Property="Data" Value="{StaticResource TbEllipse}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SelectedTab.LastBasicShape}" Value="Line">
+                                        <Setter Property="Data" Value="{StaticResource TbLine}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SelectedTab.LastBasicShape}" Value="Arrow">
+                                        <Setter Property="Data" Value="{StaticResource TbArrow}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Path.Style>
+                    </Path>
+                </ToggleButton>
+                <Button Padding="2,4" Click="DropDown_Click" IsEnabled="{Binding HasTabs}"
+                        AutomationProperties.Name="Choose shape" ToolTip="Choose a shape">
+                    <Path Style="{StaticResource TbChevronPath}" Margin="0,1,0,0" />
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="_Rectangle" IsCheckable="True"
+                                      IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
+                                                  Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Rectangle}">
+                                <MenuItem.Icon><Path Style="{StaticResource MenuIcon}" Data="{StaticResource TbRectangle}" /></MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="_Ellipse" IsCheckable="True"
+                                      IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
+                                                  Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Ellipse}">
+                                <MenuItem.Icon><Path Style="{StaticResource MenuIcon}" Data="{StaticResource TbEllipse}" /></MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="_Line" IsCheckable="True"
+                                      IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
+                                                  Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Line}">
+                                <MenuItem.Icon><Path Style="{StaticResource MenuIcon}" Data="{StaticResource TbLine}" /></MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="_Arrow" IsCheckable="True"
+                                      IsChecked="{Binding SelectedTab.ShapeTool, Mode=TwoWay,
+                                                  Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Arrow}">
+                                <MenuItem.Icon><Path Style="{StaticResource MenuIcon}" Data="{StaticResource TbArrow}" /></MenuItem.Icon>
+                            </MenuItem>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+                <!-- Measure ▾: distance / perimeter / area tools, the drawing scale, CSV export.
+                     Lit while a measuring tool is armed. -->
+                <Button Padding="6,4" Margin="4,0,0,0" Click="DropDown_Click" IsEnabled="{Binding HasTabs}"
+                        AutomationProperties.Name="Measure menu"
+                        ToolTip="Measure — distance, perimeter and area at the drawing's scale">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding SelectedTab.IsMeasureToolActive}" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource ChromeBrush}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                    <StackPanel Orientation="Horizontal">
+                        <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbRuler}" />
+                        <Path Style="{StaticResource TbChevronPath}" />
+                    </StackPanel>
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="_Distance" InputGestureText="2 clicks"
+                                      Command="{Binding SelectedTab.ArmMeasureToolCommand}"
+                                      CommandParameter="{x:Static vm:ShapeTool.MeasureDistance}"
+                                      IsChecked="{Binding SelectedTab.ShapeTool, Mode=OneWay,
+                                                  Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=MeasureDistance}">
+                                <MenuItem.Icon><Path Style="{StaticResource MenuIcon}" Data="{StaticResource TbMeasureDistance}" /></MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="_Perimeter" InputGestureText="double-click to finish"
+                                      Command="{Binding SelectedTab.ArmMeasureToolCommand}"
+                                      CommandParameter="{x:Static vm:ShapeTool.MeasurePerimeter}"
+                                      IsChecked="{Binding SelectedTab.ShapeTool, Mode=OneWay,
+                                                  Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=MeasurePerimeter}">
+                                <MenuItem.Icon><Path Style="{StaticResource MenuIcon}" Data="{StaticResource TbMeasurePerimeter}" /></MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="_Area" InputGestureText="double-click to finish"
+                                      Command="{Binding SelectedTab.ArmMeasureToolCommand}"
+                                      CommandParameter="{x:Static vm:ShapeTool.MeasureArea}"
+                                      IsChecked="{Binding SelectedTab.ShapeTool, Mode=OneWay,
+                                                  Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=MeasureArea}">
+                                <MenuItem.Icon><Path Style="{StaticResource MenuIcon}" Data="{StaticResource TbMeasureArea}" /></MenuItem.Icon>
+                            </MenuItem>
+                            <Separator />
+                            <MenuItem Header="S_nap to drawing lines" IsCheckable="True"
+                                      IsChecked="{Binding SelectedTab.SnapToDrawing, Mode=TwoWay}"
+                                      InputGestureText="hold Ctrl to suspend"
+                                      ToolTip="Snap to corners, crossings, midpoints and lines of the drawing" />
+                            <Separator />
+                            <MenuItem Header="Set _scale…" Command="{Binding SelectedTab.SetScaleCommand}" />
+                            <MenuItem Header="_Calibrate from a known length…" Command="{Binding SelectedTab.CalibrateScaleCommand}" />
+                            <Separator />
+                            <MenuItem Header="_Export measurements (CSV)…" Command="{Binding SelectedTab.ExportMeasurementsCommand}" />
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+                <Button Padding="6,4" Margin="4,0,0,0"
                         Command="{Binding SelectedTab.ToggleAnnotationsCommand}"
                         IsEnabled="{Binding HasTabs}"
                         AutomationProperties.Name="Toggle markup"
-                        ToolTip="Show or hide all highlights, notes and ink on the page">
+                        ToolTip="{Binding SelectedTab.MarkupToolTip}">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                            <Setter Property="Tag" Value="{StaticResource TbEye}" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding SelectedTab.AnnotationsVisible}" Value="False">
                                     <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
                                     <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                     <Setter Property="Foreground" Value="{DynamicResource ChromeBrush}" />
-                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                    <Setter Property="Tag" Value="{StaticResource TbEyeOff}" />
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
                     </Button.Style>
+                    <Path Style="{StaticResource NavTabIcon}"
+                          Data="{Binding Tag, RelativeSource={RelativeSource AncestorType=Button}}" />
                 </Button>
-                <Button Content="⛶ Read" Padding="8,3" Margin="4,0,0,0"
+                <Separator />
+
+                <!-- ── Pages / Tools (once-per-document) ─────────────────── -->
+                <Button Padding="6,4" Click="DropDown_Click" IsEnabled="{Binding HasTabs}"
+                        AutomationProperties.Name="Pages menu"
+                        ToolTip="Pages — rotate, delete, insert">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbPages}" />
+                        <Path Style="{StaticResource TbChevronPath}" />
+                    </StackPanel>
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Rotate _left" Command="{Binding SelectedTab.RotateLeftCommand}"
+                                      ToolTip="Rotate selected / current page left" />
+                            <MenuItem Header="Rotate _right" Command="{Binding SelectedTab.RotateRightCommand}"
+                                      ToolTip="Rotate selected / current page right" />
+                            <Separator />
+                            <MenuItem Header="_Delete page(s)" Command="{Binding SelectedTab.DeletePagesCommand}"
+                                      ToolTip="Delete selected / current page(s)" />
+                            <Separator />
+                            <MenuItem Header="Insert _PDF…" Command="{Binding SelectedTab.InsertPdfCommand}"
+                                      ToolTip="Insert every page of another PDF" />
+                            <MenuItem Header="Insert _blank page" Command="{Binding SelectedTab.InsertBlankPageCommand}"
+                                      ToolTip="Insert a blank page after the current one, matching its size" />
+                            <Separator />
+                            <MenuItem Header="_Extract pages…" Command="{Binding SelectedTab.ExtractPagesCommand}"
+                                      ToolTip="Save some pages — the current page, a selection or a range — as a new PDF" />
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+                <Button Padding="6,4" Margin="2,0,0,0" Click="DropDown_Click" IsEnabled="{Binding HasTabs}"
+                        AutomationProperties.Name="Tools menu"
+                        ToolTip="Tools — extract table, OCR, remove watermark, trim margins, export chunks">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbTools}" />
+                        <Path Style="{StaticResource TbChevronPath}" />
+                    </StackPanel>
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Extract _table" IsCheckable="True"
+                                      IsChecked="{Binding SelectedTab.TableSelectActive, Mode=TwoWay}"
+                                      ToolTip="Drag a rectangle over a table to reconstruct its rows and columns" />
+                            <Separator />
+                            <MenuItem Header="_OCR…" Command="{Binding SelectedTab.OcrDocumentCommand}"
+                                      ToolTip="Recognise text on scanned pages and add a searchable layer" />
+                            <MenuItem Header="Remove _watermark…" Command="{Binding SelectedTab.RemoveWatermarksCommand}"
+                                      ToolTip="Find and remove content repeated on every page" />
+                            <MenuItem Header="Trim _margins" Command="{Binding SelectedTab.TrimMarginsCommand}"
+                                      ToolTip="Crop every page to its visible content plus a small margin" />
+                            <Separator />
+                            <MenuItem Header="Export _chunks…" Command="{Binding SelectedTab.ExportRagChunksCommand}"
+                                      ToolTip="Split the text into overlapping, section-tagged JSONL chunks for RAG" />
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+                <Separator />
+
+                <!-- ── View ─────────────────────────────────────────────── -->
+                <ToggleButton Padding="6,4" Style="{StaticResource ToolToggle}"
+                              IsEnabled="{Binding HasTabs}"
+                              IsChecked="{Binding SelectedTab.IsSplitView, Mode=TwoWay}"
+                              AutomationProperties.Name="Split view"
+                              ToolTip="Split view — a second, independent pane for this document">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbSplit}" />
+                </ToggleButton>
+                <Button Padding="6,4" Margin="2,0,0,0"
+                        Command="{Binding SelectedTab.MoveToOtherSideCommand}" IsEnabled="{Binding HasTabs}"
+                        AutomationProperties.Name="Move to other side"
+                        ToolTip="Side by side — dock this document on the other side of the window (or drag its tab to the right edge)">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbSideBySide}" />
+                </Button>
+                <ToggleButton Padding="6,4" Margin="2,0,0,0" Style="{StaticResource ToolToggle}"
+                              IsEnabled="{Binding IsSideBySide}"
+                              IsChecked="{Binding IsScrollLinked, Mode=TwoWay}"
+                              AutomationProperties.Name="Link scrolling"
+                              ToolTip="Link scrolling — scroll and zoom the two side-by-side documents together. Line them up first — the page offset between them is kept.">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbLink}" />
+                </ToggleButton>
+                <Button Padding="6,4" Margin="2,0,0,0"
                         Command="{Binding ToggleReadModeCommand}" IsEnabled="{Binding HasTabs}"
                         AutomationProperties.Name="Read mode"
-                        ToolTip="Full-screen two-page reading view (F11 · Esc to exit)" />
+                        ToolTip="Read mode — full-screen two-page reading view (F11 · Esc to exit)">
+                    <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbRead}" />
+                </Button>
                 <Separator />
-                <TextBlock Text="Theme" VerticalAlignment="Center" Margin="2,0,4,0"
-                           Foreground="{DynamicResource SecondaryTextBrush}" />
-                <!-- Explicit type-default style: a ToolBar otherwise forces the classic
-                     (non-Fluent) ComboBox style, whose drop-down stays white in dark mode. -->
-                <ComboBox VerticalAlignment="Center" MinWidth="76"
-                          Style="{StaticResource {x:Type ComboBox}}"
-                          ItemsSource="{Binding Themes}"
-                          SelectedItem="{Binding SelectedTheme, Mode=TwoWay}"
-                          ToolTip="Follow the OS theme, or force light / dark" />
-            </ToolBar>
-
-            <ToolBar>
-                <Button Content="Properties…" Padding="8,3" Command="{Binding SelectedTab.ShowPropertiesCommand}"
-                        IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Properties"
-                        ToolTip="View / edit document metadata" />
-                <Button Content="Print…" Padding="8,3" Margin="4,0,0,0" Command="{Binding SelectedTab.PrintCommand}"
-                        IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Print"
-                        ToolTip="Print the document with edits and annotations (Ctrl+P)" />
-                <Button Content="Export chunks…" Padding="8,3" Margin="4,0,0,0"
-                        Command="{Binding SelectedTab.ExportRagChunksCommand}"
-                        IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Export RAG chunks"
-                        ToolTip="Split the text into overlapping, section-tagged JSONL chunks for RAG" />
-                <ToggleButton Content="Extract table" Padding="8,3" Margin="4,0,0,0" Style="{StaticResource ToolToggle}"
-                              IsEnabled="{Binding HasTabs}"
-                              IsChecked="{Binding SelectedTab.TableSelectActive, Mode=TwoWay}"
-                              AutomationProperties.Name="Extract table"
-                              ToolTip="Drag a rectangle over a table to reconstruct its rows and columns" />
-                <Separator />
-                <Button Content="Save" Padding="8,3" Command="{Binding SelectedTab.SaveCommand}"
-                        IsEnabled="{Binding HasTabs}" ToolTip="Save (Ctrl+S)" />
-                <Button Content="Save As…" Padding="8,3" Margin="4,0,0,0"
-                        Command="{Binding SelectedTab.SaveAsCommand}" IsEnabled="{Binding HasTabs}"
-                        AutomationProperties.Name="Save As"
-                        ToolTip="Save a copy (Ctrl+Shift+S)" />
-                <Separator />
-                <Button Content="↶" FontSize="14" Padding="7,1" Command="{Binding SelectedTab.UndoCommand}"
-                        AutomationProperties.Name="Undo" ToolTip="Undo (Ctrl+Z)" />
-                <Button Content="↷" FontSize="14" Padding="7,1" Margin="2,0,0,0"
-                        Command="{Binding SelectedTab.RedoCommand}"
-                        AutomationProperties.Name="Redo" ToolTip="Redo (Ctrl+Y)" />
-                <Separator />
-                <Button Content="Rotate ⟲" Padding="8,3" Command="{Binding SelectedTab.RotateLeftCommand}"
-                        IsEnabled="{Binding HasTabs}" AutomationProperties.Name="Rotate left"
-                        ToolTip="Rotate selected / current page left" />
-                <Button Content="Rotate ⟳" Padding="8,3" Margin="2,0,0,0"
-                        Command="{Binding SelectedTab.RotateRightCommand}" IsEnabled="{Binding HasTabs}"
-                        AutomationProperties.Name="Rotate right"
-                        ToolTip="Rotate selected / current page right" />
-                <Button Content="Delete page(s)" Padding="8,3" Margin="4,0,0,0"
-                        Command="{Binding SelectedTab.DeletePagesCommand}" IsEnabled="{Binding HasTabs}"
-                        AutomationProperties.Name="Delete pages"
-                        ToolTip="Delete selected / current page(s)" />
-                <Button Content="Insert PDF…" Padding="8,3" Margin="4,0,0,0"
-                        Command="{Binding SelectedTab.InsertPdfCommand}" IsEnabled="{Binding HasTabs}"
-                        AutomationProperties.Name="Insert PDF"
-                        ToolTip="Insert every page of another PDF" />
-                <Button Content="Blank page" Padding="8,3" Margin="4,0,0,0"
-                        Command="{Binding SelectedTab.InsertBlankPageCommand}" IsEnabled="{Binding HasTabs}"
-                        AutomationProperties.Name="Insert blank page"
-                        ToolTip="Insert a blank page after the current one, matching its size" />
+                <Button Padding="6,4" Click="DropDown_Click"
+                        AutomationProperties.Name="Theme" ToolTip="Theme — follow the OS, or force light / dark">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Style="{StaticResource NavTabIcon}" Data="{StaticResource TbTheme}" />
+                        <Path Style="{StaticResource TbChevronPath}" />
+                    </StackPanel>
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Follow _system" Click="Theme_Click" Tag="{x:Static services:AppTheme.System}"
+                                      IsChecked="{Binding SelectedTheme, Mode=OneWay,
+                                                  Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=System}" />
+                            <MenuItem Header="_Light" Click="Theme_Click" Tag="{x:Static services:AppTheme.Light}"
+                                      IsChecked="{Binding SelectedTheme, Mode=OneWay,
+                                                  Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Light}" />
+                            <MenuItem Header="_Dark" Click="Theme_Click" Tag="{x:Static services:AppTheme.Dark}"
+                                      IsChecked="{Binding SelectedTheme, Mode=OneWay,
+                                                  Converter={StaticResource EnumEqualsOrDefault}, ConverterParameter=Dark}" />
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
             </ToolBar>
         </ToolBarTray>
 
