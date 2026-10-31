@@ -908,6 +908,41 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   U+FFFD (big parentheses, the radical). Annex O: 166 garbage chars on 4763 vs 16 on current, and
   4763 also loses "(O.5)". **Fixed by moving to a current native PDFium** (see "PDFium native
   build"); the quality flags still catch what the font itself leaves unmapped. `RagChunkResult.SuspectPages` / `DoubledGlyphsRemoved` feed the export summary dialog.
+- **Review fixes (independent check against page images + a textbook run):**
+  - **Sections are per paragraph, not per page.** `SectionMarkers`: the PDF's **bookmarks win when ≥ 3**
+    (a textbook's clause scan mistook "1.35 Gk" for a heading and swallowed the book), else the clause
+    tree minus titles with no 3-letter word. A heading switches `current` at the paragraph that prints
+    it (`SectionMarker.StartsParagraph`: clause number, or the bookmark title's first 40 chars); one not
+    found on its page applies from the page top. `section_title` = the first unit's; `sections` = all
+    spanned. A section start opens a new chunk (once ≥ `MinChars`) **with no overlap**.
+  - **Overlap is `context_before`, not inline** — `text` never repeats the previous chunk.
+  - **Boilerplate** (`Boilerplate.Detect`): verbatim on ≥ 50 % of pages, or a header/footer-band line
+    on ≥ 30 % with digits blanked (`MarginKey`); `LicenceStamp` (Licensed copy / Provided by … under
+    licence / Not for Resale…) is always cut from the marker to line end — it leaked on near-blank pages.
+  - **Title**: metadata unless `PlaceholderTitle` ("untitled", "30187350.pdf", "Microsoft Word - …") →
+    the most frequent top-band running line with ≥ 2 words (`RunningTitle`, end page numbers stripped)
+    → file stem. `CleanTitle` normalises U+2010–2012 and trailing dots. `source_path` = file name only.
+    `pdf_page_start/end` (1-based) + `page_label_start/end` (`GetPageLabel` or the 1-based number).
+  - **Glyph repairs** (`BuildPage`): same-spot duplicates dropped for ASCII too (fake bold), except a
+    second `f` at one box (ff/ffi ligature); zero-height boxes compare by baseline + x-overlap
+    (`SameSpot`). Symbol / MT Extra PUA pieces → one `(` `)` `[` `]` `{` `}` per run of the same family,
+    U+F8E7 / U+23AF extender → `/` (`SymbolPiece`). U+0002 between letters → `-`; U+2010–2012 → `-`.
+    `ReadPage` maps `¥` (U+00A5) → `×` when `FPDFTextGetFontInfo` says the font is symbolic or named
+    *Pi/Symbol/Math/Extra* (a maths-pi font read through the Latin-1 fallback) — no fixture can make
+    PDFium produce that, so it's untested.
+  - **Equations** (`PdfChunkText.FindEquations`): a line ending in `(8.94)` / `(O.7)` / `(6.2.a)`, label
+    in the right 45 % of the page, the rest of the line not prose (< 2 words of 4+ lowercase letters),
+    plus contiguous lines whose centre is within 1.6 label heights. `Stacked` when parts' centres differ
+    by > ½ label height — PDFium emits a fraction's numerator / denominator as separate lines with no bar,
+    so the linear text is wrong. Each becomes a `RagEquation` (label, page, `bbox` = [l, t, r, b] points
+    from the CropBox top-left, raw text, `quality` `check`/`suspect`, issues) on every chunk whose body
+    holds the label. `PdfTextQuality.ScrambleReason`: stacked, dangling operators (`≥+`, `= +`, `()`),
+    a repeated subscript token + mostly 1–2-char tokens, or ≥ 10 tokens that are mostly fragments.
+  - **New chunk issues**: `duplicated_glyphs` (a letter 3+ times in a token — `fccc`, `MEEEE`; Roman
+    numerals / `www` exempt) → suspect; `scrambled_equation` (labels + pages) → suspect; `table_flattened`
+    (≥ 12 consecutive bare values, with the last "Table n.n" before them) → check. Chunk quality is the
+    worst of everything; equations carry their own grade. Not done: re-ordering equation glyphs, OCR to
+    LaTeX, real table extraction into the chunk (`PdfTableExtractor` still not wired in).
 - App: `DocumentTabViewModel.ExportRagChunksCommand` (async — `Task.Run(Chunk + WriteJsonl)`),
   toolbar "Export chunks…". Batch/folder mode and catalog persistence are not built yet. Not done
   yet: page-image references for suspect chunks, tables as rows (`PdfTableExtractor` not wired in).

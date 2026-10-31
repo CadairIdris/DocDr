@@ -10,10 +10,22 @@ namespace DocDr.Pdf;
 /// keys (<c>source_path</c>, <c>page_start</c>, …). <see cref="Id"/> is stable across re-exports;
 /// <see cref="TokenEstimate"/> is <c>Text.Length / 4</c>.
 /// </summary>
+/// <param name="SourcePath">The PDF's file name (no folders — exports move between machines).</param>
+/// <param name="PageStart">0-based first page (see <see cref="PdfPageStart"/> for 1-based).</param>
+/// <param name="SectionTitle">The section in force where the chunk's own text starts.</param>
 /// <param name="Quality"><c>ok</c>; <c>check</c> — contains maths whose 2-D layout (fractions, roots,
-/// exponents, indices) is flattened, verify expressions against the page; or <c>suspect</c> — contains
-/// characters the PDF can't vouch for (unmapped glyphs, symbols from a mis-mapped font).</param>
+/// exponents, indices) is flattened, or a flattened table; or <c>suspect</c> — contains characters the
+/// PDF can't vouch for (unmapped glyphs, symbols from a mis-mapped font, letters repeated by a broken
+/// subscript map) or an equation the text layer scrambles.</param>
 /// <param name="Issues">Why, in plain words an agent can act on; empty when <c>ok</c>.</param>
+/// <param name="PdfPageStart">1-based first page — the PDF viewer's page number.</param>
+/// <param name="PageLabelStart">The printed page label of the first page ("xii", "45"), or the 1-based
+/// number when the PDF has no labels.</param>
+/// <param name="Sections">Every section the chunk's text spans, in order.</param>
+/// <param name="ContextBefore">The end of the previous chunk (the overlap), kept out of
+/// <see cref="Text"/> so nothing is repeated inline; empty at a section start.</param>
+/// <param name="Equations">Numbered display equations in this chunk, each with the page box to crop
+/// from the page image.</param>
 public sealed record RagChunk(
     string Id,
     string Text,
@@ -25,6 +37,30 @@ public sealed record RagChunk(
     int ChunkIndex,
     int TokenEstimate,
     string Quality,
+    IReadOnlyList<string> Issues,
+    int PdfPageStart,
+    int PdfPageEnd,
+    string PageLabelStart,
+    string PageLabelEnd,
+    IReadOnlyList<string> Sections,
+    string ContextBefore,
+    IReadOnlyList<RagEquation> Equations);
+
+/// <summary>A numbered display equation, located so a consumer can crop and read it from the page.</summary>
+/// <param name="Label">As printed: "(8.94)".</param>
+/// <param name="Page">0-based page; <paramref name="PdfPage"/> is 1-based.</param>
+/// <param name="Bbox">[left, top, right, bottom] in PDF points from the top-left corner of the
+/// (unrotated) visible page — the CropBox — like pdfplumber; scale by DPI / 72 to crop a render.</param>
+/// <param name="RawText">The equation as the text layer gives it (label excluded).</param>
+/// <param name="Quality"><c>check</c> — flattened but in order; <c>suspect</c> — stacked / scrambled
+/// or holding untrustworthy characters: read it from the page image.</param>
+public sealed record RagEquation(
+    string Label,
+    int Page,
+    int PdfPage,
+    double[] Bbox,
+    string RawText,
+    string Quality,
     IReadOnlyList<string> Issues);
 
 /// <summary>Result of a chunk run: the chunks plus what could not be processed.</summary>
@@ -35,7 +71,14 @@ public sealed record RagChunkResult(
     IReadOnlyList<int> PagesWithoutText,
     int SectionCount,
     IReadOnlyList<int> SuspectPages,
-    int DoubledGlyphsRemoved);
+    int DoubledGlyphsRemoved)
+{
+    /// <summary>Numbered display equations located.</summary>
+    public int EquationCount { get; init; }
+
+    /// <summary>Of those, how many must be read from the page image (stacked / scrambled / garbled).</summary>
+    public int EquationsFlagged { get; init; }
+}
 
 /// <summary>Tuning for <see cref="PdfRagChunker.Chunk"/>. Token counts are approximated as chars / 4.</summary>
 public sealed record RagChunkOptions
@@ -140,44 +183,121 @@ public static partial class PdfRagChunker
             }
         }
 
-        string[] sectionForPage = SectionForEachPage(document, pageCount, cancellationToken);
-        int sectionCount = 1;
-        for (int p = 1; p < pageCount; p++)
-        {
-            if (!string.Equals(sectionForPage[p], sectionForPage[p - 1], StringComparison.Ordinal))
-            {
-                sectionCount++;
-            }
-        }
+        List<SectionMarker> markers = SectionMarkers(document, cancellationToken);
+        Boilerplate boilerplate = Boilerplate.Detect(pages);
 
-        HashSet<string> boilerplate = DetectBoilerplate(pageText);
+        string sourcePath = document.FilePath is { Length: > 0 } fp ? Path.GetFileName(fp) : string.Empty;
+        string docTitle = DocumentTitle(document, boilerplate.RunningTitle);
 
-        string sourcePath = document.FilePath ?? string.Empty;
-        string docTitle = DocumentTitle(document);
-
-        var paragraphs = new List<Paragraph>();
+        // Equations, located per page; quality judged once here.
+        var equationsByPage = new Dictionary<int, List<RagEquation>>();
+        int equationCount = 0, equationsFlagged = 0;
         for (int p = 0; p < pageCount; p++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (pages[p] is not { } page)
+            if (pages[p] is not { } page || page.Equations.Count == 0)
             {
                 continue;
             }
 
-            if (page.Lines.Count(l => TocLeader().IsMatch(l.Text)) >= 5)
+            var list = new List<RagEquation>();
+            foreach (ChunkEquation e in page.Equations)
             {
-                continue; // a contents / list-of-figures page — navigation, not knowledge
+                RagEquation eq = ToRagEquation(e, p, page.PageBox, profile);
+                list.Add(eq);
+                equationCount++;
+                equationsFlagged += eq.Quality == "suspect" ? 1 : 0;
             }
 
-            foreach ((string para, bool hasMath) in ParagraphsFromPage(page.Lines, boilerplate))
+            equationsByPage[p] = list;
+        }
+
+        // Paragraphs in reading order, each tagged with the section in force where it starts: a
+        // heading switches the section at the paragraph that prints it, not at the top of its page
+        // (so text continuing an earlier clause at the top of a page keeps that clause's title).
+        var paragraphs = new List<Paragraph>();
+        string current = "Front matter";
+        int mi = 0;
+        for (int p = 0; p < pageCount; p++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int pageFirst = mi;
+            while (mi < markers.Count && markers[mi].Page <= p)
             {
-                paragraphs.Add(new Paragraph(para, p, sectionForPage[p], hasMath));
+                mi++;
+            }
+
+            var pending = new List<SectionMarker>(markers.Skip(pageFirst).Take(mi - pageFirst));
+            var paras = pages[p] is { } page && page.Lines.Count(l => TocLeader().IsMatch(l.Text)) < 5
+                ? ParagraphsFromPage(page.Lines, boilerplate).ToList()
+                : [];
+
+            // A heading printed on the page switches the section at its paragraph; one whose text
+            // isn't found (a bookmark titled differently from the printed heading) at the page top.
+            var unmatched = pending.Where(m => !paras.Any(x => m.StartsParagraph(x.Text))).ToList();
+            bool startsSection = unmatched.Count > 0;
+            if (unmatched.Count > 0)
+            {
+                current = unmatched[^1].Title;
+                pending.RemoveAll(unmatched.Contains);
+            }
+
+            foreach ((string para, bool hasMath) in paras)
+            {
+                int hit = pending.FindIndex(m => m.StartsParagraph(para));
+                if (hit >= 0)
+                {
+                    current = pending[hit].Title;
+                    pending.RemoveRange(0, hit + 1);
+                }
+
+                paragraphs.Add(new Paragraph(para, p, current, hasMath, hit >= 0 || startsSection));
+                startsSection = false;
+            }
+
+            if (pending.Count > 0)
+            {
+                current = pending[^1].Title; // page had no text
             }
         }
 
-        var chunks = BuildChunks(paragraphs, options, sourcePath, docTitle, profile);
-        return new RagChunkResult(chunks, pagesWithoutText, pageCount == 0 ? 0 : sectionCount,
-            suspectPages, doubledGlyphs);
+        int sectionCount = paragraphs.Count == 0 ? (pageCount == 0 ? 0 : 1)
+            : paragraphs.Select(x => x.Section).Distinct(StringComparer.Ordinal).Count();
+
+        var chunks = BuildChunks(paragraphs, options, document, sourcePath, docTitle, profile, equationsByPage);
+        return new RagChunkResult(chunks, pagesWithoutText, sectionCount, suspectPages, doubledGlyphs)
+        {
+            EquationCount = equationCount,
+            EquationsFlagged = equationsFlagged,
+        };
+    }
+
+    private static RagEquation ToRagEquation(ChunkEquation e, int page, PdfRect pageBox, PdfTextQuality.ScriptProfile profile)
+    {
+        var issues = new List<string>();
+        if (PdfTextQuality.ScrambleReason(e.RawText, e.Stacked) is { } why)
+        {
+            issues.Add("scrambled: " + why);
+        }
+
+        (int unmapped, int unexpected) = PdfTextQuality.Count(e.RawText, profile);
+        if (unmapped + unexpected > 0)
+        {
+            issues.Add($"garbled: {unmapped + unexpected} character(s) the font doesn't map to real symbols");
+        }
+
+        IReadOnlyList<string> repeated = PdfTextQuality.RepeatedLetterTokens(e.RawText);
+        if (repeated.Count > 0)
+        {
+            issues.Add("duplicated_glyphs: " + string.Join(", ", repeated));
+        }
+
+        double R(double v) => Math.Round(v, 1);
+        double[] bbox =
+        [
+            R(e.Bounds.Left - pageBox.Left), R(pageBox.Top - e.Bounds.Top),
+            R(e.Bounds.Right - pageBox.Left), R(pageBox.Top - e.Bounds.Bottom),
+        ];
+        return new RagEquation(e.Label, page, page + 1, bbox, e.RawText, issues.Count > 0 ? "suspect" : "check", issues);
     }
 
     /// <summary>Serialise chunks as JSON Lines (one object per line, UTF-8, no BOM).</summary>
@@ -197,54 +317,64 @@ public static partial class PdfRagChunker
         WriteJsonl(chunks, writer);
     }
 
-    private readonly record struct Paragraph(string Text, int Page, string Section, bool HasMath);
+    private readonly record struct Paragraph(string Text, int Page, string Section, bool HasMath, bool StartsSection);
 
     // --- Section boundaries --------------------------------------------------------------
 
-    private static string[] SectionForEachPage(PdfDocument document, int pageCount, CancellationToken ct)
+    /// <summary>A heading: the page it's on, its title, and how to recognise the paragraph that prints it.</summary>
+    private sealed record SectionMarker(int Page, string Title, string? Number)
     {
-        var result = new string[pageCount];
-        if (pageCount == 0)
+        public bool StartsParagraph(string para)
         {
-            return result;
-        }
-
-        List<(int Page, string Title)> markers = ClauseMarkers(document, ct);
-        if (markers.Count < 3)
-        {
-            markers = BookmarkMarkers(document);
-        }
-
-        markers.Sort((a, b) => a.Page.CompareTo(b.Page));
-
-        string current = "Front matter";
-        int mi = 0;
-        for (int p = 0; p < pageCount; p++)
-        {
-            while (mi < markers.Count && markers[mi].Page <= p)
+            if (Number is not null)
             {
-                if (!string.IsNullOrWhiteSpace(markers[mi].Title))
-                {
-                    current = markers[mi].Title.Trim();
-                }
-
-                mi++;
+                return para.StartsWith(Number, StringComparison.Ordinal)
+                    && (para.Length == Number.Length || char.IsWhiteSpace(para[Number.Length]));
             }
 
-            result[p] = current;
+            string key = Normalise(Title);
+            key = key[..Math.Min(key.Length, 40)];
+            return key.Length > 0 && Normalise(para).StartsWith(key, StringComparison.OrdinalIgnoreCase);
         }
-
-        return result;
     }
 
-    private static List<(int, string)> ClauseMarkers(PdfDocument document, CancellationToken ct)
+    /// <summary>
+    /// Headings in document order. The PDF's own bookmarks win when there are at least three — the
+    /// author's outline beats a heuristic, and on a textbook the clause detector mistakes numbered
+    /// values ("1.35 Gk") for headings. Otherwise the detected clause tree, minus "headings" whose title
+    /// has no real word (a number followed by a symbol is a value in a calculation, not a clause).
+    /// </summary>
+    private static List<SectionMarker> SectionMarkers(PdfDocument document, CancellationToken ct)
     {
-        var flat = new List<(int, string)>();
+        List<SectionMarker> markers = BookmarkMarkers(document);
+        if (markers.Count < 3)
+        {
+            List<SectionMarker> clauses = ClauseMarkers(document, ct);
+            if (clauses.Count >= 3)
+            {
+                markers = clauses;
+            }
+        }
+
+        // Stable: keeps document order for headings on the same page.
+        return [.. markers.OrderBy(m => m.Page)];
+    }
+
+    [GeneratedRegex(@"\p{L}{3,}")]
+    private static partial Regex RealWord();
+
+    private static List<SectionMarker> ClauseMarkers(PdfDocument document, CancellationToken ct)
+    {
+        var flat = new List<SectionMarker>();
         void Walk(IReadOnlyList<PdfClause> nodes)
         {
             foreach (PdfClause c in nodes)
             {
-                flat.Add((c.PageIndex, c.Display));
+                if (RealWord().IsMatch(c.Title))
+                {
+                    flat.Add(new SectionMarker(c.PageIndex, c.Display.Trim(), c.Number));
+                }
+
                 Walk(c.Children);
             }
         }
@@ -255,22 +385,22 @@ public static partial class PdfRagChunker
         }
         catch (PdfException)
         {
-            // fall through to bookmarks
+            // no clause tree
         }
 
         return flat;
     }
 
-    private static List<(int, string)> BookmarkMarkers(PdfDocument document)
+    private static List<SectionMarker> BookmarkMarkers(PdfDocument document)
     {
-        var flat = new List<(int, string)>();
+        var flat = new List<SectionMarker>();
         void Walk(IReadOnlyList<PdfBookmark> nodes)
         {
             foreach (PdfBookmark b in nodes)
             {
-                if (b.PageIndex is int page)
+                if (b.PageIndex is int page && !string.IsNullOrWhiteSpace(b.Title))
                 {
-                    flat.Add((page, b.Title));
+                    flat.Add(new SectionMarker(page, Normalise(b.Title), null));
                 }
 
                 Walk(b.Children);
@@ -279,93 +409,179 @@ public static partial class PdfRagChunker
 
         try
         {
-            Walk(PdfBookmarks.Read(document));
+            Walk(document.GetOutline());
         }
         catch (PdfException)
         {
-            // no outline — caller falls back to a single section
+            // no outline — caller falls back
         }
 
         return flat;
     }
 
-    private static string DocumentTitle(PdfDocument document)
+    // Placeholder titles PDF producers leave behind: "untitled", "30187350.pdf", "Microsoft Word - x.docx".
+    [GeneratedRegex(@"^(?:untitled(?:\s+document)?|document\d*|\d+|[\w\-. ]+\.(?:pdf|docx?|indd|qxp|tex|dvi))$", RegexOptions.IgnoreCase)]
+    private static partial Regex PlaceholderTitle();
+
+    /// <summary>Metadata title unless it's a placeholder → the running header (the book's own name
+    /// for itself, which is usually better than a file name) → the file name.</summary>
+    private static string DocumentTitle(PdfDocument document, string? runningTitle)
     {
+        string? title = null;
         try
         {
-            string title = PdfMetadata.GetInfo(document).Title;
-            if (!string.IsNullOrWhiteSpace(title))
-            {
-                return title.Trim();
-            }
+            title = CleanTitle(PdfMetadata.GetInfo(document).Title);
         }
         catch (PdfException)
         {
             // fall through
         }
 
-        return document.FilePath is { Length: > 0 } path
-            ? Path.GetFileNameWithoutExtension(path)
-            : "Untitled";
+        if (string.IsNullOrEmpty(title) || PlaceholderTitle().IsMatch(title))
+        {
+            title = CleanTitle(runningTitle);
+        }
+
+        if (string.IsNullOrEmpty(title))
+        {
+            title = document.FilePath is { Length: > 0 } path ? CleanTitle(Path.GetFileNameWithoutExtension(path)) : null;
+        }
+
+        return string.IsNullOrEmpty(title) ? "Untitled" : title;
+    }
+
+    internal static string CleanTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return string.Empty;
+        }
+
+        string t = title.Replace('‐', '-').Replace('‑', '-').Replace('‒', '-');
+        if (t.StartsWith("Microsoft Word - ", StringComparison.OrdinalIgnoreCase))
+        {
+            t = Path.GetFileNameWithoutExtension(t["Microsoft Word - ".Length..]);
+        }
+
+        return Normalise(t).TrimEnd('.', ' ');
     }
 
     // --- Cleaning -----------------------------------------------------------------------
 
-    private static HashSet<string> DetectBoilerplate(string?[] pageText)
-    {
-        int pages = pageText.Count(t => t is not null);
-        var result = new HashSet<string>(StringComparer.Ordinal);
-        if (pages < 4)
-        {
-            return result;
-        }
+    // Licence / distribution stamps: always removed, from the marker to the end of the line.
+    [GeneratedRegex(@"Licensee=|Licensed cop(?:y|ies)\b|Uncontrolled Copy|Not for Resale|No reproduction or networking permitted|Provided by .{0,80}?under licen[cs]e", RegexOptions.IgnoreCase)]
+    private static partial Regex LicenceStamp();
 
-        int threshold = Math.Max(3, (int)Math.Ceiling(pages * 0.5));
-        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (string? text in pageText)
+    [GeneratedRegex(@"\d+")]
+    private static partial Regex Digits();
+
+    // A page number at either end of a running header: "12 Designers' Guide…" / "…EN 1992-1-1 13".
+    [GeneratedRegex(@"^\d{1,4}\s+|\s+\d{1,4}$")]
+    private static partial Regex PageNumberEnds();
+
+    /// <summary>
+    /// Running chrome. Any line recurring verbatim on ≥ 50 % of pages (no length cap — body text doesn't
+    /// recur, so even a long legal footer extracted as one run is chrome); and, in the header / footer
+    /// band, a line recurring on ≥ 30 % of pages once page numbers are blanked ("BS EN 1992-1-1:2004 45"
+    /// vs "… 46") — running headers often alternate book / chapter title, so they miss 50 %. The most
+    /// frequent wordy top-band line doubles as the book's own title.
+    /// </summary>
+    private sealed class Boilerplate
+    {
+        private readonly HashSet<string> _lines = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _margin = new(StringComparer.Ordinal);
+
+        public string? RunningTitle { get; private set; }
+
+        public bool Contains(ChunkLine raw, string norm) =>
+            _lines.Contains(norm) || (raw.InMargin && _margin.Contains(MarginKey(norm)));
+
+        private static string MarginKey(string norm) => Digits().Replace(norm, "#");
+
+        public static Boilerplate Detect(ChunkPage?[] pages)
         {
-            if (text is null)
+            var result = new Boilerplate();
+            int count = pages.Count(p => p is not null);
+            if (count < 4)
             {
-                continue;
+                return result;
             }
 
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (string raw in text.ReplaceLineEndings("\n").Split('\n'))
+            var lineCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            var marginCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            var topCounts = new Dictionary<string, (int Count, string Text)>(StringComparer.Ordinal);
+            foreach (ChunkPage? page in pages)
             {
-                // No length cap: body text does not recur verbatim across many pages, so any line
-                // (even a long legal footer that PDFium extracts as one run) that does is chrome.
-                string norm = Normalise(raw);
-                if (norm.Length > 0 && seen.Add(norm))
+                if (page is null)
                 {
-                    counts[norm] = counts.GetValueOrDefault(norm) + 1;
+                    continue;
+                }
+
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                foreach (ChunkLine line in page.Lines)
+                {
+                    string norm = Normalise(line.Text);
+                    if (norm.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    if (seen.Add(norm))
+                    {
+                        lineCounts[norm] = lineCounts.GetValueOrDefault(norm) + 1;
+                    }
+
+                    if (line.InMargin && seen.Add("\0" + MarginKey(norm)))
+                    {
+                        string key = MarginKey(norm);
+                        marginCounts[key] = marginCounts.GetValueOrDefault(key) + 1;
+                        bool top = line.Bounds.Bottom >= page.PageBox.Bottom + ((page.PageBox.Top - page.PageBox.Bottom) / 2);
+                        if (top)
+                        {
+                            topCounts[key] = (topCounts.GetValueOrDefault(key).Count + 1, norm);
+                        }
+                    }
                 }
             }
-        }
 
-        foreach ((string line, int count) in counts)
-        {
-            if (count >= threshold)
-            {
-                result.Add(line);
-            }
-        }
+            int half = Math.Max(3, (int)Math.Ceiling(count * 0.5));
+            int third = Math.Max(3, (int)Math.Ceiling(count * 0.3));
+            result._lines.UnionWith(lineCounts.Where(kv => kv.Value >= half).Select(kv => kv.Key));
+            result._margin.UnionWith(marginCounts.Where(kv => kv.Value >= third).Select(kv => kv.Key));
 
-        return result;
+            // The book's title: the most frequent top-band running line with a few real words.
+            result.RunningTitle = topCounts
+                .Where(kv => kv.Value.Count >= third && RealWord().Count(kv.Value.Text) >= 2)
+                .OrderByDescending(kv => kv.Value.Count)
+                .Select(kv => PageNumberEnds().Replace(kv.Value.Text, string.Empty).Trim())
+                .FirstOrDefault();
+            return result;
+        }
     }
 
     private static string Normalise(string line) => WhitespaceRun().Replace(line, " ").Trim();
 
     private static IEnumerable<(string Text, bool HasMath)> ParagraphsFromPage(
-        IReadOnlyList<ChunkLine> pageLines, HashSet<string> boilerplate)
+        IReadOnlyList<ChunkLine> pageLines, Boilerplate boilerplate)
     {
         var lines = new List<(string Text, bool HasMath)>();
         foreach (ChunkLine raw in pageLines)
         {
             string line = Normalise(raw.Text);
+            if (boilerplate.Contains(raw, line))
+            {
+                continue;
+            }
+
+            if (LicenceStamp().Match(line) is { Success: true } stamp)
+            {
+                line = line[..stamp.Index].TrimEnd(' ', ',', ';', '-', '–');
+            }
+
             // A bare number / roman numeral is only a page number in the header or footer band:
             // mid-page it's an equation fragment (the "3" of a ⅓ exponent, a lone "d" under a
             // fraction bar) and dropping it silently corrupts the expression.
-            if (line.Length == 0 || boilerplate.Contains(line)
+            if (line.Length == 0
                 || (raw.InMargin && PageNumberLine().IsMatch(line)) || TocLeader().IsMatch(line))
             {
                 continue;
@@ -425,30 +641,31 @@ public static partial class PdfRagChunker
     // --- Windowing ---------------------------------------------------------------------
 
     private static IReadOnlyList<RagChunk> BuildChunks(
-        List<Paragraph> paragraphs, RagChunkOptions opt, string sourcePath, string docTitle,
-        PdfTextQuality.ScriptProfile profile)
+        List<Paragraph> paragraphs, RagChunkOptions opt, PdfDocument document, string sourcePath, string docTitle,
+        PdfTextQuality.ScriptProfile profile, IReadOnlyDictionary<int, List<RagEquation>> equationsByPage)
     {
         int overlapChars = opt.OverlapChars;
         // Leave room for the "{title} — {section}" prefix so the finished text still lands ≤ MaxChars.
         int headingReserve = opt.IncludeSectionHeading ? 160 : 0;
         int maxChars = Math.Max(200, opt.MaxChars - headingReserve);
-        // Fill only to (max − overlap) so a chunk plus the tail carried into the next stays ≤ max.
-        int budget = Math.Max(200, maxChars - overlapChars);
-        int minChars = Math.Min(opt.MinChars, budget);
+        int minChars = Math.Min(opt.MinChars, maxChars);
         string idStem = sourcePath is { Length: > 0 }
             ? Path.GetFileNameWithoutExtension(sourcePath)
             : "chunk";
+
+        string Label(int page) => document.GetPageLabel(page) ?? (page + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
 
         // 1. Flatten paragraphs to units that are each no longer than the budget.
         var units = new List<Paragraph>();
         foreach (Paragraph para in paragraphs)
         {
-            if (para.Text.Length <= budget)
+            if (para.Text.Length <= maxChars)
             {
                 units.Add(para);
                 continue;
             }
 
+            bool first = true;
             foreach (string sentence in SentenceBreak().Split(para.Text))
             {
                 string s = sentence.Trim();
@@ -457,81 +674,97 @@ public static partial class PdfRagChunker
                     continue;
                 }
 
-                if (s.Length <= budget)
+                for (int i = 0; i < s.Length; i += maxChars)
                 {
-                    units.Add(para with { Text = s });
-                    continue;
-                }
-
-                for (int i = 0; i < s.Length; i += budget)
-                {
-                    units.Add(para with { Text = s.Substring(i, Math.Min(budget, s.Length - i)) });
+                    units.Add(para with { Text = s.Substring(i, Math.Min(maxChars, s.Length - i)), StartsSection = para.StartsSection && first });
+                    first = false;
                 }
             }
         }
 
-        // 2. Pack units into chunks; seed each new chunk with a short character tail of the last.
+        // 2. Pack units into chunks. The overlap — the end of the previous chunk — goes in
+        // context_before, not into text, so a passage is never printed twice inline; and a new
+        // section starts a new chunk (with no overlap), once the current one is big enough.
         var chunks = new List<RagChunk>();
         var buf = new StringBuilder();
-        int realUnits = 0;
+        var sections = new List<string>();
+        string context = string.Empty;
         int firstPage = 0, lastPage = 0, index = 0;
-        string section = "Front matter";
         bool chunkHasMath = false;
 
-        void Emit(bool force)
+        void Emit(bool force, bool carryOverlap)
         {
             string body = Normalise(buf.ToString());
-            if (realUnits == 0 || body.Length == 0 || (!force && body.Length < minChars))
+            if (body.Length == 0 || (!force && body.Length < minChars))
             {
                 return;
             }
 
+            string section = sections.Count > 0 ? sections[0] : "Front matter";
             string text = opt.IncludeSectionHeading && !string.IsNullOrEmpty(section)
                 ? $"{docTitle} — {section}\n\n{body}"
                 : body;
 
-            (string quality, IReadOnlyList<string> issues) = PdfTextQuality.Assess(body, chunkHasMath, profile);
+            var equations = new List<RagEquation>();
+            for (int p = firstPage; p <= lastPage; p++)
+            {
+                if (equationsByPage.TryGetValue(p, out List<RagEquation>? onPage))
+                {
+                    equations.AddRange(onPage.Where(e => body.Contains(e.Label, StringComparison.Ordinal)));
+                }
+            }
+
+            (string quality, IReadOnlyList<string> issues) = PdfTextQuality.Assess(body, chunkHasMath, profile, equations);
             chunks.Add(new RagChunk(
                 $"{idStem}#c{index:D4}", text, sourcePath, docTitle,
-                firstPage, lastPage, section, index, text.Length / 4, quality, issues));
+                firstPage, lastPage, section, index, text.Length / 4, quality, issues,
+                firstPage + 1, lastPage + 1, Label(firstPage), Label(lastPage),
+                [.. sections], context, equations));
             index++;
 
-            buf.Clear();
-            realUnits = 0;
-            chunkHasMath = false;
-            if (overlapChars > 0 && text.Length > overlapChars)
+            context = string.Empty;
+            if (carryOverlap && overlapChars > 0)
             {
-                string tail = text[^overlapChars..];
+                string tail = body.Length > overlapChars ? body[^overlapChars..] : body;
                 int space = tail.IndexOf(' ');
-                buf.Append(space > 0 ? tail[(space + 1)..] : tail).Append(' ');
-                firstPage = lastPage; // the carried tail belongs to the last page seen
+                context = body.Length > overlapChars && space > 0 ? tail[(space + 1)..] : tail;
             }
+
+            buf.Clear();
+            sections.Clear();
+            chunkHasMath = false;
         }
 
         foreach (Paragraph u in units)
         {
-            if (realUnits > 0 && buf.Length + u.Text.Length + 1 > maxChars)
+            if (buf.Length > 0)
             {
-                Emit(force: false);
+                if (u.StartsSection && buf.Length >= minChars)
+                {
+                    Emit(force: false, carryOverlap: false);
+                }
+                else if (buf.Length + u.Text.Length + 1 > maxChars)
+                {
+                    Emit(force: true, carryOverlap: true);
+                }
             }
 
-            if (realUnits == 0 && buf.Length == 0)
+            if (buf.Length == 0)
             {
                 firstPage = u.Page;
             }
 
-            if (realUnits == 0)
+            if (sections.Count == 0 || !string.Equals(sections[^1], u.Section, StringComparison.Ordinal))
             {
-                section = u.Section;
+                sections.Add(u.Section);
             }
 
             buf.Append(u.Text).Append(' ');
             lastPage = u.Page;
-            realUnits++;
             chunkHasMath |= u.HasMath;
         }
 
-        Emit(force: true);
+        Emit(force: true, carryOverlap: false);
         return chunks;
     }
 }
