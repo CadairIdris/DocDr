@@ -44,6 +44,8 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   `FPDFFont_GetFontName` and `FPDFText_GetTextRenderMode` (DocDr calls neither); `FPDFBitmap_FillRect`
   now returns `FPDF_BOOL` instead of `void` (harmless). Any new function the bindings don't
   declare needs a hand-written `[DllImport("pdfium")]`.
+- **Dependabot** (`.github/dependabot.yml`) opens a monthly PR bumping `bblanchon.PDFium.Win32` and
+  `.Linux` together (grouped). Before merging one, run the export diff above and `dotnet test`.
 - Re-checked quirks on 8125: `FPDF_GetPageSizeByIndex` still returns the *rotated* size.
   `FPDF_ImportPages` into a `FPDF_LoadMemDocument` destination **now works**, but the rebuild-from-
   sources model below stays — it's what undo is built on.

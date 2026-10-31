@@ -1,0 +1,19 @@
+# Opens a PR when a newer native PDFium build is published (bblanchon/pdfium-binaries).
+# The PDFiumCore bindings are frozen at 4688, so before merging an update diff the exported
+# functions against the bindings — see "PDFium native build" in CLAUDE.md.
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    allow:
+      - dependency-name: "bblanchon.PDFium.*"
+    groups:
+      pdfium:
+        patterns:
+          - "bblanchon.PDFium.*"
+    commit-message:
+      prefix: "PDFium"
+    labels:
+      - "pdfium"
