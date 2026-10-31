@@ -8,7 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="PDFiumCore" Version="4688.0.0" />
+    <!-- Bindings only: PDFiumCore's bundled pdfium (4688) mis-maps some ToUnicode entries (maths
+         glyphs come out as Syriac/Oriya letters). The native library comes from bblanchon's current
+         pdfium-binaries instead; the flat C API PDFiumCore binds is ABI-stable across those builds. -->
+    <PackageReference Include="PDFiumCore" Version="4688.0.0" ExcludeAssets="native" />
+    <PackageReference Include="bblanchon.PDFium.Win32" Version="158.0.8125" />
+    <PackageReference Include="bblanchon.PDFium.Linux" Version="158.0.8125" />
   </ItemGroup>
 
   <ItemGroup>

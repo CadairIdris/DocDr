@@ -66,7 +66,8 @@ designed, and those are where bugs keep coming from.
 
 ## Notes
 
-- **`PDFiumCore` is pinned at 4688.** Newer PDFium builds carry more of the struct-tree element
+- **`PDFiumCore` bindings are pinned at 4688**, but the native binary is now current
+  (chromium/8125, `bblanchon.PDFium.*`) — the old binary garbled maths text. Newer PDFium builds carry more of the struct-tree element
   and text-style APIs; worth a look if tagged-PDF or style-aware extraction is revisited.
 - **Rendering memory** is now bounded and documented in `CLAUDE.md` ("Page rendering"): 128 MB
   raw-BGRA LRU, oversized-render cache bypass, `PageSlotViewModel.Image` freed outside the

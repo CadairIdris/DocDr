@@ -27,10 +27,31 @@ Generated flat bindings. Static classes `fpdfview`, `fpdf_text`, `fpdf_doc`, `fp
 wrapper classes — check `handle is null || handle.__Instance == IntPtr.Zero`; close with the
 explicit `FPDF_Close*` functions, don't dispose the wrapper.
 
+## PDFium native build (bindings 4688, binary current)
+
+- **The bindings and the native library come from different packages.** `DocDr.Pdf.csproj` takes
+  `PDFiumCore` 4688.0.0 (its last release) with **`ExcludeAssets="native"`**, and the binary from
+  bblanchon's `bblanchon.PDFium.Win32` / `.Linux` (158.0.8125 = chromium/8125). Linux is there so
+  `dotnet test` runs in a Linux container; `ExcludeAssets` stops PDFiumCore's old `pdfium.dll`
+  reaching `DocDr.App` too (check `runtimes/win-x64/native/pdfium.dll` is the bblanchon one).
+- Why: the old 4688 binary drops some ToUnicode entries — Word's maths font's
+  `<0747> <D835DC58D835DC58>` came out as the raw CID (Syriac/Oriya/Ethiopic letters). See the RAG
+  section. Annex O sample: 190 → 21 garbage chars in chunk export (the 21 are U+FFFD the font itself
+  maps), "(O.5)" no longer lost. A plain non-embedded synthetic font with the same doubled entry
+  extracts fine on *both* builds, so there's no fixture test for it — the failure needs the embedded
+  TrueType font.
+- **ABI check when bumping the binary:** diff `nm -D` exports against the old one. 8125 removed only
+  `FPDFFont_GetFontName` and `FPDFText_GetTextRenderMode` (DocDr calls neither); `FPDFBitmap_FillRect`
+  now returns `FPDF_BOOL` instead of `void` (harmless). Any new function the bindings don't
+  declare needs a hand-written `[DllImport("pdfium")]`.
+- Re-checked quirks on 8125: `FPDF_GetPageSizeByIndex` still returns the *rotated* size.
+  `FPDF_ImportPages` into a `FPDF_LoadMemDocument` destination **now works**, but the rebuild-from-
+  sources model below stays — it's what undo is built on.
+
 ## Page editing (`PdfDocument`, Stage 2)
 
-- **`FPDF_ImportPages` / `FPDF_ImportPagesByIndex` fail (return 0) when the destination is a
-  `FPDF_LoadMemDocument` document** in this build — only a fresh `FPDF_CreateNewDocument`
+- **`FPDF_ImportPages` / `FPDF_ImportPagesByIndex` failed (returned 0) when the destination was a
+  `FPDF_LoadMemDocument` document** in the old 4688 build (works on 8125, design kept) — only a fresh `FPDF_CreateNewDocument`
   works as a dest. So a `PdfDocument` is modelled as an ordered `List<PageRef>` (source id +
   page index + rotation) plus its loaded source docs; structural edits **rebuild** the live
   handle with `FPDF_CreateNewDocument` + `FPDF_ImportPages` from the sources. Rotation and
@@ -885,7 +906,8 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   `ଵ`, 1246 → Ethiopic `ቆ`. PDFium 4763 reproduces the agent's exact output; current PDFium
   (pypdfium2 / chromium 8076) extracts the same pages correctly except glyphs the map itself sends to
   U+FFFD (big parentheses, the radical). Annex O: 166 garbage chars on 4763 vs 16 on current, and
-  4763 also loses "(O.5)". Upgrading PDFiumCore is the real fix. `RagChunkResult.SuspectPages` / `DoubledGlyphsRemoved` feed the export summary dialog.
+  4763 also loses "(O.5)". **Fixed by moving to a current native PDFium** (see "PDFium native
+  build"); the quality flags still catch what the font itself leaves unmapped. `RagChunkResult.SuspectPages` / `DoubledGlyphsRemoved` feed the export summary dialog.
 - App: `DocumentTabViewModel.ExportRagChunksCommand` (async — `Task.Run(Chunk + WriteJsonl)`),
   toolbar "Export chunks…". Batch/folder mode and catalog persistence are not built yet. Not done
   yet: page-image references for suspect chunks, tables as rows (`PdfTableExtractor` not wired in).

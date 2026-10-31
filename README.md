@@ -200,8 +200,9 @@ dotnet run --project src/DocDr.App              # empty shell
 dotnet run --project src/DocDr.App -- a.pdf b.pdf   # opens files as tabs
 ```
 
-Requires the .NET 9 SDK and Windows (x64). PDFium native binaries come with the `PDFiumCore`
-NuGet package.
+Requires the .NET 9 SDK and Windows (x64). The PDFium bindings come from the `PDFiumCore` NuGet
+package; the native binary is a current `pdfium-binaries` build (`bblanchon.PDFium.Win32`), not the
+older one PDFiumCore bundles.
 
 ## Publish
 
