@@ -184,6 +184,31 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
             TableSelectActive = false;
             AnnotationsVisible = true;
         }
+        if (IsBasicShape(value))
+            LastBasicShape = value;
+        OnPropertyChanged(nameof(IsBasicShapeActive));
+    }
+
+    private static bool IsBasicShape(ShapeTool tool) =>
+        tool is ShapeTool.Rectangle or ShapeTool.Ellipse or ShapeTool.Line or ShapeTool.Arrow;
+
+    /// <summary>The rectangle / ellipse / line / arrow tool last armed — what the toolbar's
+    /// shapes split button shows and re-arms on a plain click.</summary>
+    [ObservableProperty]
+    private ShapeTool _lastBasicShape = ShapeTool.Rectangle;
+
+    /// <summary>Toolbar shapes split button: on while any basic shape tool is armed;
+    /// switching it on arms <see cref="LastBasicShape"/>.</summary>
+    public bool IsBasicShapeActive
+    {
+        get => IsBasicShape(ShapeTool);
+        set
+        {
+            if (value)
+                ShapeTool = LastBasicShape;
+            else if (IsBasicShape(ShapeTool))
+                ShapeTool = ShapeTool.None;
+        }
     }
 
     /// <summary>Global show/hide for the annotation overlay (highlights, notes, ink). View-only.</summary>
@@ -194,10 +219,12 @@ public sealed partial class DocumentTabViewModel : ObservableObject, IDisposable
     {
         LeftPane.AnnotationsVisible = value;
         RightPane.AnnotationsVisible = value;
-        OnPropertyChanged(nameof(MarkupButtonLabel));
+        OnPropertyChanged(nameof(MarkupToolTip));
     }
 
-    public string MarkupButtonLabel => AnnotationsVisible ? "👁 Markup" : "👁 Markup hidden";
+    public string MarkupToolTip => AnnotationsVisible
+        ? "Hide all highlights, notes and ink on the page"
+        : "Markup is hidden — click to show highlights, notes and ink again";
 
     [RelayCommand]
     private void ToggleAnnotations() => AnnotationsVisible = !AnnotationsVisible;

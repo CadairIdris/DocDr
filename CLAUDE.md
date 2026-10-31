@@ -116,6 +116,25 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   affect the same-line decision) — a highlight sitting exactly flush against the glyph edges reads
   as slightly clipped, particularly on ascenders/descenders.
 
+## Main toolbar (`MainWindow.xaml`)
+
+- **One `ToolBar` row of 16×16 stroke icons with tooltips**, grouped by how often each thing is used:
+  File ▾ · Save · Undo · Redo │ Note · Draw · colour swatches · Text box · Callout · Cloud ·
+  Shape (split) ▾ · Markup eye │ Pages ▾ · Tools ▾ │ Split · Side by side · Link scrolling · Read │ Theme ▾.
+  Once-per-document actions live in the dropdowns: **File** (Open/New/Merge/Save/Save As/Print/
+  Properties/Find in files), **Pages** (rotate/delete/insert PDF/blank page), **Tools** (Extract table
+  as a checkable item, OCR, Remove watermark, Trim margins, Export chunks).
+- A dropdown is a plain `Button` with its own `ContextMenu`, opened under it by `DropDown_Click`
+  (code-behind) — the menu inherits the window `DataContext` and the Fluent `ContextMenu` style
+  (a `Menu` inside a `ToolBar` would pick up the classic ToolBar style). Per-tab buttons carry
+  `IsEnabled="{Binding HasTabs}"` since a null `SelectedTab.XCommand` binding leaves a control enabled.
+- Icon geometries are `Tb*` resources in `MainWindow.xaml`, drawn with `NavTabIcon` (stroke follows the
+  ancestor `ButtonBase` Foreground, so checked/disabled states work); `MenuIcon` is the `MenuItem` variant.
+- **Shape split button**: `DocumentTabViewModel.IsBasicShapeActive` (on while rectangle/ellipse/line/arrow
+  is armed; turning it on arms `LastBasicShape`, which `OnShapeToolChanged` records). Its icon swaps
+  by `LastBasicShape`; the ▾ menu picks the shape. Markup toggle swaps eye / eye-off and its tooltip is
+  `MarkupToolTip`. Theme is a ▾ menu (`Theme_Click`), not a ComboBox.
+
 ## Navigation panel (icon rail)
 
 - **`NavigationRailView`** is a ~40px always-visible strip (column 0 of `DocumentTabView`) with
