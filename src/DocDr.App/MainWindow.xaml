@@ -174,11 +174,9 @@
             <Setter Property="Data" Value="{StaticResource TbChevron}" />
         </Style>
 
-        <!-- Icon in a toolbar dropdown's MenuItem (the menu item's Foreground, not a ButtonBase's). -->
-        <Style x:Key="MenuIcon" TargetType="Path" BasedOn="{StaticResource NavTabIcon}">
-            <Setter Property="Stroke"
-                    Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=MenuItem}}" />
-        </Style>
+        <!-- Icon in a toolbar dropdown's MenuItem — NavTabIcon already strokes with its own inherited
+             foreground, so this is just a named alias for menu use. -->
+        <Style x:Key="MenuIcon" TargetType="Path" BasedOn="{StaticResource NavTabIcon}" />
     </Window.Resources>
 
     <Grid>

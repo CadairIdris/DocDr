@@ -128,8 +128,10 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   (code-behind) — the menu inherits the window `DataContext` and the Fluent `ContextMenu` style
   (a `Menu` inside a `ToolBar` would pick up the classic ToolBar style). Per-tab buttons carry
   `IsEnabled="{Binding HasTabs}"` since a null `SelectedTab.XCommand` binding leaves a control enabled.
-- Icon geometries are `Tb*` resources in `MainWindow.xaml`, drawn with `NavTabIcon` (stroke follows the
-  ancestor `ButtonBase` Foreground, so checked/disabled states work); `MenuIcon` is the `MenuItem` variant.
+- Icon geometries are `Tb*` resources in `MainWindow.xaml`, drawn with `NavTabIcon` (stroke = the Path's own
+  inherited `TextElement.Foreground`, so checked/disabled states work); `MenuIcon` is an alias for menus. **Don't use a
+  `FindAncestor` (ButtonBase / MenuItem) binding for the stroke** — items in an unopened menu or a
+  collapsed ToolBar overflow aren't in a visual tree yet, and the lookup logs binding error 4.
 - **Shape split button**: `DocumentTabViewModel.IsBasicShapeActive` (on while rectangle/ellipse/line/arrow
   is armed; turning it on arms `LastBasicShape`, which `OnShapeToolChanged` records). Its icon swaps
   by `LastBasicShape`; the ▾ menu picks the shape. Markup toggle swaps eye / eye-off and its tooltip is

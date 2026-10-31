@@ -40,8 +40,11 @@
                 <Setter Property="StrokeEndLineCap" Value="Round" />
                 <Setter Property="StrokeLineJoin" Value="Round" />
                 <Setter Property="SnapsToDevicePixels" Value="True" />
+                <!-- Own inherited TextElement.Foreground, not a FindAncestor ButtonBase lookup: a
+                     button in a collapsed ToolBar overflow (or an unopened menu) isn't in a visual
+                     tree yet, and the ancestor binding then logs "Cannot find source" (error 4). -->
                 <Setter Property="Stroke"
-                        Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ButtonBase}}" />
+                        Value="{Binding (TextElement.Foreground), RelativeSource={RelativeSource Self}}" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>
