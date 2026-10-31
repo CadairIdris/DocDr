@@ -260,7 +260,7 @@ public static partial class PdfRagChunker
                 bool switched = hit >= 0;
                 if (hit >= 0)
                 {
-                    current = pending[hit].Title;
+                    current = PrintedHeading(para) ?? pending[hit].Title;
                     pending.RemoveRange(0, hit + 1);
                 }
                 else if (BodyHeading().Match(para) is { Success: true } h && para.Length < 120
@@ -269,7 +269,7 @@ public static partial class PdfRagChunker
                 {
                     // A numbered heading printed in the body whose outline entry points elsewhere
                     // (at the contents page, say): the section starts here.
-                    current = title;
+                    current = PrintedHeading(para) ?? title;
                     switched = true;
                 }
 
@@ -370,6 +370,19 @@ public static partial class PdfRagChunker
             para.StartsWith(number, StringComparison.Ordinal)
             && (para.Length == number.Length || char.IsWhiteSpace(para[number.Length])
                 || (para[number.Length] == '.' && (para.Length == number.Length + 1 || char.IsWhiteSpace(para[number.Length + 1]))));
+    }
+
+    /// <summary>The heading as printed, when <paramref name="para"/> is just a heading line (short, not a
+    /// sentence) — better than an outline entry, which may carry a contents-page number or different
+    /// wording; null when the heading ran into body text.</summary>
+    private static string? PrintedHeading(string para)
+    {
+        string t = Normalise(para);
+        // Judge "is it a sentence?" past the number — "6.1. General" isn't one.
+        string words = BodyHeading().Match(t) is { Success: true } m ? t[(m.Groups[1].Length + 1)..] : t;
+        return t.Length is > 0 and <= 120 && !t.EndsWith('.') && !SentenceBreak().IsMatch(words.TrimStart('.', ' '))
+            ? TrailingPageNumber().Replace(t, string.Empty)
+            : null;
     }
 
     // A numbered heading: "6.5.5 Reinforcement…", "6.5.5. Reinforcement…", "A.2 Scope".

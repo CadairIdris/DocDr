@@ -965,6 +965,13 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
     points elsewhere still starts its section. `ClauseHeadingShape` accepts "6.5.5." (number + dot) so
     such a heading is its own paragraph rather than joined to the next line.
   - **Exports default to the PDF's own folder** (`InitialDirectory`, chunks + measurements CSV).
+- **Second follow-up:** labels allow **exactly one dot** between numbers (`(5.3.2)` is EN 1992-2's margin
+  pointer to the EN 1992-1-1 clause it replaces — 96 false labels) plus a book's own `(D6.17)`
+  (`[A-Z]{1,2}\d{0,2}` prefix); the label gap is ≥ 0.8 label heights (a real word space is ~0.25 em).
+  More Symbol PUA: radical / arrow / integral / brace extenders (`F8E5 F8E6 F8F4 F8F5`, `23AA 23AE`) → no
+  text *and they don't break the bracket run* they lengthen; `F8E8/F6DA` ®, `F8E9/F6D9` ©, `F8EA/F6DB` ™.
+  A matched heading's section title is **the printed heading line** (`PrintedHeading`: ≤ 120 chars, not a
+  sentence past its number) rather than the outline wording, which may carry a contents page number.
 - **`PdfFolderSearch` totals are updated under one lock** — `Interlocked` on each separately let the
   last file's report pair "3 of 3 files" with a match total another worker hadn't added yet (a ~1-in-10
   flaky test once the new PDFium changed the timing).

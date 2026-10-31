@@ -127,7 +127,10 @@ public sealed class PdfRagChunkerReviewTests
         chars.AddRange(Text("FVB = FVBB", 90, 300));
         chars.AddRange(Text("(O.1)", 520, 300));
         chars.AddRange(NewLine());
-        chars.AddRange(Text("the resistance should be checked using Expression (8.94)", 90, 250));
+        // A reference at the end of a prose line: a normal word space (~2.5 pt) before the label.
+        const string prose = "the resistance should be checked using Expression";
+        chars.AddRange(Text(prose, 90, 250));
+        chars.AddRange(Text("(8.94)", 90 + ((prose.Length - 1) * 6) + 5 + 2.5, 250));
         chars.AddRange(NewLine());
         chars.AddRange(Text("(3.1)", 100, 200)); // a label at the left margin: not a display equation
 
@@ -147,8 +150,34 @@ public sealed class PdfRagChunkerReviewTests
         chars.AddRange(Text("4.2.1.5(3) 4.3.1(1) 4.3.2(1)", 90, 500));
         chars.AddRange(NewLine());
         chars.AddRange(Text("(3)", 540, 450));
+        chars.AddRange(NewLine());
+        // EN 1992-2 style: the EN 1992-1-1 clause a paragraph replaces, in the right margin.
+        chars.AddRange(Text("(101) The following applies.", 90, 400));
+        chars.AddRange(Text("(5.3.2)", 530, 400));
 
         Assert.Empty(PdfChunkText.BuildPage(chars, 0, 792, left: 0, right: 612).Equations);
+    }
+
+    [Fact]
+    public void A_books_own_equation_numbering_is_a_label()
+    {
+        var chars = new List<PdfChunkText.RawChar>();
+        chars.AddRange(Text("VRd,max = 0,5 bw d v fcd", 90, 300));
+        chars.AddRange(Text("(D6.17)", 520, 300));
+
+        Assert.Equal("(D6.17)", Assert.Single(PdfChunkText.BuildPage(chars, 0, 792, left: 0, right: 612).Equations).Label);
+    }
+
+    [Fact]
+    public void More_symbol_font_private_use_glyphs_get_their_meaning()
+    {
+        // Radical / integral extenders carry no text; Symbol's sans / serif marks are real characters.
+        Assert.Equal("√x", Line([C(0x221A, 100), C(0xF8E5, 106), C('x', 112)]));
+        Assert.Equal("∫ab", Line([C(0x2320, 100, 410), C(0xF8F5, 100, 400), C(0x2321, 100, 390), C('a', 106), C('b', 112)])
+            .Replace("\u2320", "∫").Replace("\u2321", string.Empty));
+        Assert.Equal("BSI®©™", Line([.. Text("BSI", 100), C(0xF8E8, 118), C(0xF6D9, 124), C(0xF8EA, 130)]));
+        // A right brace built from top / extender / bottom stays one "}".
+        Assert.Equal("}", Line([C(0xF8FC, 100, 410), C(0xF8F4, 100, 400), C(0xF8FE, 100, 390)]));
     }
 
     [Fact]
@@ -334,6 +363,31 @@ public sealed class PdfRagChunkerReviewTests
         Assert.Equal("6.5.5. Reinforcement for punching shear", example.SectionTitle);
         RagChunk punching = Assert.Single(chunks, c => c.Text.Contains("Paragraph 2 on punching", StringComparison.Ordinal));
         Assert.Equal("6.4. Punching", punching.SectionTitle);
+    }
+
+    [Fact]
+    public void The_printed_heading_is_the_section_title_not_the_outline_wording()
+    {
+        using var ws = new TempWorkspace();
+        string[] pages =
+        [
+            "6.1. General\n" + Para("general", 1),
+            "6.2. Shear resistance of members\n" + Para("shear", 1),
+            "6.3. Torsion of members\n" + Para("torsion", 1),
+        ];
+        // An outline made from the contents: shorter wording and the contents page number.
+        using var doc = PdfDocument.Load(TestPdfBuilder.WritePdf(ws.Path("pr.pdf"), pages, bookmarks:
+        [
+            new TestPdfBuilder.Bookmark("6.1 General 95", 0),
+            new TestPdfBuilder.Bookmark("6.2 Shear 96", 1),
+            new TestPdfBuilder.Bookmark("6.3 Torsion 99", 2),
+        ]));
+
+        var chunks = PdfRagChunker.Chunk(doc,
+            new RagChunkOptions { MinChunkTokens = 1, IncludeSectionHeading = false }).Chunks;
+
+        Assert.Equal(["6.1. General", "6.2. Shear resistance of members", "6.3. Torsion of members"],
+            chunks.Select(c => c.SectionTitle).ToArray());
     }
 
     [Fact]

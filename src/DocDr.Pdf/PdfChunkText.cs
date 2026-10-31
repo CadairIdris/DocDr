@@ -61,11 +61,12 @@ internal static partial class PdfChunkText
     /// <summary>One PDFium text-page char: its UTF-16 unit (FPDFText_GetUnicode) and box.</summary>
     internal readonly record struct RawChar(int Unit, PdfRect Box);
 
-    /// <summary>An equation label: "(8.94)", "(O.7)", "(6.2.a)", "(6.2a)", "(B.11)", "(6.3N)". A dot is
-    /// required, so paragraph numbers "(3)" aren't labels; it must stand alone ("4.3.2(1)" is a
+    /// <summary>An equation label: "(8.94)", "(O.7)", "(6.2.a)", "(6.2a)", "(B.11)", "(6.3N)", and a book's
+    /// own "(D6.17)". Exactly one dot between numbers, so paragraph numbers "(3)" and clause references
+    /// "(5.3.2)" — margin pointers to the clause a part replaces — aren't labels; it must stand alone ("4.3.2(1)" is a
     /// clause-paragraph reference). Letters may touch it — PDFium doesn't always put a space
     /// before a far-off label — the position test in <see cref="FindEquations"/> decides.</summary>
-    [GeneratedRegex(@"(?<![\d.])\(\s*(?:[A-Z]{1,2}|\d{1,3})\.\d{1,3}(?:\.\d{1,3})*(?:\.?[a-z])?N?\s*\)(?!\()")]
+    [GeneratedRegex(@"(?<![\d.])\(\s*(?:[A-Z]{1,2}\d{0,2}|\d{1,3})\.\d{1,3}(?:\.?[a-z])?N?\s*\)(?!\()")]
     private static partial Regex EquationLabel();
 
     // A word of 4+ lowercase letters — two or more make a line prose, not an equation fragment.
@@ -227,7 +228,20 @@ internal static partial class PdfChunkText
                 boxes.Add(box);
                 lastKept = (cp, box);
 
+                cp = cp switch
+                {
+                    0xF8E8 or 0xF6DA => 0x00AE, // Symbol's sans / serif ®
+                    0xF8E9 or 0xF6D9 => 0x00A9, // ©
+                    0xF8EA or 0xF6DB => 0x2122, // ™
+                    _ => cp,
+                };
                 (string? piece, int family) = SymbolPiece(cp);
+                if (piece is { Length: 0 })
+                {
+                    lineMath = true;
+                    continue; // an extender: no text, and it doesn't break the bracket it lengthens
+                }
+
                 if (piece is not null)
                 {
                     lineMath = true;
@@ -291,8 +305,11 @@ internal static partial class PdfChunkText
         >= 0xF8F6 and <= 0xF8F8 or >= 0x239E and <= 0x23A0 => (")", 2),
         >= 0xF8EE and <= 0xF8F0 or >= 0x23A1 and <= 0x23A3 => ("[", 3),
         >= 0xF8F9 and <= 0xF8FB or >= 0x23A4 and <= 0x23A6 => ("]", 4),
-        >= 0xF8F1 and <= 0xF8F4 or >= 0x23A7 and <= 0x23AA => ("{", 5),
+        >= 0xF8F1 and <= 0xF8F3 or >= 0x23A7 and <= 0x23A9 => ("{", 5),
         >= 0xF8FC and <= 0xF8FE or >= 0x23AB and <= 0x23AD => ("}", 6),
+        // Extenders that only lengthen another glyph (√'s vinculum, an arrow's or integral's shaft, a
+        // brace's middle run) carry no text of their own.
+        0xF8E5 or 0xF8E6 or 0xF8F4 or 0xF8F5 or 0x23AA or 0x23AE => (string.Empty, 8),
         0xF8E7 or 0x23AF => ("/", 7), // horizontal extender — in an equation, a fraction bar
         _ => (null, 0),
     };
@@ -379,7 +396,7 @@ internal static partial class PdfChunkText
                     || u.Left >= left + ((right - left) * 0.55);
                 var leftOf = glyphs[li].Where(g => (g.TextIndex < candidate.Index || g.TextIndex >= end)
                     && g.Box.Right <= u.Left + 0.5).Select(g => g.Box.Right).ToList();
-                bool gap = leftOf.Count == 0 || u.Left - leftOf.Max() >= 1.5 * lh;
+                bool gap = leftOf.Count == 0 || u.Left - leftOf.Max() >= 0.8 * lh;
                 if (rightmost && rightSide && gap)
                 {
                     found = candidate;
