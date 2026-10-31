@@ -20,7 +20,11 @@ internal readonly record struct ChunkLine(string Text, bool InMargin, bool HasMa
 /// <param name="RawText">The equation as extracted (label excluded), in drawing order.</param>
 /// <param name="Stacked">Parts of it sit on different baselines (a fraction, root or stacked
 /// index), which plain text can't represent — the linear text is unreliable.</param>
-internal sealed record ChunkEquation(string Label, PdfRect Bounds, string RawText, bool Stacked);
+internal sealed record ChunkEquation(string Label, PdfRect Bounds, string RawText, bool Stacked)
+{
+    /// <summary>The label's own box ("(8.94)" at the right margin).</summary>
+    public PdfRect LabelBounds { get; init; }
+}
 
 /// <summary>A page's lines plus what extraction had to repair.</summary>
 internal sealed record ChunkPage(IReadOnlyList<ChunkLine> Lines, int DoubledGlyphsRemoved)
@@ -461,7 +465,10 @@ internal static partial class PdfChunkText
 
             bool stacked = centres.Count > 1 && centres.Max() - centres.Min() > 0.5 * h;
             string raw = string.Join(' ', parts);
-            result.Add(new ChunkEquation(Regex.Replace(m.Value, @"\s+", string.Empty), Union(boxes), raw, stacked));
+            result.Add(new ChunkEquation(Regex.Replace(m.Value, @"\s+", string.Empty), Union(boxes), raw, stacked)
+            {
+                LabelBounds = label,
+            });
         }
 
         return result;
@@ -469,7 +476,7 @@ internal static partial class PdfChunkText
 
     private static bool HasLabel(string text) => EquationLabel().IsMatch(text);
 
-    private static bool IsProse(string text) => ProseWord().Count(text) >= 2;
+    internal static bool IsProse(string text) => ProseWord().Count(text) >= 2;
 
     private static PdfRect Union(IReadOnlyList<PdfRect> boxes) => new(
         boxes.Min(b => b.Left), boxes.Max(b => b.Top), boxes.Max(b => b.Right), boxes.Min(b => b.Bottom));

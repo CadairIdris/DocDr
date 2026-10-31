@@ -504,6 +504,8 @@
                             <Separator />
                             <MenuItem Header="Export _chunks…" Command="{Binding SelectedTab.ExportRagChunksCommand}"
                                       ToolTip="Split the text into overlapping, section-tagged JSONL chunks for RAG" />
+                            <MenuItem Header="Export _HTML…" Command="{Binding SelectedTab.ExportHtmlCommand}"
+                                      ToolTip="Structured HTML for an agent: cleaned text, with each equation, table and figure as an image cropped from the page" />
                         </ContextMenu>
                     </Button.ContextMenu>
                 </Button>
