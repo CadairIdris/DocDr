@@ -1,0 +1,199 @@
+<Window x:Class="DocDr.App.Views.VisualCompareWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:DocDr.App.ViewModels"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance vm:VisualCompareViewModel}"
+        Title="Compare" Width="1100" Height="800"
+        Icon="/DocDr.App;component/Assets/DocDr.ico"
+        WindowStartupLocation="CenterOwner"
+        MinWidth="640" MinHeight="420">
+    <Window.InputBindings>
+        <KeyBinding Key="F3" Command="{Binding NextChangeCommand}" />
+        <KeyBinding Key="F3" Modifiers="Shift" Command="{Binding PreviousChangeCommand}" />
+    </Window.InputBindings>
+    <Window.Resources>
+        <SolidColorBrush x:Key="RemovedBrush" Color="#DC2828" />
+        <SolidColorBrush x:Key="AddedBrush" Color="#146EE6" />
+    </Window.Resources>
+    <DockPanel>
+        <!-- ── Header: the two versions + options ─────────────────────────────── -->
+        <Border DockPanel.Dock="Top" Background="{DynamicResource ChromeBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="12,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <Rectangle Width="10" Height="10" Fill="{StaticResource RemovedBrush}" Margin="0,0,6,0" VerticalAlignment="Center" />
+                        <TextBlock Text="Old:" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryTextBrush}" Margin="0,0,4,0" />
+                        <TextBlock Text="{Binding OldName}" Foreground="{DynamicResource PrimaryTextBrush}" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Rectangle Width="10" Height="10" Fill="{StaticResource AddedBrush}" Margin="0,0,6,0" VerticalAlignment="Center" />
+                        <TextBlock Text="New:" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryTextBrush}" Margin="0,0,4,0" />
+                        <TextBlock Text="{Binding NewName}" Foreground="{DynamicResource PrimaryTextBrush}" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="⇅ Swap" Padding="10,4" Command="{Binding SwapCommand}"
+                            ToolTip="Swap which document is the old version and which the new" />
+                    <TextBlock Text="New page offset" VerticalAlignment="Center" Margin="16,0,6,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               ToolTip="Pair old page n with new page n + offset — for a revision with pages inserted or removed" />
+                    <Button Content="−" Width="28" Padding="0,4" Command="{Binding DecreaseOffsetCommand}"
+                            AutomationProperties.Name="Decrease page offset" />
+                    <TextBlock Text="{Binding NewPageOffset}" MinWidth="28" TextAlignment="Center" VerticalAlignment="Center"
+                               Foreground="{DynamicResource PrimaryTextBrush}" />
+                    <Button Content="+" Width="28" Padding="0,4" Command="{Binding IncreaseOffsetCommand}"
+                            AutomationProperties.Name="Increase page offset" />
+                    <CheckBox Content="Ignore 1-pixel shifts" Margin="16,0,0,0" VerticalAlignment="Center"
+                              IsChecked="{Binding IgnoreSmallShifts}"
+                              ToolTip="For scans or re-exported drawings that drift slightly — may hide a single changed character in small text" />
+                    <Button Content="Save image…" Padding="10,4" Margin="16,0,0,0" Command="{Binding SaveImageCommand}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ── Toolbar: view mode, blend, zoom ────────────────────────────────── -->
+        <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="12,6">
+            <DockPanel LastChildFill="False">
+                <!-- No GroupName: RadioButtons group by their parent panel (see CLAUDE.md). -->
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                    <RadioButton Content="Overlay" IsChecked="True" Margin="0,0,12,0"
+                                 Command="{Binding SetViewModeCommand}" CommandParameter="{x:Static vm:CompareViewMode.Overlay}"
+                                 ToolTip="Red = only in the old version, blue = only in the new, grey = unchanged" />
+                    <RadioButton Content="Old" Margin="0,0,12,0"
+                                 Command="{Binding SetViewModeCommand}" CommandParameter="{x:Static vm:CompareViewMode.Old}" />
+                    <RadioButton Content="New" Margin="0,0,12,0"
+                                 Command="{Binding SetViewModeCommand}" CommandParameter="{x:Static vm:CompareViewMode.New}" />
+                    <RadioButton Content="Blend" Margin="0,0,12,0"
+                                 Command="{Binding SetViewModeCommand}" CommandParameter="{x:Static vm:CompareViewMode.Blend}"
+                                 ToolTip="Fade between the two versions with the slider" />
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding IsBlend, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="Old" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryTextBrush}" />
+                        <Slider Width="160" Minimum="0" Maximum="1" Margin="6,0" VerticalAlignment="Center"
+                                Value="{Binding Blend}" SmallChange="0.05" LargeChange="0.25"
+                                AutomationProperties.Name="Blend between old and new" />
+                        <TextBlock Text="New" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryTextBrush}" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button Content="Fit width" Padding="10,2" Click="FitWidth_Click" />
+                    <Button Content="Fit page" Padding="10,2" Margin="6,0,0,0" Click="FitPage_Click" />
+                    <Slider x:Name="ZoomSlider" Width="140" Minimum="0.1" Maximum="6" Margin="10,0,6,0" VerticalAlignment="Center"
+                            Value="{Binding Zoom}" AutomationProperties.Name="Zoom" />
+                    <TextBlock VerticalAlignment="Center" MinWidth="44" Foreground="{DynamicResource SecondaryTextBrush}"
+                               Text="{Binding Zoom, StringFormat={}{0:P0}}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ── Status bar: this page's result + change navigation ─────────────── -->
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource ChromeBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="12,6">
+            <DockPanel LastChildFill="True">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <TextBlock Text="{Binding RegionPosition}" VerticalAlignment="Center" Margin="0,0,10,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}" />
+                    <Button Content="◀ Previous" Padding="10,2" Command="{Binding PreviousChangeCommand}" ToolTip="Previous change (Shift+F3)" />
+                    <Button Content="Next ▶" Padding="10,2" Margin="6,0,0,0" Command="{Binding NextChangeCommand}" ToolTip="Next change (F3)" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Rectangle Width="10" Height="10" Fill="{StaticResource RemovedBrush}" Margin="0,0,4,0" VerticalAlignment="Center" />
+                    <TextBlock Text="removed" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource SecondaryTextBrush}" />
+                    <Rectangle Width="10" Height="10" Fill="{StaticResource AddedBrush}" Margin="0,0,4,0" VerticalAlignment="Center" />
+                    <TextBlock Text="added" VerticalAlignment="Center" Margin="0,0,16,0" Foreground="{DynamicResource SecondaryTextBrush}" />
+                    <TextBlock Text="{Binding PageText}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource PrimaryTextBrush}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ── Page overview ──────────────────────────────────────────────────── -->
+        <Border DockPanel.Dock="Left" Width="210" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="10,8">
+                    <TextBlock Text="{Binding OverviewText}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" />
+                    <ProgressBar Height="4" Margin="0,6,0,0" Minimum="0" Maximum="1" Value="{Binding ScanProgress}"
+                                 Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}" />
+                </StackPanel>
+                <ListBox ItemsSource="{Binding Pages}" SelectedItem="{Binding SelectedPage}" BorderThickness="0"
+                         VirtualizingPanel.IsVirtualizing="True" AutomationProperties.Name="Pages">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:ComparePageItemViewModel}">
+                            <DockPanel>
+                                <TextBlock x:Name="Status" DockPanel.Dock="Right" Text="{Binding StatusText}" Margin="8,0,0,0"
+                                           Foreground="{DynamicResource SecondaryTextBrush}" />
+                                <TextBlock Text="{Binding Label}" Foreground="{DynamicResource PrimaryTextBrush}" />
+                            </DockPanel>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsChanged}" Value="True">
+                                    <Setter TargetName="Status" Property="Foreground" Value="{StaticResource RemovedBrush}" />
+                                    <Setter TargetName="Status" Property="FontWeight" Value="SemiBold" />
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- ── The comparison image ───────────────────────────────────────────── -->
+        <Grid>
+            <ScrollViewer x:Name="Scroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                          Background="{DynamicResource PageBackgroundBrush}" PreviewMouseWheel="Scroller_PreviewMouseWheel">
+                <Grid x:Name="ImageHost" Width="{Binding ImageWidth}" Height="{Binding ImageHeight}" Margin="16"
+                      HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Grid.LayoutTransform>
+                        <ScaleTransform ScaleX="{Binding Zoom}" ScaleY="{Binding Zoom}" />
+                    </Grid.LayoutTransform>
+                    <Image Source="{Binding OverlayImage}" Stretch="Fill"
+                           Visibility="{Binding IsOverlay, Converter={StaticResource BoolToVisibility}}" />
+                    <Image Source="{Binding OldImage}" Stretch="Fill"
+                           Visibility="{Binding ShowOld, Converter={StaticResource BoolToVisibility}}" />
+                    <Image Source="{Binding NewImage}" Stretch="Fill" Opacity="{Binding NewOpacity}"
+                           Visibility="{Binding ShowNew, Converter={StaticResource BoolToVisibility}}" />
+                    <ItemsControl ItemsSource="{Binding Regions}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Setter Property="Canvas.Left" Value="{Binding X}" />
+                                <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:CompareRegionViewModel}">
+                                <Rectangle x:Name="Box" Width="{Binding Width}" Height="{Binding Height}"
+                                           Stroke="#B0F59E0B" StrokeThickness="1" Fill="Transparent" Cursor="Hand"
+                                           RadiusX="2" RadiusY="2" MouseLeftButtonDown="Region_MouseLeftButtonDown" />
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                        <Setter TargetName="Box" Property="Stroke" Value="#F59E0B" />
+                                        <Setter TargetName="Box" Property="StrokeThickness" Value="2.5" />
+                                        <Setter TargetName="Box" Property="Fill" Value="#22F59E0B" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Grid>
+            </ScrollViewer>
+            <ProgressBar IsIndeterminate="True" Width="120" Height="6" VerticalAlignment="Top" Margin="0,10,0,0"
+                         Visibility="{Binding IsComparing, Converter={StaticResource BoolToVisibility}}" />
+        </Grid>
+    </DockPanel>
+</Window>

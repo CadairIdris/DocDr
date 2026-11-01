@@ -700,6 +700,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // other tabs' pending renders are still wanted.
         PdfDocument closing = tab.Document;
         _renderQueue.RemoveWhere(r => ReferenceEquals(r.Document, closing));
+        CloseComparisonsUsing(closing);
 
         tab.Dispose();
         StatusText = Tabs.Count > 0 ? $"{Tabs.Count} tab(s) open." : "Open a PDF to begin.";

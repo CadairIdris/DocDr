@@ -1046,6 +1046,40 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 - `BlockStart` now also opens a paragraph at an annex number + capital ("O.7.1 General") — a long
   "O.7 …" heading was otherwise joined with the next heading (affects chunks too, for the better).
 
+## Visual compare (`PdfVisualCompare`, comparison stage 1 of 3)
+
+- **Pixel comparison** of two PDFs (drawing revisions). Stages 2 (text redline) and 3 (clause-aware
+  edition compare) are not built. `PdfVisualCompare.ComparePages(old, i, new, j, options)` renders both
+  at the old page's displayed size (`GetPageSize`) at `Dpi` 150, capped at `MaxPixels` 24 M (the DPI
+  drops for a big sheet). A new page of a different size (> 1 %) is stretched onto the old one's
+  pixels (`SizesDiffer`). Ink = darkest channel < 200.
+- **Alignment**: `Align` correlates the row and column ink profiles within ±`MaxShiftFraction` (2 %).
+  It takes a shift only when it beats zero shift by > 5 %, because evenly spaced text lines correlate
+  almost as well one line pitch off. The new page is shifted, not resampled.
+- **Tolerance defaults to 0 (exact).** Both pages go through the same PDFium renderer, so unchanged
+  content is pixel-identical. Even a 1-px dilation hid a changed digit in 9–10 pt text (305 → 306 at
+  110 DPI gave 0 changed pixels). The UI's "Ignore 1-pixel shifts" sets 1, for scans and re-exports.
+- `Diff` (pure, unit-tested on synthetic buffers) builds a BGRx overlay: red (old only), blue (new
+  only), and common ink lightened to 35 %. `Regions` counts changed pixels per 8-px cell, joins cells
+  within 2 cells (one changed word is several separate letters), drops groups < `MinRegionPixels` (6),
+  and sorts them top-down.
+- `CompareDocuments(old, new, newPageOffset, dpi: 40)` gives the page overview: old `i` ↔ new `i + offset`
+  plus rows for pages only one side has (`PairCount`).
+- App: Tools ▾ **Compare with…** (`MainViewModel.Compare.cs`). The current tab is "old" and is
+  **borrowed, never disposed**. The picked file reuses an open tab's document when it's already open,
+  else it's loaded and owned by the VM (disposed when the window closes). `CloseTab` →
+  `CloseComparisonsUsing` closes a compare window whose borrowed document is going away. The window is
+  modeless: `VisualCompareWindow` / `VisualCompareViewModel`.
+  - The overview runs in the background. Placeholder rows (`IsPending`) appear at once, so a page can
+    be opened before the scan reaches it.
+  - The page list is rebuilt when the overview finishes. That nulls the ListBox selection, so
+    `ComparePage` ignores a null selection rather than cancelling the in-flight comparison.
+  - View modes: Overlay, Old, New, or Blend (the new image's opacity over the old one).
+  - Region boxes sit on a `Canvas` in image DIPs (px × 96 / DPI); the bitmaps carry the real DPI, so
+    100 % = actual size.
+  - Ctrl+wheel zooms about the pointer. F3 / Shift+F3 step through changes, then on to the next changed page.
+  - Swap negates the offset. "Save image…" uses WPF's `PngBitmapEncoder`.
+
 ## Read mode (Stage 1)
 
 - `MainViewModel.IsReadMode` — full-screen (`WindowStyle=None` + borderless maximise, done in

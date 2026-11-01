@@ -77,6 +77,15 @@ standards and design documents. It can also export them as clean text for RAG an
 - **Properties**: view and edit title, author, subject and keywords.
 - **Save / Save As / Print**. Printing uses the current in-memory state, markup included.
 
+### Comparing versions
+
+- **Compare with…** (Tools ▾): a pixel comparison of the current document against another version,
+  for drawing revisions and marked-up sets. The overlay shows **red** for what was removed, **blue**
+  for what was added and faint grey for what is unchanged; or view either version alone, or **blend**
+  between them with a slider. The new page is lined up automatically if the drawing moved slightly on
+  the sheet. A page list shows which pages changed (with a page offset for inserted pages), and
+  `F3` / `Shift+F3` step through the changes. Save the overlay as a PNG.
+
 ### Export for agents and RAG
 
 Both exports share the same text cleaning:
