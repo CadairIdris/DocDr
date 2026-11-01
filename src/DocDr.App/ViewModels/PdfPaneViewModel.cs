@@ -1150,6 +1150,9 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
     /// <summary>The fixed highlight palette, for the selection popup.</summary>
     public IReadOnlyList<string> HighlightColorKeys => AnnotationColors.Keys;
 
+    /// <summary>Whether <paramref name="pageIndex"/> is a page this pane currently shows.</summary>
+    public bool HasPage(int pageIndex) => pageIndex >= 0 && pageIndex < Pages.Count;
+
     /// <summary>Map a point within a page slot (DIP, top-left origin) to unrotated page space
     /// (MediaBox origin — the space char boxes, quads and ink points live in).</summary>
     public PdfPoint DevicePointToPage(int pageIndex, double deviceX, double deviceY)
@@ -1998,6 +2001,14 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
         UpdateInkPreview();
     }
 
+    /// <summary>Drop a highlighter stroke in progress without adding it.</summary>
+    public void CancelInk()
+    {
+        _inkStroke = null;
+        _inkPage = -1;
+        ClearInkPreview();
+    }
+
     /// <summary>Finish a highlighter stroke; commits it as an ink annotation when it has length.</summary>
     public void EndInk()
     {
@@ -2083,6 +2094,13 @@ public sealed partial class PdfPaneViewModel : ObservableObject, IDisposable, IA
 
         _tableHead = pagePoint;
         UpdateTablePreview();
+    }
+
+    /// <summary>Drop a table marquee in progress (the tool stays armed).</summary>
+    public void CancelTableSelect()
+    {
+        _tablePage = -1;
+        ClearShapePreview();
     }
 
     public void EndTableSelect()
