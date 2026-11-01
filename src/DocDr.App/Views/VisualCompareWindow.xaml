@@ -4,9 +4,11 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:DocDr.App.ViewModels"
+        xmlns:local="clr-namespace:DocDr.App.Views"
+        xmlns:pdf="clr-namespace:DocDr.Pdf;assembly=DocDr.Pdf"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance vm:VisualCompareViewModel}"
-        Title="Compare" Width="1100" Height="800"
+        Title="Compare" Width="1240" Height="820"
         Icon="/DocDr.App;component/Assets/DocDr.ico"
         WindowStartupLocation="CenterOwner"
         MinWidth="640" MinHeight="420">
@@ -114,86 +116,241 @@
             </DockPanel>
         </Border>
 
-        <!-- ── Page overview ──────────────────────────────────────────────────── -->
-        <Border DockPanel.Dock="Left" Width="210" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
-            <DockPanel>
-                <StackPanel DockPanel.Dock="Top" Margin="10,8">
-                    <TextBlock Text="{Binding OverviewText}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" />
-                    <ProgressBar Height="4" Margin="0,6,0,0" Minimum="0" Maximum="1" Value="{Binding ScanProgress}"
-                                 Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}" />
-                </StackPanel>
-                <ListBox ItemsSource="{Binding Pages}" SelectedItem="{Binding SelectedPage}" BorderThickness="0"
-                         VirtualizingPanel.IsVirtualizing="True" AutomationProperties.Name="Pages">
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
-                            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
-                        </Style>
-                    </ListBox.ItemContainerStyle>
-                    <ListBox.ItemTemplate>
-                        <DataTemplate DataType="{x:Type vm:ComparePageItemViewModel}">
-                            <DockPanel>
-                                <TextBlock x:Name="Status" DockPanel.Dock="Right" Text="{Binding StatusText}" Margin="8,0,0,0"
-                                           Foreground="{DynamicResource SecondaryTextBrush}" />
-                                <TextBlock Text="{Binding Label}" Foreground="{DynamicResource PrimaryTextBrush}" />
-                            </DockPanel>
-                            <DataTemplate.Triggers>
-                                <DataTrigger Binding="{Binding IsChanged}" Value="True">
-                                    <Setter TargetName="Status" Property="Foreground" Value="{StaticResource RemovedBrush}" />
-                                    <Setter TargetName="Status" Property="FontWeight" Value="SemiBold" />
-                                </DataTrigger>
-                            </DataTemplate.Triggers>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </DockPanel>
-        </Border>
-
-        <!-- ── The comparison image ───────────────────────────────────────────── -->
         <Grid>
-            <ScrollViewer x:Name="Scroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
-                          Background="{DynamicResource PageBackgroundBrush}" PreviewMouseWheel="Scroller_PreviewMouseWheel">
-                <Grid x:Name="ImageHost" Width="{Binding ImageWidth}" Height="{Binding ImageHeight}" Margin="16"
-                      HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <Grid.LayoutTransform>
-                        <ScaleTransform ScaleX="{Binding Zoom}" ScaleY="{Binding Zoom}" />
-                    </Grid.LayoutTransform>
-                    <Image Source="{Binding OverlayImage}" Stretch="Fill"
-                           Visibility="{Binding IsOverlay, Converter={StaticResource BoolToVisibility}}" />
-                    <Image Source="{Binding OldImage}" Stretch="Fill"
-                           Visibility="{Binding ShowOld, Converter={StaticResource BoolToVisibility}}" />
-                    <Image Source="{Binding NewImage}" Stretch="Fill" Opacity="{Binding NewOpacity}"
-                           Visibility="{Binding ShowNew, Converter={StaticResource BoolToVisibility}}" />
-                    <ItemsControl ItemsSource="{Binding Regions}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <Canvas />
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemContainerStyle>
-                            <Style TargetType="ContentPresenter">
-                                <Setter Property="Canvas.Left" Value="{Binding X}" />
-                                <Setter Property="Canvas.Top" Value="{Binding Y}" />
-                            </Style>
-                        </ItemsControl.ItemContainerStyle>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate DataType="{x:Type vm:CompareRegionViewModel}">
-                                <Rectangle x:Name="Box" Width="{Binding Width}" Height="{Binding Height}"
-                                           Stroke="#B0F59E0B" StrokeThickness="1" Fill="Transparent" Cursor="Hand"
-                                           RadiusX="2" RadiusY="2" MouseLeftButtonDown="Region_MouseLeftButtonDown" />
-                                <DataTemplate.Triggers>
-                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                        <Setter TargetName="Box" Property="Stroke" Value="#F59E0B" />
-                                        <Setter TargetName="Box" Property="StrokeThickness" Value="2.5" />
-                                        <Setter TargetName="Box" Property="Fill" Value="#22F59E0B" />
-                                    </DataTrigger>
-                                </DataTemplate.Triggers>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </Grid>
-            </ScrollViewer>
-            <ProgressBar IsIndeterminate="True" Width="120" Height="6" VerticalAlignment="Top" Margin="0,10,0,0"
-                         Visibility="{Binding IsComparing, Converter={StaticResource BoolToVisibility}}" />
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="360" MinWidth="200" />
+                <ColumnDefinition Width="5" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- ── Left panel: page overview / text changes / clause changes ───────── -->
+            <TabControl Grid.Column="0" SelectedIndex="{Binding SelectedPanelIndex}" BorderThickness="0" Padding="0">
+                <TabItem Header="Pages" ToolTip="Which pages look different (pixel comparison)">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top" Margin="10,8">
+                            <TextBlock Text="{Binding OverviewText}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" />
+                            <ProgressBar Height="4" Margin="0,6,0,0" Minimum="0" Maximum="1" Value="{Binding ScanProgress}"
+                                         Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}" />
+                        </StackPanel>
+                            <ListBox ItemsSource="{Binding Pages}" SelectedItem="{Binding SelectedPage}" BorderThickness="0"
+                                     VirtualizingPanel.IsVirtualizing="True" AutomationProperties.Name="Pages">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                        <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ComparePageItemViewModel}">
+                                        <DockPanel>
+                                            <TextBlock x:Name="Status" DockPanel.Dock="Right" Text="{Binding StatusText}" Margin="8,0,0,0"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}" />
+                                            <TextBlock Text="{Binding Label}" Foreground="{DynamicResource PrimaryTextBrush}" />
+                                        </DockPanel>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsChanged}" Value="True">
+                                                <Setter TargetName="Status" Property="Foreground" Value="{StaticResource RemovedBrush}" />
+                                                <Setter TargetName="Status" Property="FontWeight" Value="SemiBold" />
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                    </DockPanel>
+                </TabItem>
+
+                <TabItem Header="Text" ToolTip="Word-by-word changes in the text, ignoring layout, headers and footers">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top" Margin="10,8">
+                            <TextBlock Text="{Binding TextSummary}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" />
+                            <ProgressBar Height="4" Margin="0,6,0,0" IsIndeterminate="True"
+                                         Visibility="{Binding IsTextComparing, Converter={StaticResource BoolToVisibility}}" />
+                            <DockPanel Margin="0,6,0,0" LastChildFill="False">
+                                <CheckBox DockPanel.Dock="Left" Content="Ignore case" IsChecked="{Binding IgnoreCase}" VerticalAlignment="Center" />
+                                <Button DockPanel.Dock="Right" Content="Export report…" Padding="10,2" Command="{Binding ExportTextReportCommand}"
+                                        ToolTip="Save every change as an HTML redline" />
+                            </DockPanel>
+                        </StackPanel>
+                        <ListBox ItemsSource="{Binding TextChanges}" SelectedItem="{Binding SelectedTextChange}" BorderThickness="0"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.ScrollUnit="Pixel"
+                                 AutomationProperties.Name="Text changes">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                    <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:TextChangeItemViewModel}">
+                                    <StackPanel Margin="0,2">
+                                        <TextBlock Text="{Binding Header}" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" />
+                                        <TextBlock local:Redline.Segments="{Binding Segments}" local:Redline.MuteEqual="True"
+                                                   TextWrapping="Wrap" Foreground="{DynamicResource PrimaryTextBrush}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+                </TabItem>
+
+                <TabItem Header="Clauses" ToolTip="Clause by clause: modified, renumbered, added and removed clauses between editions">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top" Margin="10,8">
+                            <TextBlock Text="{Binding ClauseSummary}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" />
+                            <ProgressBar Height="4" Margin="0,6,0,0" IsIndeterminate="True"
+                                         Visibility="{Binding IsClauseComparing, Converter={StaticResource BoolToVisibility}}" />
+                            <DockPanel Margin="0,6,0,0" LastChildFill="False">
+                                <CheckBox DockPanel.Dock="Left" Content="Show unchanged" IsChecked="{Binding ShowUnchangedClauses}" VerticalAlignment="Center" />
+                                <Button DockPanel.Dock="Right" Content="Export report…" Padding="10,2" Command="{Binding ExportClauseReportCommand}"
+                                        ToolTip="Save the clause comparison as an HTML report" />
+                            </DockPanel>
+                        </StackPanel>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*" MinHeight="80" />
+                                <RowDefinition Height="5" />
+                                <RowDefinition Height="*" MinHeight="60" />
+                            </Grid.RowDefinitions>
+                            <ListBox Grid.Row="0" ItemsSource="{Binding Clauses}" SelectedItem="{Binding SelectedClause}" BorderThickness="0"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Clauses">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                        <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ClauseRowViewModel}">
+                                        <DockPanel Margin="{Binding Indent}">
+                                            <Border x:Name="Chip" DockPanel.Dock="Right" CornerRadius="3" Padding="5,0" Margin="8,0,0,0"
+                                                    Background="#22808080" VerticalAlignment="Center">
+                                                <TextBlock x:Name="ChipText" Text="{Binding Status}" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" />
+                                            </Border>
+                                            <TextBlock TextTrimming="CharacterEllipsis" Foreground="{DynamicResource PrimaryTextBrush}">
+                                                <Run Text="{Binding NumberLabel, Mode=OneWay}" FontWeight="SemiBold" />
+                                                <Run Text="{Binding Title, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </DockPanel>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding Kind}" Value="{x:Static pdf:ClauseChangeKind.Added}">
+                                                <Setter TargetName="Chip" Property="Background" Value="#30146EE6" />
+                                                <Setter TargetName="ChipText" Property="Foreground" Value="{StaticResource AddedBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Kind}" Value="{x:Static pdf:ClauseChangeKind.Removed}">
+                                                <Setter TargetName="Chip" Property="Background" Value="#30DC2828" />
+                                                <Setter TargetName="ChipText" Property="Foreground" Value="{StaticResource RemovedBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Kind}" Value="{x:Static pdf:ClauseChangeKind.Modified}">
+                                                <Setter TargetName="Chip" Property="Background" Value="#30F59E0B" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Kind}" Value="{x:Static pdf:ClauseChangeKind.Renumbered}">
+                                                <Setter TargetName="Chip" Property="Background" Value="#30F59E0B" />
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <GridSplitter Grid.Row="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                          Background="{DynamicResource BorderBrush}" ResizeDirection="Rows" />
+                            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="10,8"
+                                          DataContext="{Binding SelectedClause}">
+                                <StackPanel>
+                                    <TextBlock TextWrapping="Wrap" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryTextBrush}">
+                                        <Run Text="{Binding NumberLabel, Mode=OneWay}" />
+                                        <Run Text="{Binding Title, Mode=OneWay}" />
+                                    </TextBlock>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Margin="0,2,0,0" Foreground="{DynamicResource SecondaryTextBrush}">
+                                        <Run Text="{Binding KindLabel, Mode=OneWay}" />
+                                        <Run Text="·" />
+                                        <Run Text="{Binding PagesLabel, Mode=OneWay}" />
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding TitleChange}" TextWrapping="Wrap" FontSize="11" Margin="0,2,0,0"
+                                               Foreground="{DynamicResource SecondaryTextBrush}" />
+                                    <TextBlock local:Redline.Segments="{Binding Redline}" TextWrapping="Wrap" Margin="0,8,0,0"
+                                               Foreground="{DynamicResource PrimaryTextBrush}" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </DockPanel>
+                </TabItem>
+            </TabControl>
+
+            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          Background="{DynamicResource BorderBrush}" ResizeDirection="Columns" />
+
+            <!-- ── The comparison image ───────────────────────────────────────────── -->
+            <Grid Grid.Column="2">
+                <ScrollViewer x:Name="Scroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                              Background="{DynamicResource PageBackgroundBrush}" PreviewMouseWheel="Scroller_PreviewMouseWheel">
+                    <Grid x:Name="ImageHost" Width="{Binding ImageWidth}" Height="{Binding ImageHeight}" Margin="16"
+                          HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Grid.LayoutTransform>
+                            <ScaleTransform ScaleX="{Binding Zoom}" ScaleY="{Binding Zoom}" />
+                        </Grid.LayoutTransform>
+                        <Image Source="{Binding OverlayImage}" Stretch="Fill"
+                               Visibility="{Binding IsOverlay, Converter={StaticResource BoolToVisibility}}" />
+                        <Image Source="{Binding OldImage}" Stretch="Fill"
+                               Visibility="{Binding ShowOld, Converter={StaticResource BoolToVisibility}}" />
+                        <Image Source="{Binding NewImage}" Stretch="Fill" Opacity="{Binding NewOpacity}"
+                               Visibility="{Binding ShowNew, Converter={StaticResource BoolToVisibility}}" />
+                        <ItemsControl ItemsSource="{Binding Regions}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <Canvas />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemContainerStyle>
+                                <Style TargetType="ContentPresenter">
+                                    <Setter Property="Canvas.Left" Value="{Binding X}" />
+                                    <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                                </Style>
+                            </ItemsControl.ItemContainerStyle>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:CompareRegionViewModel}">
+                                    <Rectangle x:Name="Box" Width="{Binding Width}" Height="{Binding Height}"
+                                               Stroke="#B0F59E0B" StrokeThickness="1" Fill="Transparent" Cursor="Hand"
+                                               RadiusX="2" RadiusY="2" MouseLeftButtonDown="Region_MouseLeftButtonDown" />
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                            <Setter TargetName="Box" Property="Stroke" Value="#F59E0B" />
+                                            <Setter TargetName="Box" Property="StrokeThickness" Value="2.5" />
+                                            <Setter TargetName="Box" Property="Fill" Value="#22F59E0B" />
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <!-- Words of the selected text change: old = red dashes, new = blue. -->
+                        <ItemsControl ItemsSource="{Binding Highlights}" IsHitTestVisible="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <Canvas />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemContainerStyle>
+                                <Style TargetType="ContentPresenter">
+                                    <Setter Property="Canvas.Left" Value="{Binding X}" />
+                                    <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                                </Style>
+                            </ItemsControl.ItemContainerStyle>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:CompareHighlightViewModel}">
+                                    <Rectangle x:Name="Box" Width="{Binding Width}" Height="{Binding Height}"
+                                               Stroke="{StaticResource AddedBrush}" StrokeThickness="2" Fill="#22146EE6" RadiusX="2" RadiusY="2" />
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsOld}" Value="True">
+                                            <Setter TargetName="Box" Property="Stroke" Value="{StaticResource RemovedBrush}" />
+                                            <Setter TargetName="Box" Property="StrokeDashArray" Value="3 2" />
+                                            <Setter TargetName="Box" Property="Fill" Value="#22DC2828" />
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Grid>
+                </ScrollViewer>
+                <ProgressBar IsIndeterminate="True" Width="120" Height="6" VerticalAlignment="Top" Margin="0,10,0,0"
+                             Visibility="{Binding IsComparing, Converter={StaticResource BoolToVisibility}}" />
+            </Grid>
         </Grid>
     </DockPanel>
 </Window>

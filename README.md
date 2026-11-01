@@ -79,12 +79,25 @@ standards and design documents. It can also export them as clean text for RAG an
 
 ### Comparing versions
 
-- **Compare with…** (Tools ▾): a pixel comparison of the current document against another version,
-  for drawing revisions and marked-up sets. The overlay shows **red** for what was removed, **blue**
-  for what was added and faint grey for what is unchanged; or view either version alone, or **blend**
-  between them with a slider. The new page is lined up automatically if the drawing moved slightly on
-  the sheet. A page list shows which pages changed (with a page offset for inserted pages), and
-  `F3` / `Shift+F3` step through the changes. Save the overlay as a PNG.
+**Compare with…** (Tools ▾) compares the current document with another version in three ways:
+
+- **Pages** (visual): a pixel comparison, for drawing revisions and marked-up sets.
+  - The overlay shows **red** for what was removed, **blue** for what was added, and faint grey for what
+    is unchanged. You can also view either version alone, or **blend** between them with a slider.
+  - If the drawing moved slightly on the sheet, the new page is lined up automatically.
+  - The page list shows which pages changed, with a page offset for inserted pages.
+  - `F3` / `Shift+F3` step through the changes. Save the overlay as a PNG.
+- **Text**: a word-by-word redline that ignores layout, running headers and footers, page numbers and
+  licence stamps, so a re-paginated edition doesn't show every page as changed.
+  - Each change shows its clause and pages. Selecting one outlines the old and new words on the page
+    comparison.
+  - Moved passages are paired.
+  - Export it as an HTML report.
+- **Clauses**: an edition comparison for standards.
+  - Clauses are matched by number, then by wording, so a renumbered clause is followed (6.2.4 → 6.3.1).
+  - Each clause is listed as modified (with how much is unchanged), renumbered, added or removed, with
+    a redline of its text.
+  - Export it as an HTML report.
 
 ### Export for agents and RAG
 

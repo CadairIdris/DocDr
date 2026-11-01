@@ -104,8 +104,8 @@ public sealed partial class VisualCompareViewModel : ObservableObject, IDisposab
         }
     }
 
-    /// <summary>Raised when the selected change should be scrolled into view.</summary>
-    public event Action<CompareRegionViewModel>? ScrollToRegionRequested;
+    /// <summary>Raised when a box on the image (DIPs at 100 %) should be scrolled into view.</summary>
+    public event Action<double, double, double, double>? ScrollToRequested;
 
     /// <summary>Raised after a new comparison image arrives (the view refits on the first one).</summary>
     public event Action? ImageChanged;
@@ -302,6 +302,7 @@ public sealed partial class VisualCompareViewModel : ObservableObject, IDisposab
         (_oldName, _newName) = (_newName, _oldName);
         OnPropertyChanged(nameof(OldName));
         OnPropertyChanged(nameof(NewName));
+        InvalidateTextResults();
         if (NewPageOffset != 0)
         {
             NewPageOffset = -NewPageOffset; // re-runs the overview
@@ -318,8 +319,17 @@ public sealed partial class VisualCompareViewModel : ObservableObject, IDisposab
     {
         // Null while the page list is being rebuilt (the ListBox drops its selection) — keep any
         // comparison in flight; the rebuilt list re-selects the same pair without re-comparing.
-        ComparePageItemViewModel? item = SelectedPage;
-        if (item is null)
+        if (SelectedPage is { } item)
+        {
+            ShowPair(item.Summary.OldPage, item.Summary.NewPage, null);
+        }
+    }
+
+    /// <summary>Compare old page <paramref name="oldPage"/> with new page <paramref name="newPage"/> (either
+    /// may be null: that page is shown alone), outlining <paramref name="highlight"/>'s words if given.</summary>
+    private void ShowPair(int? oldPage, int? newPage, TextHighlight? highlight)
+    {
+        if (oldPage is null && newPage is null)
         {
             return;
         }
@@ -329,7 +339,6 @@ public sealed partial class VisualCompareViewModel : ObservableObject, IDisposab
         var cts = new CancellationTokenSource();
         _pageCts = cts;
         PdfDocument oldDoc = _oldDoc, newDoc = _newDoc;
-        int? oldPage = item.Summary.OldPage, newPage = item.Summary.NewPage;
         var options = new VisualCompareOptions { TolerancePixels = IgnoreSmallShifts ? 1 : 0 };
         IsComparing = true;
         PageText = "Comparing…";
@@ -359,6 +368,7 @@ public sealed partial class VisualCompareViewModel : ObservableObject, IDisposab
 
             IsComparing = false;
             Regions.Clear();
+            Highlights.Clear();
             SelectedRegion = null;
             if (t.IsFaulted)
             {
@@ -381,6 +391,10 @@ public sealed partial class VisualCompareViewModel : ObservableObject, IDisposab
                 }
 
                 PageText = Describe(diff);
+                if (highlight is not null)
+                {
+                    AddHighlights(diff, oldPage, newPage, highlight, k);
+                }
             }
             else if (single is not null)
             {
@@ -395,7 +409,12 @@ public sealed partial class VisualCompareViewModel : ObservableObject, IDisposab
 
             OnPropertyChanged(nameof(RegionPosition));
             ImageChanged?.Invoke();
-            if (Regions.Count > 0)
+            if (Highlights.Count > 0)
+            {
+                CompareHighlightViewModel h0 = Highlights[0];
+                ScrollToRequested?.Invoke(h0.X, h0.Y, h0.Width, h0.Height);
+            }
+            else if (Regions.Count > 0)
             {
                 SelectRegion(Regions[0]);
             }
@@ -449,7 +468,7 @@ public sealed partial class VisualCompareViewModel : ObservableObject, IDisposab
     public void SelectRegion(CompareRegionViewModel region)
     {
         SelectedRegion = region;
-        ScrollToRegionRequested?.Invoke(region);
+        ScrollToRequested?.Invoke(region.X, region.Y, region.Width, region.Height);
     }
 
     [RelayCommand]
@@ -527,6 +546,8 @@ public sealed partial class VisualCompareViewModel : ObservableObject, IDisposab
     {
         _overviewCts?.Cancel();
         _pageCts?.Cancel();
+        _textCts?.Cancel();
+        _clauseCts?.Cancel();
 
         // Let any in-flight comparison finish with its document before disposing (it's cancelled,
         // so it stops at the next page) — PdfDocument serialises access, Dispose takes the same lock.

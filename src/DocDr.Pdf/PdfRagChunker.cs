@@ -832,33 +832,39 @@ public static partial class PdfRagChunker
 
     private static string Normalise(string line) => WhitespaceRun().Replace(line, " ").Trim();
 
+    /// <summary>A page line as body text — whitespace normalised, licence stamp cut — or null when it is
+    /// running chrome (boilerplate, a header / footer page number, a contents leader). Shared by the
+    /// chunk / HTML exports and the text comparison, so all three see the same text.</summary>
+    internal static string? CleanBodyLine(ChunkLine raw, Boilerplate boilerplate)
+    {
+        string line = Normalise(raw.Text);
+        if (boilerplate.Contains(raw, line))
+        {
+            return null;
+        }
+
+        if (LicenceStamp().Match(line) is { Success: true } stamp)
+        {
+            line = line[..stamp.Index].TrimEnd(' ', ',', ';', '-', '–');
+        }
+
+        // A bare number / roman numeral is only a page number in the header or footer band:
+        // mid-page it's an equation fragment (the "3" of a ⅓ exponent, a lone "d" under a
+        // fraction bar) and dropping it silently corrupts the expression.
+        return line.Length == 0 || (raw.InMargin && PageNumberLine().IsMatch(line)) || TocLeader().IsMatch(line)
+            ? null : line;
+    }
+
     private static IEnumerable<(string Text, bool HasMath)> ParagraphsFromPage(
         IReadOnlyList<ChunkLine> pageLines, Boilerplate boilerplate)
     {
         var lines = new List<(string Text, bool HasMath)>();
         foreach (ChunkLine raw in pageLines)
         {
-            string line = Normalise(raw.Text);
-            if (boilerplate.Contains(raw, line))
+            if (CleanBodyLine(raw, boilerplate) is { } line)
             {
-                continue;
+                lines.Add((line, raw.HasMath));
             }
-
-            if (LicenceStamp().Match(line) is { Success: true } stamp)
-            {
-                line = line[..stamp.Index].TrimEnd(' ', ',', ';', '-', '–');
-            }
-
-            // A bare number / roman numeral is only a page number in the header or footer band:
-            // mid-page it's an equation fragment (the "3" of a ⅓ exponent, a lone "d" under a
-            // fraction bar) and dropping it silently corrupts the expression.
-            if (line.Length == 0
-                || (raw.InMargin && PageNumberLine().IsMatch(line)) || TocLeader().IsMatch(line))
-            {
-                continue;
-            }
-
-            lines.Add((line, raw.HasMath));
         }
 
         var paragraphs = new List<(string, bool)>();

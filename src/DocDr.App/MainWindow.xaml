@@ -492,7 +492,7 @@
                     <Button.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="Co_mpare with…" Command="{Binding CompareWithCommand}"
-                                      ToolTip="Compare this document with another version: red = removed, blue = added" />
+                                      ToolTip="Compare this document with another version — page by page (pixels), word by word, or clause by clause" />
                             <Separator />
                             <MenuItem Header="Extract _table" IsCheckable="True"
                                       IsChecked="{Binding SelectedTab.TableSelectActive, Mode=TwoWay}"

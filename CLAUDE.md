@@ -1046,10 +1046,14 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
 - `BlockStart` now also opens a paragraph at an annex number + capital ("O.7.1 General") — a long
   "O.7 …" heading was otherwise joined with the next heading (affects chunks too, for the better).
 
-## Visual compare (`PdfVisualCompare`, comparison stage 1 of 3)
+## Comparing versions (`PdfVisualCompare` / `PdfTextCompare` / `PdfClauseCompare`)
 
-- **Pixel comparison** of two PDFs (drawing revisions). Stages 2 (text redline) and 3 (clause-aware
-  edition compare) are not built. `PdfVisualCompare.ComparePages(old, i, new, j, options)` renders both
+Three comparisons, all in one modeless window (left panel tabs **Pages / Text / Clauses** over one shared
+comparison image). Text and Clauses run the first time their tab is opened.
+
+### Stage 1: visual (`PdfVisualCompare`)
+
+- **Pixel comparison** (drawing revisions). `PdfVisualCompare.ComparePages(old, i, new, j, options)` renders both
   at the old page's displayed size (`GetPageSize`) at `Dpi` 150, capped at `MaxPixels` 24 M (the DPI
   drops for a big sheet). A new page of a different size (> 1 %) is stretched onto the old one's
   pixels (`SizesDiffer`). Ink = darkest channel < 200.
@@ -1079,6 +1083,79 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
     100 % = actual size.
   - Ctrl+wheel zooms about the pointer. F3 / Shift+F3 step through changes, then on to the next changed page.
   - Swap negates the offset. "Save image…" uses WPF's `PngBitmapEncoder`.
+
+- **`VisualDiff.MapOld` / `MapNew(PdfRect)`** turn a page-space box (unrotated MediaBox space, as text
+  APIs report it) into comparison-image pixels. They use a non-uniform `PageMap`, because the new page
+  may be stretched, and `MapNew` also subtracts the alignment offset. That's how a text change's words are
+  outlined on the overlay.
+
+### Stage 2: text redline (`PdfTextCompare`)
+
+- **Text = the chunk export's cleaned body text**, so the three exports and the comparison see the same
+  words. `CompareText.Read` goes `PdfRagChunker.Analyse` → every non-contents page's lines →
+  `PdfRagChunker.CleanBodyLine`, which drops boilerplate, header/footer page numbers and leaders, and cuts
+  the licence stamp. `CleanBodyLine` was split out of `ParagraphsFromPage`. Boilerplate detection needs
+  **≥ 4 pages**, so a 2-page test PDF keeps its running header.
+  - Tokens are `\S+` words, each with its page, line index and box. The box is the word's slice of the
+    line box by character position, so it's approximate.
+  - A line ending in "lower-case-" joins the next line's lower-case first word ("rein-" + "forcement"),
+    and the joined token carries both boxes.
+  - The result is cached per document by `ContentVersion` (`ConditionalWeakTable`), so the Text and
+    Clauses tabs extract each document once.
+- **Comparison keys**: NFKC (ligatures, maths letters), with quotes, dashes and the minus sign unified.
+  `IgnoreCase` is optional and off by default.
+- **`SequenceDiff`** (pure, internal) is a patience diff:
+  - It trims the common prefix and suffix, anchors on words unique in both ranges, takes the LIS of the
+    anchors, and recurses into the gaps.
+  - A gap with n·m ≤ 4 M gets an exact DP LCS. A bigger gap with no unique words becomes a plain replace.
+  - `Coalesce` orders delete before insert inside each run of edits.
+  - A 60 k-word document diffs in well under a second.
+- **`BuildChanges`**:
+  - Edits separated by ≤ `MergeGap` (2) equal words form one `TextChange`, whose `Segments` interleave
+    the equal and deleted/inserted runs plus `ContextWords` (8) of context either side.
+  - Kind is Inserted / Deleted / Changed. A pure deletion and a pure insertion with the same words
+    (≥ 6, case-folded) are both re-marked **Moved**, with `MovedPartner` linking them.
+  - `OldPage` / `NewPage`: for an empty side, it's the page of the word before.
+  - Boxes are merged per line.
+  - `Clause` is the nearest heading line above the change (`CompareText.HeadingLine`: dotted / chapter /
+    annex numbers with a real title, not a sentence, so not "1.35 Gk").
+- `WriteReport` writes an HTML redline (`<del>` / `<ins>`).
+
+### Stage 3: clause compare (`PdfClauseCompare`)
+
+- **`Segment`** cuts the token stream at heading lines. When `PdfClauses` found 3 or more clause numbers
+  (from `CachedClauseStructure`, else a fresh `ReadStructure`), only those numbers count, which drops
+  list items and table rows. Without that, any dotted or annex heading counts. A number seen again later
+  is ignored. Text before the first heading is the "Front matter" clause (number "").
+- **Matching**:
+  1. Pair clauses by number.
+  2. Release same-number pairs with similarity < 0.45 (both ≥ 12 words). This happens when a new clause
+     shifts the numbering.
+  3. Match everything unmatched by wording. Prefilter on word-set Jaccard ≥ 0.35, then score = diff
+     similarity, plus 0.1 for the same title. Pair greedily, best first, keeping scores ≥ 0.55.
+  4. Re-pair released pairs that nobody else claimed (a heavily rewritten clause).
+- **Kinds**:
+  - Renumbered: the numbers differ (`KindLabel` adds "modified, n % same" if the wording changed too).
+  - Unchanged: no word edits and the same title.
+  - Modified: anything else, including a title-only change (`TitleChanged`).
+  - Added / Removed: no match.
+- **Order**: new-edition order. Each removed clause goes after the match of its old predecessor.
+- Redline: unchanged runs over 40 words are shortened to the first and last 15 words around "…".
+- `WriteReport` writes a summary table plus a redline per changed clause. Unchanged clauses are counted,
+  not listed.
+
+### App (`VisualCompareViewModel` + `.Text.cs`, `VisualCompareWindow`)
+
+- Selecting a text change or a clause calls `ShowPair(oldPage, newPage, highlight)`, which can compare
+  any pair, not just the overview's offset pairing.
+  - It selects the matching overview row quietly (`SelectPageRowQuietly`).
+  - For a text change, it outlines the change's words: old = red dashed, new = blue
+    (`Highlights` / `CompareHighlightViewModel`, mapped with `MapOld` / `MapNew`). It then scrolls to the
+    first outline instead of the first pixel region.
+- **Redlines**: `Views/Redline.cs` attached property `Redline.Segments` (plus `MuteEqual` for context)
+  builds `Run`s: struck-through red, underlined blue.
+- **Swap** cancels and clears both results (`InvalidateTextResults`) and re-runs the one on screen.
+- **Reports**: "Export report…" saves the HTML and opens it.
 
 ## Read mode (Stage 1)
 

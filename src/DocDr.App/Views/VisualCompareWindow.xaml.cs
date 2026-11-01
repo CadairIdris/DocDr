@@ -16,11 +16,11 @@ public partial class VisualCompareWindow : Window
         ViewModel = viewModel;
         DataContext = viewModel;
         viewModel.ImageChanged += OnImageChanged;
-        viewModel.ScrollToRegionRequested += OnScrollToRegionRequested;
+        viewModel.ScrollToRequested += OnScrollToRequested;
         Closed += (_, _) =>
         {
             viewModel.ImageChanged -= OnImageChanged;
-            viewModel.ScrollToRegionRequested -= OnScrollToRegionRequested;
+            viewModel.ScrollToRequested -= OnScrollToRequested;
         };
     }
 
@@ -74,14 +74,14 @@ public partial class VisualCompareWindow : Window
         Scroller.ScrollToVerticalOffset(Scroller.VerticalOffset + origin.Y + (onImage.Y * zoom) - pointer.Y);
     }
 
-    private void OnScrollToRegionRequested(CompareRegionViewModel region) =>
+    /// <summary>Centre a box (image DIPs at 100 %) in the viewport.</summary>
+    private void OnScrollToRequested(double x, double y, double width, double height) =>
         Dispatcher.BeginInvoke(() =>
         {
-            // Centre the change in the viewport.
             Point origin = ImageHost.TranslatePoint(new Point(0, 0), Scroller);
             double zoom = ViewModel.Zoom;
-            double cx = origin.X + Scroller.HorizontalOffset + ((region.X + (region.Width / 2)) * zoom);
-            double cy = origin.Y + Scroller.VerticalOffset + ((region.Y + (region.Height / 2)) * zoom);
+            double cx = origin.X + Scroller.HorizontalOffset + ((x + (width / 2)) * zoom);
+            double cy = origin.Y + Scroller.VerticalOffset + ((y + (height / 2)) * zoom);
             Scroller.ScrollToHorizontalOffset(cx - (Scroller.ViewportWidth / 2));
             Scroller.ScrollToVerticalOffset(cy - (Scroller.ViewportHeight / 2));
         }, DispatcherPriority.Loaded);

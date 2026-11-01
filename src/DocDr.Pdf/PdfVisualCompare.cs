@@ -89,6 +89,35 @@ public sealed class VisualDiff
     public double Dpi { get; }
 
     public bool HasChanges => Regions.Count > 0;
+
+    internal PageMap? OldMap { get; private set; }
+
+    internal PageMap? NewMap { get; private set; }
+
+    internal VisualDiff WithMaps(PageMap oldMap, PageMap newMap)
+    {
+        OldMap = oldMap;
+        NewMap = newMap;
+        return this;
+    }
+
+    /// <summary>A box on the old page (unrotated page space, as text / annotation APIs report it) in
+    /// this comparison's pixels; null for a diff not made from PDF pages.</summary>
+    public DeviceRect? MapOld(PdfRect box) => OldMap?.Map(box, 0, 0);
+
+    /// <summary>A box on the new page in this comparison's pixels — scaled like the new page was and
+    /// moved by the alignment offset, so it lines up with <see cref="Overlay"/>.</summary>
+    public DeviceRect? MapNew(PdfRect box) => NewMap?.Map(box, OffsetX, OffsetY);
+
+    /// <summary>How a page's space maps onto the comparison image (it may be stretched non-uniformly).</summary>
+    internal sealed record PageMap(PdfSize Unrotated, PdfRotation Rotation, PdfPoint CropOrigin, double ScaleX, double ScaleY)
+    {
+        public DeviceRect Map(PdfRect box, int dx, int dy)
+        {
+            DeviceRect r = PdfCoordinates.PageToDevice(box, Unrotated, Rotation, 1, CropOrigin);
+            return new DeviceRect((r.X * ScaleX) - dx, (r.Y * ScaleY) - dy, r.Width * ScaleX, r.Height * ScaleY);
+        }
+    }
 }
 
 public enum PageCompareStatus
@@ -147,7 +176,10 @@ public static class PdfVisualCompare
         RenderedPage b = renderer.Render(newDoc, pageB, w, h, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return Diff(a.Pixels, b.Pixels, w, h, a.Stride, options with { Dpi = scale * PdfCoordinates.PointsPerInch }, sizesDiffer: !sameSize);
+        VisualDiff diff = Diff(a.Pixels, b.Pixels, w, h, a.Stride, options with { Dpi = scale * PdfCoordinates.PointsPerInch }, sizesDiffer: !sameSize);
+        return diff.WithMaps(
+            new VisualDiff.PageMap(oldDoc.GetUnrotatedPageSize(pageA), oldDoc.GetPageRotation(pageA), oldDoc.GetCropOrigin(pageA), w / sizeA.Width, h / sizeA.Height),
+            new VisualDiff.PageMap(newDoc.GetUnrotatedPageSize(pageB), newDoc.GetPageRotation(pageB), newDoc.GetCropOrigin(pageB), w / sizeB.Width, h / sizeB.Height));
     }
 
     /// <summary>
