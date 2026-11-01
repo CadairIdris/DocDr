@@ -582,6 +582,14 @@ explicit `FPDF_Close*` functions, don't dispose the wrapper.
   focus just stays wherever it was, since a mouse-captured drag doesn't move keyboard focus the
   way a plain click does. Caught by testing the real interaction, not by reading the code — it
   compiled fine and looked correct.
+- **A drag's target (`_selectionSlot` / `_selectionPageIndex`) is cleared at every mouse-up**, and
+  `PageList_MouseMove` only continues a drag while one of the gesture flags is set (`DragInProgress`)
+  on a page that still exists (`PdfPaneViewModel.HasPage`). Before, the target outlived its drag: a
+  link click (link buttons are skipped on mouse-down, so no new target is recorded) made the button
+  capture the mouse, WPF raised a synthetic MouseMove with the button down, and the pane "continued"
+  the stale drag on a page index a reload / page edit had removed → `ArgumentOutOfRangeException` in
+  `DevicePointToPage` (field crash log). A drag whose page vanished is dropped via `AbandonDrag` (the
+  `Cancel*` methods, incl. new `CancelInk` / `CancelTableSelect`), never committed.
 - **Copy** (`PdfPaneViewModel.CopySelectionCommand`) puts the selected passage's plain text on the
   clipboard via `Citations.CopyToClipboard` — doesn't clear the selection, matching copy behaviour
   anywhere else. Reachable via the selection popup's "Copy" button or `Ctrl+C`

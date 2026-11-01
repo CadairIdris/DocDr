@@ -1074,9 +1074,17 @@ public partial class PdfPaneView : UserControl
             return;
         }
 
-        if (_pane is null || _selectionSlot is null || e.LeftButton != MouseButtonState.Pressed)
+        // Only continue a drag this pane started. A link button capturing the mouse on its own
+        // mouse-down raises a MouseMove with the button pressed — that isn't a drag of ours.
+        if (_pane is null || _selectionSlot is null || e.LeftButton != MouseButtonState.Pressed || !DragInProgress)
         {
             UpdateHoverCursor(e);
+            return;
+        }
+
+        if (!_pane.HasPage(_selectionPageIndex))
+        {
+            AbandonDrag(); // the page went away mid-drag (a reload / page edit)
             return;
         }
 
@@ -1153,6 +1161,78 @@ public partial class PdfPaneView : UserControl
     }
 
     private void PageList_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        try
+        {
+            if (_pane is not null && DragInProgress && _selectionSlot is not null && !_pane.HasPage(_selectionPageIndex))
+            {
+                AbandonDrag();
+                return;
+            }
+
+            EndLeftButtonDrag(e);
+        }
+        finally
+        {
+            // A finished gesture's target must not outlive it: a later mouse-move (e.g. a link
+            // button's capture) would otherwise "continue" it on a page that may no longer exist.
+            _selectionSlot = null;
+            _selectionPageIndex = -1;
+        }
+    }
+
+    /// <summary>A drag gesture this pane started and hasn't finished.</summary>
+    private bool DragInProgress =>
+        _selecting || _inking || _shaping || _tableSelecting || _movingShape || _resizing
+        || _leaderTipMoving || _lineEndpointMoving;
+
+    /// <summary>Drop a drag whose page vanished (reload / page edit) without committing it.</summary>
+    private void AbandonDrag()
+    {
+        if (_pane is not null)
+        {
+            if (_movingShape)
+            {
+                _pane.CancelShapeMove();
+            }
+            else if (_resizing)
+            {
+                _pane.CancelShapeResize();
+            }
+            else if (_leaderTipMoving)
+            {
+                _pane.CancelLeaderTipMove();
+            }
+            else if (_lineEndpointMoving)
+            {
+                _pane.CancelLineEndpointMove();
+            }
+            else if (_shaping)
+            {
+                _pane.CancelShape();
+            }
+            else if (_selecting)
+            {
+                _pane.ClearTextSelection();
+            }
+            else if (_inking)
+            {
+                _pane.CancelInk();
+            }
+            else if (_tableSelecting)
+            {
+                _pane.CancelTableSelect();
+            }
+        }
+
+        _selecting = _inking = _shaping = _tableSelecting = _movingShape = _resizing = false;
+        _leaderTipMoving = _lineEndpointMoving = false;
+        _selectionSlot = null;
+        _selectionPageIndex = -1;
+        PageList.ReleaseMouseCapture();
+    }
+
+    private void EndLeftButtonDrag(MouseButtonEventArgs e)
     {
         if (_pane is null)
         {
